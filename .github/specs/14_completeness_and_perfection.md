@@ -1,6 +1,6 @@
 # Aurik 10 — Spec 14: Vollständigkeit & Perfektion
 
-> **Version:** Aurik 9.20.3 · **Scope:** Fehlertoleranz, Reproduzierbarkeit, Ressourcen, Export-Intelligenz, Batch-Lernen
+> **Version:** Aurik 10.0.1 · **Scope:** Fehlertoleranz, Reproduzierbarkeit, Ressourcen, Export-Intelligenz, Batch-Lernen
 > **Status:** Normativ — alle hier spezifizierten Konzepte sind verbindlich. Implementierungsstatus pro § angegeben.
 
 ---
@@ -15,7 +15,23 @@ Ressourcenentscheidung ist begründet. Jedes Exportformat ist material-adaptiv.
 
 ## IMPLEMENTIERT
 
-## §14.1 Export-Intelligenz: Material-adaptives Ausgabeformat (§14.1)
+### §14.1 ✅ Export-Intelligenz (Frontend-gesteuert)
+### §14.2.1 ✅ ML-Fallback (PluginLifecycleManager)
+### §14.2.2 ✅ Phase-Fehler-Handling (try/finally)
+### §14.2.3 ✅ OOM-Schutz (OOM_PROBE + GC)
+### §14.3 ✅ Seed-Deterministik (Phasen-Selektion)
+### §14.4 ✅ Ressourcen-Budget (PerformanceGuard + ml_memory_budget)
+### §14.5 ✅ Batch-Session (BatchSessionLearner)
+
+## ROADMAP
+
+### §14.2.4 ⏸️ Crash-Recovery (State-Serialisierung nötig)
+### §14.7 ⏸️ Multi-Format Input (Mono/Surround/Ambisonics)
+### §14.8 ⏸️ Non-Destructive Undo (delta_audio-Speicherung)
+### §14.9 ⏸️ A/B-Vergleich (compare/delta/band_solo)
+### §14.10 ⏸️ Umgebungs-Kompensation (Kopfhörer/Nahfeld/Auto)
+
+---
 
 **§14.1.1 Bit-Tiefe**
 | Material | Bittiefe | Begründung |

@@ -57,9 +57,9 @@ except Exception:
 # ─── AST-based source checks (no Qt needed) ──────────────────────────────────
 import pathlib
 
-_MODERN_WINDOW_SRC = pathlib.Path(
-    "/media/michael/Software 4TB/Aurik_Standalone/Aurik10/ui/modern_window.py"
-).read_text(encoding="utf-8")
+_MODERN_WINDOW_SRC = pathlib.Path("/media/michael/Software 4TB/Aurik_Standalone/Aurik10/ui/modern_window.py").read_text(
+    encoding="utf-8"
+)
 _MODERN_WINDOW_TREE = ast.parse(_MODERN_WINDOW_SRC)
 
 

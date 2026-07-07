@@ -9,7 +9,6 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-import pytest
 
 from Aurik10.i18n import get_language, set_language, t
 

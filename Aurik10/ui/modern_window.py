@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+
 try:
     import tkinter as _tk
     from tkinter import filedialog as _tk_filedialog
@@ -1687,7 +1688,10 @@ class BatchProcessingThread(QThread):
                 item.status = "processing"
                 # Check ML model availability and warn user
                 _ml_warnings = []
-                for _mod, _name in [("panns_plugin", "PANNs (Instrument-Erkennung)"), ("plugins.versa_plugin", "VERSA MOS (Qualitaetsbewertung)")]:
+                for _mod, _name in [
+                    ("panns_plugin", "PANNs (Instrument-Erkennung)"),
+                    ("plugins.versa_plugin", "VERSA MOS (Qualitaetsbewertung)"),
+                ]:
                     try:
                         __import__(_mod, fromlist=["dummy"])
                     except Exception:
@@ -1792,7 +1796,6 @@ class BatchProcessingThread(QThread):
                 # damit der Watchdog-Timer pro Datei korrekt neu berechnet werden kann.
                 self.watchdog_extend.emit(_audio_dur_s_local)
 
-
                 # Map GUI modes to Denker modes (§2.2 Spec)
                 mode = item.settings.get("mode", "RESTORATION")
                 _aurik_mode = self._normalize_denker_mode(mode)
@@ -1843,8 +1846,6 @@ class BatchProcessingThread(QThread):
 
                 # ML-Plugins: Lokale ONNX-Modelle (kein Docker)
                 self.ml_status_update.emit(False, [])
-
-
 
                 # Race Condition Guard: Hintergrundanalysen (Carrier, Ära, Genre) laufen
                 # als Daemon-Threads nach dem Import. DefectScan wurde bereits oben (vor dem
@@ -1958,8 +1959,6 @@ class BatchProcessingThread(QThread):
                     item.status = "cancelled"
                     self.item_finished.emit(item.id)
                     break
-
-
 
                 # Process
                 self.phase_step_update.emit(3, 0, "Restaurierung startet")
@@ -2340,8 +2339,9 @@ class BatchProcessingThread(QThread):
                             logger.debug("aurik-smooth-progress: Qt deleted, stopping")
                             break
                         except Exception as _sp_exc:
-                            logger.warning("aurik-smooth-progress: recovered from: %s: %s",
-                                         type(_sp_exc).__name__, _sp_exc)
+                            logger.warning(
+                                "aurik-smooth-progress: recovered from: %s: %s", type(_sp_exc).__name__, _sp_exc
+                            )
 
                 # ── Closure state for real-time UX feedback ─────────────────────────────
                 # Tracks phase label for sub-bar reset on phase transitions
@@ -14796,9 +14796,7 @@ class ModernMainWindow(QMainWindow):
         inner.setSpacing(10)
 
         # ── Header ──────────────────────────────────────────────────
-        header = QLabel(
-            f"<b style='font-size:16pt; color:#E8ECFF;'>🎵 AURIK Professional</b>"
-        )
+        header = QLabel("<b style='font-size:16pt; color:#E8ECFF;'>🎵 AURIK Professional</b>")
         header.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(header)
 
@@ -14821,9 +14819,7 @@ class ModernMainWindow(QMainWindow):
         inner.addSpacing(4)
 
         # ── Was ist Aurik? ──────────────────────────────────────────
-        what_label = QLabel(
-            "<b style='font-size:11pt; color:#C8D8FF;'>Was ist Aurik?</b>"
-        )
+        what_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Was ist Aurik?</b>")
         what_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(what_label)
 
@@ -14848,9 +14844,7 @@ class ModernMainWindow(QMainWindow):
         inner.addSpacing(6)
 
         # ── Kern-Fähigkeiten ────────────────────────────────────────
-        caps_label = QLabel(
-            "<b style='font-size:11pt; color:#C8D8FF;'>Kern-Fähigkeiten</b>"
-        )
+        caps_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Kern-Fähigkeiten</b>")
         caps_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(caps_label)
 
@@ -14933,9 +14927,7 @@ class ModernMainWindow(QMainWindow):
         inner.addSpacing(6)
 
         # ── Über-SOTA DSP ───────────────────────────────────────────
-        dsp_label = QLabel(
-            "<b style='font-size:11pt; color:#C8D8FF;'>Über-SOTA DSP-Algorithmen</b>"
-        )
+        dsp_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Über-SOTA DSP-Algorithmen</b>")
         dsp_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(dsp_label)
 
@@ -14956,9 +14948,7 @@ class ModernMainWindow(QMainWindow):
         inner.addSpacing(6)
 
         # ── Technische Eckdaten ─────────────────────────────────────
-        tech_label = QLabel(
-            "<b style='font-size:11pt; color:#C8D8FF;'>Technische Eckdaten</b>"
-        )
+        tech_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Technische Eckdaten</b>")
         tech_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(tech_label)
 
@@ -15031,9 +15021,7 @@ class ModernMainWindow(QMainWindow):
         inner.addSpacing(6)
 
         # ── Systemstatus ────────────────────────────────────────────
-        sys_label = QLabel(
-            "<b style='font-size:11pt; color:#C8D8FF;'>Aktueller Systemstatus</b>"
-        )
+        sys_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Aktueller Systemstatus</b>")
         sys_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(sys_label)
 
@@ -15045,9 +15033,7 @@ class ModernMainWindow(QMainWindow):
             "</tr>"
             for name, state in _status_lines
         )
-        status_table = QLabel(
-            f"<table cellspacing='0'>{_status_html}</table>"
-        )
+        status_table = QLabel(f"<table cellspacing='0'>{_status_html}</table>")
         status_table.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(status_table)
 
@@ -15058,9 +15044,7 @@ class ModernMainWindow(QMainWindow):
         inner.addWidget(sep2)
 
         # ── Copyright ───────────────────────────────────────────────
-        copyright_lbl = QLabel(
-            "<span style='font-size:9pt; color:#667799;'>© 2026 AURIK — Apache-2.0-Lizenz</span>"
-        )
+        copyright_lbl = QLabel("<span style='font-size:9pt; color:#667799;'>© 2026 AURIK — Apache-2.0-Lizenz</span>")
         copyright_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(copyright_lbl)
 
@@ -22034,7 +22018,15 @@ class ModernMainWindow(QMainWindow):
                     # Deshalb in der Übersicht unter „Bandschäden" statt generisch „Rauschen".
                     _band_damage_keys.extend(["noise_level", "noise"])
 
-                _noise_keys = ["noise_level", "noise", "rumble", "hum", "soft_saturation", "modulation_noise", "low_freq_rumble"]
+                _noise_keys = [
+                    "noise_level",
+                    "noise",
+                    "rumble",
+                    "hum",
+                    "soft_saturation",
+                    "modulation_noise",
+                    "low_freq_rumble",
+                ]
                 if _is_tape_family:
                     _noise_keys = [k for k in _noise_keys if k not in {"noise_level", "noise"}]
 
@@ -22068,8 +22060,15 @@ class ModernMainWindow(QMainWindow):
                     ),
                     (
                         "4 Tonhoehe & Stereo",
-                        ["wow", "flutter", "pitch_drift", "phase_issues", "stereo_imbalance",
-                         "flutter_spectral_sidebands", "speed_calibration_error"],
+                        [
+                            "wow",
+                            "flutter",
+                            "pitch_drift",
+                            "phase_issues",
+                            "stereo_imbalance",
+                            "flutter_spectral_sidebands",
+                            "speed_calibration_error",
+                        ],
                     ),
                     (
                         "5 Gesang",

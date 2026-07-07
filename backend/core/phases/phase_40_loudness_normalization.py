@@ -380,10 +380,13 @@ class LoudnessNormalizationPhase(PhaseInterface):
         # §v9.20.3 Genre-adaptive LUFS: Schlager/Klassik brauchen unterschiedliche Targets
         _genre_lufs = str(kwargs.get("genre_label", "")).strip().lower()
         _genre_targets = {
-            "klassik": -23.0, "oper": -23.0,      # EBU R128
-            "jazz": -18.0,                          # Dynamisch
-            "schlager": -14.0, "pop": -14.0,        # Streaming-Standard
-            "rock": -12.0, "metal": -11.0,          # Lauter
+            "klassik": -23.0,
+            "oper": -23.0,  # EBU R128
+            "jazz": -18.0,  # Dynamisch
+            "schlager": -14.0,
+            "pop": -14.0,  # Streaming-Standard
+            "rock": -12.0,
+            "metal": -11.0,  # Lauter
         }
         _genre_target = _genre_targets.get(_genre_lufs)
         if _genre_target is not None:
@@ -445,19 +448,17 @@ class LoudnessNormalizationPhase(PhaseInterface):
             if _is_analog_vocal:
                 # Uniformer Gain — keine Gate-Artefakte auf analogem Material
                 normalized = audio * gain_linear
-                logger.debug(
-                    "Phase 40: uniform gain applied (analog+vocal, no gate envelope)"
-                )
+                logger.debug("Phase 40: uniform gain applied (analog+vocal, no gate envelope)")
             else:
                 # §2.45a-II v9.12.2: reference_for_gate=audio → signal-relative gate (P15+9 dB)
                 normalized = apply_musical_gain_envelope(
                     audio,
                     gain_linear,
                     gate_dbfs=-36.0,
-                crossfade_ms=10.0,
-                sr=sample_rate,
-                reference_for_gate=audio,
-            )
+                    crossfade_ms=10.0,
+                    sr=sample_rate,
+                    reference_for_gate=audio,
+                )
             normalized = limit_quiet_edge_boost(audio, normalized, sr=sample_rate)
         else:
             normalized = audio * gain_linear

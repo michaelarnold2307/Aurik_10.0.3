@@ -1221,18 +1221,19 @@ def _microphone_type_decade(bark_energies: np.ndarray) -> tuple[int, float]:
 # Dies verhindert, dass der letzte Codec in der Kette (mp3=1990er)
 # den ursprünglichen Aufnahmezeitpunkt überschreibt.
 _ANALOG_ERA_CEILING: dict[str, int] = {
-    "shellac": 1955,        # Schellack: letzte kommerzielle Pressungen ~1955
-    "wax_cylinder": 1930,   # Wachswalze: Ende ~1929
-    "vinyl": 1989,          # Vinyl: CD verdrängt Vinyl ~1989 (Nischenproduktion danach)
-    "lacquer_disc": 1970,   # Lacquer-Disc (Acetat): Ende ~1970
-    "wire_recording": 1950, # Drahtaufnahme: Ende ~1950
-    "cassette": 2005,       # Kassette: letzte große Produktionen ~2005
-    "tape": 1995,           # Tonband: Ende ~1995 (Nischen bis heute)
-    "reel_tape": 1995,      # Tonband (Spule): Ende ~1995
-    "8track": 1985,         # 8-Track: Ende ~1985
-    "dat": 2005,            # DAT: Ende ~2005
-    "minidisc": 2005,       # MiniDisc: Ende ~2005
+    "shellac": 1955,  # Schellack: letzte kommerzielle Pressungen ~1955
+    "wax_cylinder": 1930,  # Wachswalze: Ende ~1929
+    "vinyl": 1989,  # Vinyl: CD verdrängt Vinyl ~1989 (Nischenproduktion danach)
+    "lacquer_disc": 1970,  # Lacquer-Disc (Acetat): Ende ~1970
+    "wire_recording": 1950,  # Drahtaufnahme: Ende ~1950
+    "cassette": 2005,  # Kassette: letzte große Produktionen ~2005
+    "tape": 1995,  # Tonband: Ende ~1995 (Nischen bis heute)
+    "reel_tape": 1995,  # Tonband (Spule): Ende ~1995
+    "8track": 1985,  # 8-Track: Ende ~1985
+    "dat": 2005,  # DAT: Ende ~2005
+    "minidisc": 2005,  # MiniDisc: Ende ~2005
 }
+
 
 class EraClassifier:
     """Erkennt Aufnahme-Ära (1890–2025) und leitet epochenspezifische Priors ab.
@@ -1343,21 +1344,36 @@ class EraClassifier:
             _hf_violation = (highband_presence > 0.20) and (_clap_decade < 1940)
             _analog_era_violation = (
                 transfer_chain is not None
-                and any(m in ("vinyl", "cassette", "shellac", "lacquer_disc", "wax_cylinder",
-                              "tape", "reel_tape", "wire_recording", "8track")
-                        for m in (str(t).lower().replace(" ", "_").replace("-", "_")
-                                  for t in transfer_chain))
+                and any(
+                    m
+                    in (
+                        "vinyl",
+                        "cassette",
+                        "shellac",
+                        "lacquer_disc",
+                        "wax_cylinder",
+                        "tape",
+                        "reel_tape",
+                        "wire_recording",
+                        "8track",
+                    )
+                    for m in (str(t).lower().replace(" ", "_").replace("-", "_") for t in transfer_chain)
+                )
                 and _clap_decade > 1989
             )
             if _stereo_violation or _hf_violation or _analog_era_violation:
                 _violations = []
-                if _stereo_violation: _violations.append("stereo")
-                if _hf_violation: _violations.append("hf_presence")
-                if _analog_era_violation: _violations.append("analog_chain")
+                if _stereo_violation:
+                    _violations.append("stereo")
+                if _hf_violation:
+                    _violations.append("hf_presence")
+                if _analog_era_violation:
+                    _violations.append("analog_chain")
                 logger.info(
                     "EraClassifier: Tier-1 Plausibilitätsverletzung ("
                     "CLAP-Jahrzehnt=%d, violations=%s) → Tier-2 DSP-Override",
-                    _clap_decade, ",".join(_violations),
+                    _clap_decade,
+                    ",".join(_violations),
                 )
                 result = None  # force Tier-2
 
@@ -1415,8 +1431,12 @@ class EraClassifier:
                 logger.info(
                     "🕰️ §2.13 Era-Ceiling: chain=%s → %s ceiling=%d → "
                     "decade %d→%d (CLAP/DSP said %d, corrected for analog source)",
-                    transfer_chain, _ceiling_source, _ceiling,
-                    _original_decade, result.decade, _original_decade,
+                    transfer_chain,
+                    _ceiling_source,
+                    _ceiling,
+                    _original_decade,
+                    result.decade,
+                    _original_decade,
                 )
 
         # Tier-3: Mikrofon-Heuristik (letzter Fallback)

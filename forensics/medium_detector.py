@@ -1394,12 +1394,10 @@ class MediumDetector:
             # (werden via Penalty bewahrt, nicht genullt — physikalische Features
             # entscheiden später über den tatsächlichen analogen Ursprung).
             _analog_in_posteriors = [
-                f"{m}={s:.3f}" for m, s in posteriors.items()
-                if m in self._ANALOG_MATERIALS and s >= 0.001
+                f"{m}={s:.3f}" for m, s in posteriors.items() if m in self._ANALOG_MATERIALS and s >= 0.001
             ]
             _non_analog_top = [
-                f"{m}={s:.3f}" for m, s in list(posteriors.items())[:3]
-                if m not in self._ANALOG_MATERIALS
+                f"{m}={s:.3f}" for m, s in list(posteriors.items())[:3] if m not in self._ANALOG_MATERIALS
             ]
             logger.info(
                 "MediumDetector: file_ext=%s → analog posteriors PENALIZED (×%.2f, NOT zeroed); "
@@ -1502,30 +1500,21 @@ class MediumDetector:
                         # Baue eine menschenlesbare Beschreibung des Erkennungswegs
                         _detection_method: str
                         if _via_rotation_gate:
-                            _detection_method = (
-                                "Vinyl-Rotation-Gate (rotation=%.3f≥0.30, "
-                                "infrasonic=%.4f≥0.008)" % (
-                                    fp.rotation_strength, fp.infrasonic_rms
-                                )
+                            _detection_method = "Vinyl-Rotation-Gate (rotation={:.3f}≥0.30, infrasonic={:.4f}≥0.008)".format(
+                                fp.rotation_strength,
+                                fp.infrasonic_rms,
                             )
                         elif _cand_analog == "cassette":
-                            _detection_method = (
-                                "Cassette wow/flutter+bandwidth (wow=%.3f, conf≥0.35)" % (
-                                    fp.wow_flutter_index
-                                )
+                            _detection_method = "Cassette wow/flutter+bandwidth (wow=%.3f, conf≥0.35)" % (
+                                fp.wow_flutter_index
                             )
                         elif _cand_analog == "vinyl":
-                            _detection_method = (
-                                "Vinyl crackle+infrasonic (crackle=%.4f, infrasonic=%.4f)" % (
-                                    fp.crackle_density, fp.infrasonic_rms
-                                )
+                            _detection_method = "Vinyl crackle+infrasonic (crackle={:.4f}, infrasonic={:.4f})".format(
+                                fp.crackle_density,
+                                fp.infrasonic_rms,
                             )
                         else:
-                            _detection_method = (
-                                "codec-adaptive gate (conf=%.3f≥%.3f)" % (
-                                    _cand_conf, _pa_conf_thresh
-                                )
-                            )
+                            _detection_method = "codec-adaptive gate (conf={:.3f}≥{:.3f})".format(_cand_conf, _pa_conf_thresh)
                         logger.info(
                             "MediumDetector: ✅ PHYSICAL ANALOG DETECTED — "
                             "primary=%s (confidence=%.3f) via %s; "
@@ -1545,9 +1534,11 @@ class MediumDetector:
                         # Ausnahme: vinyl via Rotation-Gate bleibt Primary (_primary_vinyl_forced_by_rotation_gate).
 
                 if best_analog is None:
-                    _sources_detail = ", ".join(
-                        f"{m}(conf={c:.3f})" for m, c in _physical_analog_sources
-                    ) if _physical_analog_sources else "none"
+                    _sources_detail = (
+                        ", ".join(f"{m}(conf={c:.3f})" for m, c in _physical_analog_sources)
+                        if _physical_analog_sources
+                        else "none"
+                    )
                     logger.info(
                         "MediumDetector: ❌ NO physical analog confirmed for digital file_ext=%s — "
                         "%d candidate(s) [%s] failed gate; "
@@ -1578,7 +1569,8 @@ class MediumDetector:
                 "physical found %d source(s) → overriding primary=%s (conf=%.3f)",
                 posteriors.get("unknown", 0.0),
                 len(_physical_analog_sources),
-                best_analog, best_analog_score,
+                best_analog,
+                best_analog_score,
             )
 
         # Best digital lossless

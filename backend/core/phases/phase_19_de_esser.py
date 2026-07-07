@@ -108,7 +108,10 @@ except ImportError:  # pragma: no cover
 # Konstruiere den Pfad relativ zu dieser Datei für robusten Import.
 import os as _os19
 import sys as _sys19
-_project_root_19 = _os19.path.dirname(_os19.path.dirname(_os19.path.dirname(_os19.path.dirname(_os19.path.abspath(__file__)))))
+
+_project_root_19 = _os19.path.dirname(
+    _os19.path.dirname(_os19.path.dirname(_os19.path.dirname(_os19.path.abspath(__file__))))
+)
 if _project_root_19 not in _sys19.path:
     _sys19.path.insert(0, _project_root_19)
 try:
@@ -552,8 +555,8 @@ class DeEsserPhase(PhaseInterface):
         # ── §v10 PIM: De-Ess-Stärke aus Per-Band-Intensität ──
         try:
             from backend.core.pim_phase_hook import apply_pim_intensity
-            _pim = apply_pim_intensity(kwargs, "de_esser",
-                default_nr=0.2, default_de_ess=0.85, default_comp=1.0)
+
+            _pim = apply_pim_intensity(kwargs, "de_esser", default_nr=0.2, default_de_ess=0.85, default_comp=1.0)
             if "strength" in kwargs:
                 kwargs["strength"] = _pim["de_ess_strength"]
             if "correction_strength" in kwargs:
@@ -697,12 +700,15 @@ class DeEsserPhase(PhaseInterface):
         if not _signal_has_sibilant_content:
             logger.info(
                 "Stage 2-6 gate: HF ratio %.3f < %.3f (bw_loss=%.2f) — Aurik-8 stack skipped",
-                _hf_ratio, _hf_threshold, float(_bw_loss),
+                _hf_ratio,
+                _hf_threshold,
+                float(_bw_loss),
             )
         else:
             logger.debug(
                 "Stage 2-6 gate: HF-ratio=%.3f >= %.3f, sibilant_content=%s, long_enough=%s",
-                _hf_ratio, _hf_threshold,
+                _hf_ratio,
+                _hf_threshold,
                 _signal_has_sibilant_content,
                 _signal_long_enough_for_aurik8,
             )
@@ -1768,8 +1774,8 @@ class DeEsserPhase(PhaseInterface):
         _KNEE_DB = 6.0
         _KNEE_HALF = _KNEE_DB / 2.0
         _max_red_linear = 10.0 ** (max_reduction_db / 20.0)
-        _knee_low_linear = 10.0 ** (-_KNEE_HALF / 20.0)   # threshold - knee/2
-        _knee_high_linear = 10.0 ** (_KNEE_HALF / 20.0)    # threshold + knee/2
+        _knee_low_linear = 10.0 ** (-_KNEE_HALF / 20.0)  # threshold - knee/2
+        _knee_high_linear = 10.0 ** (_KNEE_HALF / 20.0)  # threshold + knee/2
 
         # ── Per-bin, per-frame gain computation ─────────────────────
         gain_mask = np.ones((n_freq, n_frames), dtype=np.float32)
@@ -2141,11 +2147,13 @@ class DeEsserPhase(PhaseInterface):
         # /s/-Laute (centroid 8-12 kHz) → schmales Band, hohe Frequenz
         # /ʃ/-Laute (centroid 4-7 kHz)  → breiteres Band, tiefere Frequenz
         # Dies gibt chirurgische Präzision statt "Breitband-De-Essing".
-        
+
         # Berechne spektralen Schwerpunkt im Sibilanz-Bereich
         _centroid_spectrum = np.abs(np.fft.rfft(audio[: min(len(audio), sample_rate * 2)]))
         _centroid_freqs = np.fft.rfftfreq(len(audio[: min(len(audio), sample_rate * 2)]), 1.0 / sample_rate)
-        _centroid_mask = (_centroid_freqs >= max(3000, s_low * 0.7)) & (_centroid_freqs <= min(safe_nyquist, s_high * 1.3))
+        _centroid_mask = (_centroid_freqs >= max(3000, s_low * 0.7)) & (
+            _centroid_freqs <= min(safe_nyquist, s_high * 1.3)
+        )
         if np.any(_centroid_mask) and np.sum(_centroid_spectrum[_centroid_mask]) > 1e-9:
             _sib_centroid = float(
                 np.sum(_centroid_freqs[_centroid_mask] * _centroid_spectrum[_centroid_mask])
@@ -2182,12 +2190,16 @@ class DeEsserPhase(PhaseInterface):
             "high": (min(s_high, _c + _bw / 6), min(s_high, _c + _bw / 2)),
         }
         logger.debug(
-            "🎤 Phonem-adaptive bands: centroid=%.0f Hz, type=%s, bw=%.0f Hz, "
-            "bands=[%.0f-%.0f, %.0f-%.0f, %.0f-%.0f]",
-            _sib_centroid, _phoneme_type, _bw,
-            gender_adaptive_bands["low"][0], gender_adaptive_bands["low"][1],
-            gender_adaptive_bands["mid"][0], gender_adaptive_bands["mid"][1],
-            gender_adaptive_bands["high"][0], gender_adaptive_bands["high"][1],
+            "🎤 Phonem-adaptive bands: centroid=%.0f Hz, type=%s, bw=%.0f Hz, bands=[%.0f-%.0f, %.0f-%.0f, %.0f-%.0f]",
+            _sib_centroid,
+            _phoneme_type,
+            _bw,
+            gender_adaptive_bands["low"][0],
+            gender_adaptive_bands["low"][1],
+            gender_adaptive_bands["mid"][0],
+            gender_adaptive_bands["mid"][1],
+            gender_adaptive_bands["high"][0],
+            gender_adaptive_bands["high"][1],
         )
 
         # Formant-Schutz: Bereich aus vocal_profile
@@ -2207,8 +2219,12 @@ class DeEsserPhase(PhaseInterface):
             # unabhängig von /ʃ/-Lauten bei 5 kHz behandelt.
             # Fallback auf Multi-Band wenn STFT zu kurz (< 256 samples).
             result = self._process_channel_spectral_dynamic_eq(
-                audio, sample_rate, max_reduction_db, threshold_ratio,
-                float(s_low), float(s_high),  # type: ignore[has-type]
+                audio,
+                sample_rate,
+                max_reduction_db,
+                threshold_ratio,
+                float(s_low),
+                float(s_high),  # type: ignore[has-type]
             )
             self.stats["deesser_method"] = "spectral_dynamic_eq"
 
@@ -2216,8 +2232,13 @@ class DeEsserPhase(PhaseInterface):
             # nutze Multi-Band
             if result is audio or np.array_equal(result, audio):
                 result = self._process_channel_multiband(
-                    audio, sample_rate, material, band_weights,
-                    max_reduction_db, threshold_ratio, lookahead_samples,
+                    audio,
+                    sample_rate,
+                    material,
+                    band_weights,
+                    max_reduction_db,
+                    threshold_ratio,
+                    lookahead_samples,
                 )
                 self.stats["deesser_method"] = "multiband_fallback"
 
@@ -2282,7 +2303,8 @@ class DeEsserPhase(PhaseInterface):
                 _pyin_f0 = float(np.median(_voiced_f0))
                 logger.debug(
                     "🎤 pYIN F0: %.0f Hz (median over %d voiced frames)",
-                    _pyin_f0, len(_voiced_f0),
+                    _pyin_f0,
+                    len(_voiced_f0),
                 )
         except Exception as _pyin_exc:
             logger.debug("pYIN F0 failed (%s) — using autocorrelation", _pyin_exc)
@@ -2304,7 +2326,9 @@ class DeEsserPhase(PhaseInterface):
                     if _f0_delta > 0.15:  # >15% Abweichung → pYIN bevorzugen
                         logger.debug(
                             "🎤 pYIN F0 override: %.0f Hz vs autocorr %.0f Hz (delta=%.0f%%)",
-                            _pyin_f0, _ac_f0, _f0_delta * 100,
+                            _pyin_f0,
+                            _ac_f0,
+                            _f0_delta * 100,
                         )
                         # Re-klassifiziere mit pYIN-F0
                         f0 = _pyin_f0
@@ -2361,9 +2385,14 @@ class DeEsserPhase(PhaseInterface):
                             "(F1=%.0f Hz in [%.0f–%.0f], F2=%.0f Hz in [%.0f–%.0f]). "
                             "This is likely a deep female voice (contralto). "
                             "→ Overriding to FEMALE. Use --gender male to force male.",
-                            f0, confidence,
-                            formants[0], _FEMALE_F1[0], _FEMALE_F1[1],
-                            formants[1], _FEMALE_F2[0], _FEMALE_F2[1],
+                            f0,
+                            confidence,
+                            formants[0],
+                            _FEMALE_F1[0],
+                            _FEMALE_F1[1],
+                            formants[1],
+                            _FEMALE_F2[0],
+                            _FEMALE_F2[1],
                         )
                         gender_str = VocalGender.FEMALE
                         confidence = max(confidence, 0.65)  # Mindest-Confidence für contralto
@@ -2371,9 +2400,10 @@ class DeEsserPhase(PhaseInterface):
                 if gender_str in (VocalGender.MALE, VocalGender.FEMALE, VocalGender.CHILD):
                     _contralto_tag = " [CONTRALTO→FEMALE]" if _contralto_detected else ""
                     logger.info(
-                        "🎤 Robust GenderDetector: %s (confidence=%.2f, F0=%.0f Hz, "
-                        "F1=%.0f, F2=%.0f)%s",
-                        gender_str, confidence, f0,
+                        "🎤 Robust GenderDetector: %s (confidence=%.2f, F0=%.0f Hz, F1=%.0f, F2=%.0f)%s",
+                        gender_str,
+                        confidence,
+                        f0,
                         formants[0] if len(formants) > 0 else 0.0,
                         formants[1] if len(formants) > 1 else 0.0,
                         _contralto_tag,

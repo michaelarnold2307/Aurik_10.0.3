@@ -77,9 +77,7 @@ def build_strength_envelope(
         # nr_strength_scale: base noise reduction intensity (0.5–2.0)
         # vq_weight: vocal quality emphasis (0.5–2.0)
         # frisson_protection: if True, cap at _FRISSON_STRENGTH_CAP
-        section_strength = float(
-            np.clip(target.nr_strength_scale * target.vq_weight, 0.30, 1.50)
-        )
+        section_strength = float(np.clip(target.nr_strength_scale * target.vq_weight, 0.30, 1.50))
         if target.frisson_protection:
             section_strength = min(section_strength, _FRISSON_STRENGTH_CAP)
 
@@ -102,7 +100,7 @@ def build_strength_envelope(
         if seg_len <= 0:
             continue
 
-        seg_indices = np.arange(cf_start, cf_end)
+        np.arange(cf_start, cf_end)
         seg_values = np.full(seg_len, section_strength, dtype=np.float32)
 
         # Cosine fade-in at start (first 200ms of this section's influence)
@@ -110,8 +108,7 @@ def build_strength_envelope(
         if fade_in_len > 1 and i > 0:
             fade_in = 0.5 - 0.5 * np.cos(np.pi * np.arange(fade_in_len) / fade_in_len)
             seg_values[:fade_in_len] = (
-                envelope[cf_start : cf_start + fade_in_len] * (1.0 - fade_in)
-                + section_strength * fade_in
+                envelope[cf_start : cf_start + fade_in_len] * (1.0 - fade_in) + section_strength * fade_in
             ).astype(np.float32)
 
         # Cosine fade-out at end (last 200ms of this section's influence)
@@ -119,10 +116,9 @@ def build_strength_envelope(
         if fade_out_len > 1 and i < len(sorted_targets) - 1:
             fade_out_start = seg_len - fade_out_len
             fade_out = 0.5 + 0.5 * np.cos(np.pi * np.arange(fade_out_len) / fade_out_len)
-            seg_values[fade_out_start:] = (
-                section_strength * fade_out
-                + _DEFAULT_STRENGTH * (1.0 - fade_out)
-            ).astype(np.float32)
+            seg_values[fade_out_start:] = (section_strength * fade_out + _DEFAULT_STRENGTH * (1.0 - fade_out)).astype(
+                np.float32
+            )
 
         # ── Rate-limit: ensure no step > _MAX_DB_PER_100MS ──
         if i > 0:
@@ -138,9 +134,7 @@ def build_strength_envelope(
                     # Extend the crossfade to respect rate limit
                     extended_fade = min(crossfade_samples * steps_needed, seg_len)
                     if extended_fade > fade_in_len:
-                        ext_fade = 0.5 - 0.5 * np.cos(
-                            np.pi * np.arange(extended_fade) / extended_fade
-                        )
+                        ext_fade = 0.5 - 0.5 * np.cos(np.pi * np.arange(extended_fade) / extended_fade)
                         seg_start = cf_start
                         seg_values[:extended_fade] = (
                             envelope[seg_start : seg_start + extended_fade] * (1.0 - ext_fade)
@@ -154,8 +148,11 @@ def build_strength_envelope(
 
     logger.debug(
         "SectionStrengthEnvelope: %d sections → %d samples, range [%.2f, %.2f], mean=%.3f",
-        len(section_targets), n_samples,
-        float(np.min(envelope)), float(np.max(envelope)), float(np.mean(envelope)),
+        len(section_targets),
+        n_samples,
+        float(np.min(envelope)),
+        float(np.max(envelope)),
+        float(np.mean(envelope)),
     )
 
     return envelope

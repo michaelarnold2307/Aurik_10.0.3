@@ -2532,10 +2532,7 @@ class UnifiedRestorerV3:
         #   dann Loudness-Normalisierung. Kein Transient Shaping, kein De-Essing
         #   (kein HF-Inhalt), kein Dynamics Processing.
         # Dies verhindert Groove-Verlust, Echo-Artefakte und TQC-Fehlschläge.
-        _preservation_mode = (
-            float(_bw_loss_sev) >= 0.90
-            and float(_snr_val_for_fragile) < 16.0
-        )
+        _preservation_mode = float(_bw_loss_sev) >= 0.90 and float(_snr_val_for_fragile) < 16.0
         if _preservation_mode:
             self._restoration_context["preservation_mode"] = True
             self._restoration_context["preservation_reason"] = (
@@ -2545,7 +2542,8 @@ class UnifiedRestorerV3:
                 "§2.16 PRESERVATION MODE: bw_loss=%.2f SNR=%.1fdB — "
                 "nur essentielle Cleanup-Phasen. Enhancements werden übersprungen. "
                 "Das Material ist zu degradiert für aktive Restaurierung.",
-                float(_bw_loss_sev), float(_snr_val_for_fragile),
+                float(_bw_loss_sev),
+                float(_snr_val_for_fragile),
             )
 
         # §2.13 Uncertainty-from-Disagreement: Wenn zwei Klassifikatoren
@@ -2566,7 +2564,8 @@ class UnifiedRestorerV3:
                 "§2.13 Uncertainty-from-Disagreement: era=%s medium=%s → guard=%.2f → global=%.3f",
                 "divergent" if _era_disagreement else "ok",
                 "low_conf" if _medium_disagreement else "ok",
-                _disagreement_guard, _global,
+                _disagreement_guard,
+                _global,
             )
 
         # §2.12 Bandwidth-Loss-Guard: Stark bandbreitenbegrenztes Material
@@ -2578,7 +2577,9 @@ class UnifiedRestorerV3:
         _global *= _bw_loss_guard
         logger.debug(
             "SongCalibration bw_loss_guard: sev=%.2f → guard=%.3f → global=%.3f",
-            _bw_loss_sev, _bw_loss_guard, _global,
+            _bw_loss_sev,
+            _bw_loss_guard,
+            _global,
         )
         # [RELEASE_MUST] Lücke-G-Fix v9.10.100: global_scalar ∈ [0.50, 1.50]
         # Unteres Limit 0.50 verhindert Neutralisierung aller Phasen.
@@ -7832,7 +7833,8 @@ class UnifiedRestorerV3:
                                 logger.info(
                                     "§Dach GlobalPlan-Prior: Primär=%s (physikalisch), "
                                     "Era-Precursor=%s → Effective Chain=%s",
-                                    _gp_material, _era_mat_val,
+                                    _gp_material,
+                                    _era_mat_val,
                                     self._restoration_context.get("transfer_chain", []),
                                 )
                             elif UnifiedRestorerV3._should_preserve_specific_transport_material(
@@ -7855,7 +7857,6 @@ class UnifiedRestorerV3:
                                     _chunk_mc_conf,
                                 )
 
-
                         except Exception as _gp_mat_exc:
                             logger.debug(
                                 "GlobalPlan MaterialType-Override fehlgeschlagen: %s — Chunk-Ergebnis behalten",
@@ -7875,8 +7876,11 @@ class UnifiedRestorerV3:
                 # korrigiert auf 1989 — und 1989 bedeutet: Studio-Master war reel_tape.
                 if _era_mp not in ("reel_tape", "tape"):
                     _era_decade = getattr(_era_result, "decade", 9999)
-                    _chain_first = (_eff_chain or [None])[0] if (_eff_chain := list(
-                        self._restoration_context.get("transfer_chain", []))) else None
+                    _chain_first = (
+                        (_eff_chain or [None])[0]
+                        if (_eff_chain := list(self._restoration_context.get("transfer_chain", [])))
+                        else None
+                    )
                     _analog_starters = {"vinyl", "shellac", "lacquer_disc", "wax_cylinder"}
                     if _chain_first and _chain_first in _analog_starters and _era_decade <= 1989:
                         _era_mp = "reel_tape"
@@ -7890,7 +7894,8 @@ class UnifiedRestorerV3:
                         self._era_precursor_injected = True
                         logger.info(
                             "§6.8 Era-Precursor: %s → Effective Chain=%s",
-                            _era_mp, _eff_chain,
+                            _era_mp,
+                            _eff_chain,
                         )
 
             # GermanSchlagerClassifier-Ergebnis übernehmen
@@ -8277,10 +8282,9 @@ class UnifiedRestorerV3:
         # Diese Module waren bisher nur via getattr() abgefragt aber NIE initialisiert.
         # Ohne sie arbeiten KlangGuard, CrossGuard und EmotionalArc im Leerlauf.
         try:
-            from backend.core.klang_guards import (
-                GuardWisdom, CrossGuardCoordinator, EmotionalArcPreserver
-            )
             from backend.core.goal_budget import GoalBudget
+            from backend.core.klang_guards import CrossGuardCoordinator, EmotionalArcPreserver, GuardWisdom
+
             _mat_key = str(_rc_primary_mat_str).lower()
             _genre = str(self._restoration_context.get("genre_label", ""))
             self._guard_wisdom = GuardWisdom(material=_mat_key, genre=_genre)
@@ -8299,19 +8303,23 @@ class UnifiedRestorerV3:
             # §AK AuraPreserver — Aura-Fingerprinting (Era+Genre+Material+Emotion)
             try:
                 from backend.core.aura_preserver import AuraPreserver
+
                 self._aura_preserver = AuraPreserver()
                 self._aura_preserver.fingerprint(
-                    original_audio_for_goals, sample_rate,
+                    original_audio_for_goals,
+                    sample_rate,
                     era_decade=int(self._restoration_context.get("decade", 1970)),
                     era_label=str(self._restoration_context.get("era_label", "")),
                     genre=str(self._restoration_context.get("genre_label", "unknown")),
                     material=str(_rc_primary_mat_str),
                 )
                 self._restoration_context["_aura_preserver"] = self._aura_preserver
-                logger.info("§AK AuraPreserver: fingerprint taken (era=%d, genre=%s, material=%s)",
+                logger.info(
+                    "§AK AuraPreserver: fingerprint taken (era=%d, genre=%s, material=%s)",
                     int(self._restoration_context.get("decade", 1970)),
                     str(self._restoration_context.get("genre_label", "unknown")),
-                    str(_rc_primary_mat_str))
+                    str(_rc_primary_mat_str),
+                )
             except Exception:
                 pass
         except Exception as _denker_init_exc:
@@ -8319,6 +8327,7 @@ class UnifiedRestorerV3:
         # §Z BatchIntelligence: Batch-übergreifendes Lernen initialisieren
         try:
             from backend.core.preference_learner import BatchIntelligence
+
             self._restoration_context["_batch_intelligence"] = BatchIntelligence()
             self._restoration_context.setdefault("phase_strengths", {})
         except Exception:
@@ -8397,8 +8406,7 @@ class UnifiedRestorerV3:
             self._restoration_context["vocal_style_confidence"] = _vfa_result.style_confidence
             self._restoration_context["singer_school"] = _vfa_result.singer_school
             logger.debug(
-                "§2.9 VFA→Context: register=%s f1=%.0fHz f2=%.0fHz "
-                "vibrato=%d stable=%s style=%.2f school=%s",
+                "§2.9 VFA→Context: register=%s f1=%.0fHz f2=%.0fHz vibrato=%d stable=%s style=%.2f school=%s",
                 _vfa_result.dominant_register,
                 _vfa_result.formant_f1_mean,
                 _vfa_result.formant_f2_mean,
@@ -11466,10 +11474,10 @@ class UnifiedRestorerV3:
         except Exception as _gbc_exc:
             logger.debug("§GOAL_BASELINE non-blocking: %s", _gbc_exc)
 
-        
         # §AC: Intelligent Phase Pruning — nur hörbare Verbesserungen
         try:
             from backend.core.phase_pruner import IntelligentPhasePruner
+
             _pruner = IntelligentPhasePruner()
             _defect_list = list(getattr(self, "_active_defekt_hint", {}) or {})
             _mat_key = str(getattr(material_type, "value", material_type)).lower() if material_type else "unknown"
@@ -11480,11 +11488,13 @@ class UnifiedRestorerV3:
             )
             if _prune_result.kept_phases:
                 selected_phases = _prune_result.kept_phases
-                logger.info("§AC Phase Pruning: %d Phasen behalten, %d übersprungen",
-                             len(selected_phases), len(_prune_result.skipped_phases))
+                logger.info(
+                    "§AC Phase Pruning: %d Phasen behalten, %d übersprungen",
+                    len(selected_phases),
+                    len(_prune_result.skipped_phases),
+                )
         except Exception:
             pass
-
 
         selected_phases, _invalid_selected_phases = self._validate_selected_phase_ids(
             selected_phases,
@@ -11510,14 +11520,18 @@ class UnifiedRestorerV3:
                 sample_rate,
                 material_key=str(getattr(material_type, "value", material_type)).lower() if material_type else None,
             )
-            
+
             # §AB: Audio-Fingerprint-Matching — Parameter von ähnlichen Aufnahmen übernehmen
             try:
-                from backend.core.fingerprint_matcher import FingerprintMatcher, AudioFingerprint
+                from backend.core.fingerprint_matcher import FingerprintMatcher
+
                 _fm = FingerprintMatcher()
                 _fp = _fm.compute_fingerprint(
-                    audio, sample_rate,
-                    material=str(getattr(material_type, "value", material_type)).lower() if material_type else "unknown",
+                    audio,
+                    sample_rate,
+                    material=str(getattr(material_type, "value", material_type)).lower()
+                    if material_type
+                    else "unknown",
                     genre=str(getattr(self, "_restoration_context", {}).get("genre_label", "")),
                     defect_types=list(getattr(self, "_active_defekt_hint", {}) or {}),
                 )
@@ -11530,31 +11544,37 @@ class UnifiedRestorerV3:
             except Exception:
                 pass
 
-            
             # §AD: Defect Precision Enhancement — per-defect Stärke-Hints
             try:
                 from backend.core.defect_precision_enhancer import DefectPrecisionEnhancer
+
                 _dpe = DefectPrecisionEnhancer()
                 _precision_hints = _dpe.analyze_defects(
-                    audio, sample_rate,
+                    audio,
+                    sample_rate,
                     defect_types=list(getattr(self, "_active_defekt_hint", {}) or {}),
                 )
                 if _precision_hints and isinstance(self._restoration_context, dict):
                     self._restoration_context["precision_hints"] = _precision_hints
-                    logger.info("§AD Precision: %d Defekte analysiert, per-instance Stärken berechnet",
-                                 sum(len(v) for v in _precision_hints.values()))
+                    logger.info(
+                        "§AD Precision: %d Defekte analysiert, per-instance Stärken berechnet",
+                        sum(len(v) for v in _precision_hints.values()),
+                    )
             except Exception:
                 pass
             # §AE: Cross-Channel Stereo Repair
             try:
                 from backend.core.cross_channel_repair import CrossChannelRepair
+
                 _ccr = CrossChannelRepair()
                 if audio.ndim == 2 and audio.shape[0] == 2:
                     _ccr_result = _ccr.analyze_channels(audio, sample_rate)
                     if _ccr_result.get("repairable_defects", 0) > 0 and isinstance(self._restoration_context, dict):
                         self._restoration_context["cross_channel_repair"] = _ccr_result
-                        logger.info("§AE Cross-Channel: %d Defekte über gesunden Kanal reparierbar",
-                                     _ccr_result["repairable_defects"])
+                        logger.info(
+                            "§AE Cross-Channel: %d Defekte über gesunden Kanal reparierbar",
+                            _ccr_result["repairable_defects"],
+                        )
             except Exception:
                 pass
 
@@ -11601,8 +11621,9 @@ class UnifiedRestorerV3:
             self._restoration_context["_cross_guard_results"] = dict(_kg_result)
         # §AF-MAX: DynamicsGuardIntegration — Post-Pipeline Teamwork
         try:
-            from backend.core.repair_dynamics_guard import RepairDynamicsGuard as _AF_Guard
             from backend.core.dynamics_guard_integration import DynamicsGuardIntegration as _AF_Int
+            from backend.core.repair_dynamics_guard import RepairDynamicsGuard as _AF_Guard
+
             _af_guard = _AF_Guard()
             if isinstance(getattr(self, "_restoration_context", None), dict):
                 _af_gw = self._restoration_context.get("_guard_wisdom")
@@ -11636,6 +11657,7 @@ class UnifiedRestorerV3:
         # §PRECISION PrecisionDropoutRepair — chirurgische MAD-Dropout-Entfernung
         try:
             from backend.core.precision_dropout_repair import repair_dropouts_precise
+
             restored_audio, _pdr_found, _pdr_repaired = repair_dropouts_precise(restored_audio, sample_rate)
             if _pdr_repaired > 0:
                 logger.info("STUFE 2 PrecisionDropout: %d/%d repariert", _pdr_repaired, _pdr_found)
@@ -11645,6 +11667,7 @@ class UnifiedRestorerV3:
         # §AO VocalScratchRepair — Kratzer im Gesang
         try:
             from backend.core.vocal_scratch_repair import VocalScratchRepair
+
             _vsr = VocalScratchRepair()
             restored_audio = _vsr.repair(restored_audio, sample_rate)
         except Exception:
@@ -11653,6 +11676,7 @@ class UnifiedRestorerV3:
         # §AP TapeHeadArtifactRepair — Kurzzeit-Dropouts
         try:
             from backend.core.tape_head_artifact_repair import TapeHeadArtifactRepair
+
             _thar = TapeHeadArtifactRepair()
             restored_audio = _thar.repair(restored_audio, sample_rate)
         except Exception:
@@ -11665,6 +11689,7 @@ class UnifiedRestorerV3:
         # §AJ AntiMufflingPass — Dumpfheit entfernen
         try:
             from backend.core.anti_muffling_pass import AntiMufflingPass
+
             _amp = AntiMufflingPass()
             restored_audio = _amp.process(restored_audio, sample_rate)
         except Exception:
@@ -11676,16 +11701,21 @@ class UnifiedRestorerV3:
             _mat = str(getattr(self, "_restoration_context", {}).get("primary_material", ""))
             if _mat in ("cassette", "tape", "reel_tape"):
                 from backend.core.smart_tape_repair import smart_tape_repair
+
                 restored_audio, _str_r = smart_tape_repair(restored_audio, sample_rate)
-                logger.info("STUFE 5 Azimuth: %d fixes, HF=%d, vocal=%.0f%%",
-                    _str_r.get('azimuth_fixes',0), _str_r.get('hf_restored_blocks',0),
-                    _str_r.get('vocal_coverage_pct',0))
+                logger.info(
+                    "STUFE 5 Azimuth: %d fixes, HF=%d, vocal=%.0f%%",
+                    _str_r.get("azimuth_fixes", 0),
+                    _str_r.get("hf_restored_blocks", 0),
+                    _str_r.get("vocal_coverage_pct", 0),
+                )
         except Exception:
             pass
 
         # §AR ArtifactEchoRemoval — Echo-Artefakte
         try:
             from backend.core.artifact_echo_removal import ArtifactEchoRemoval
+
             _aer = ArtifactEchoRemoval()
             restored_audio = _aer.process(restored_audio, sample_rate)
         except Exception:
@@ -11698,6 +11728,7 @@ class UnifiedRestorerV3:
         # §AG SibilanceMaxRepair — Sibilanten
         try:
             from backend.core.sibilance_max_repair import SibilanceMaxRepair
+
             _sib = SibilanceMaxRepair()
             restored_audio = _sib.process(restored_audio, sample_rate)
         except Exception:
@@ -11706,6 +11737,7 @@ class UnifiedRestorerV3:
         # §AH VocalClarityMax — Gesangs-Klarheit
         try:
             from backend.core.vocal_clarity_max import VocalClarityMax
+
             _vcm = VocalClarityMax()
             restored_audio = _vcm.process(restored_audio, sample_rate)
         except Exception:
@@ -11714,6 +11746,7 @@ class UnifiedRestorerV3:
         # §AS SpecializedDefectRepair — letzte Analyse-optimierte Reparatur
         try:
             from backend.core.specialized_defect_repair import SpecializedDefectRepair
+
             _sdr = SpecializedDefectRepair()
             restored_audio, _ = _sdr.analyze_and_repair(restored_audio, sample_rate)
         except Exception:
@@ -11723,6 +11756,7 @@ class UnifiedRestorerV3:
         # §T HumanizationPass — gegen Hörermüdigkeit (LETZTER DSP-Schritt)
         try:
             from backend.core.klang_guards import HumanizationPass
+
             restored_audio = HumanizationPass.apply(restored_audio, sample_rate, strength=0.15)
         except Exception:
             pass
@@ -11730,6 +11764,7 @@ class UnifiedRestorerV3:
         # §AQ PerceptualExportOptimizer — ML-Hybrid
         try:
             from backend.core.perceptual_export_optimizer import PerceptualExportOptimizer
+
             _peo = PerceptualExportOptimizer()
             _lm = str(kwargs.get("listening_mode", "headphones")).lower()
             _mat = str(getattr(self, "_restoration_context", {}).get("primary_material", "unknown"))
@@ -11740,6 +11775,7 @@ class UnifiedRestorerV3:
         # §DIRECT DirectDefectRepair — allerletzte chirurgische Prüfung
         try:
             from backend.core.direct_defect_repair import DirectDefectRepair
+
             _ddr = DirectDefectRepair()
             restored_audio, _ddr_report = _ddr.repair(restored_audio, sample_rate)
         except Exception:
@@ -11750,9 +11786,12 @@ class UnifiedRestorerV3:
         if _lm in ("headphones", "farfield", "car"):
             try:
                 import scipy.signal as _sp_sig
-                _lm_eq = {"headphones": [("highshelf", 7000, 0.8, 0.7), ("lowshelf", 150, -0.5, 0.7)],
-                           "farfield": [("lowshelf", 200, 1.2, 0.7)],
-                           "car": [("lowshelf", 180, 1.5, 0.7), ("highshelf", 10000, 1.3, 0.5)]}
+
+                _lm_eq = {
+                    "headphones": [("highshelf", 7000, 0.8, 0.7), ("lowshelf", 150, -0.5, 0.7)],
+                    "farfield": [("lowshelf", 200, 1.2, 0.7)],
+                    "car": [("lowshelf", 180, 1.5, 0.7), ("highshelf", 10000, 1.3, 0.5)],
+                }
                 for _ft, _fq, _gn, _q in _lm_eq.get(_lm, []):
                     if _ft == "highshelf":
                         _sos = _sp_sig.butter(2, _fq / (sample_rate / 2), btype="highshelf", output="sos")
@@ -13385,8 +13424,7 @@ class UnifiedRestorerV3:
                         f"PQS-MOS={_pqs_result.pqs_mos:.1f}<2.5 (critical)"
                     )
                     logger.warning(
-                        "§2.14 Quality-Gate→Action: PQS-MOS=%.1f < 2.5 — "
-                        "signaling rollback to ExzellenzDenker",
+                        "§2.14 Quality-Gate→Action: PQS-MOS=%.1f < 2.5 — signaling rollback to ExzellenzDenker",
                         _pqs_result.pqs_mos,
                     )
         except Exception as _pqs_exc:
@@ -23416,8 +23454,7 @@ class UnifiedRestorerV3:
             MaterialType.UNKNOWN,
         }
         _has_disc_in_chain = any(
-            str(m).lower() in ("vinyl", "shellac", "lacquer_disc", "lacquer")
-            for m in (transfer_chain or [])
+            str(m).lower() in ("vinyl", "shellac", "lacquer_disc", "lacquer") for m in (transfer_chain or [])
         )
         _is_disc = material in _DISC_MATERIALS_CRACKLE or _has_disc_in_chain
 
@@ -27435,6 +27472,7 @@ class UnifiedRestorerV3:
         if "strength" in kwargs:
             try:
                 from denker.phase_interaction_denker import PhaseInteractionDenker
+
                 _pid = str(getattr(phase_metadata, "phase_id", ""))
                 _mat = str(_ctx_pp.get("primary_material", "")).lower()
                 kwargs["strength"] = PhaseInteractionDenker.resolve_guard_modulation(
@@ -27879,9 +27917,12 @@ class UnifiedRestorerV3:
                 _rms_ratio = _rms_post / _rms_pre if _rms_pre > 1e-12 else 1.0
                 _is_degraded = _has_nan or _has_inf or _rms_ratio > 10.0 or _rms_ratio < 0.1
                 _verdict = "violation" if _is_degraded else "ok"
-                _gw_post.record(_pid_gw, "phase_quality",
+                _gw_post.record(
+                    _pid_gw,
+                    "phase_quality",
                     {"rms_ratio": round(_rms_ratio, 4), "has_nan": _has_nan, "has_inf": _has_inf},
-                    verdict=_verdict)
+                    verdict=_verdict,
+                )
             except Exception:
                 pass  # GuardWisdom recording ist nicht kritisch für die Pipeline
         # ── Ende Intra-Pipeline-GuardWisdom ──────────────────────
@@ -29885,9 +29926,7 @@ class UnifiedRestorerV3:
                     )
 
                     _n_total = audio.shape[0] if audio.ndim == 1 else audio.shape[1]
-                    _envelope = build_strength_envelope(
-                        _section_targets, _n_total, sample_rate
-                    )
+                    _envelope = build_strength_envelope(_section_targets, _n_total, sample_rate)
                     self._restoration_context["strength_envelope"] = _envelope
                 except Exception as _env_exc:
                     logger.debug("Strength-Envelope build: %s", _env_exc)
@@ -33288,8 +33327,9 @@ class UnifiedRestorerV3:
                                 pass
                             # §AF-MAX: Per-Phase DynamicsGuard Teamwork
                             try:
-                                from backend.core.repair_dynamics_guard import RepairDynamicsGuard as _AF_pGuard
                                 from backend.core.dynamics_guard_integration import DynamicsGuardIntegration as _AF_pInt
+                                from backend.core.repair_dynamics_guard import RepairDynamicsGuard as _AF_pGuard
+
                                 _af_pg = _AF_pGuard()
                                 _ctx2 = getattr(self, "_restoration_context", {}) or {}
                                 if isinstance(_ctx2, dict):
@@ -33298,7 +33338,7 @@ class UnifiedRestorerV3:
                                         _af_pg.inject_guard_wisdom(_af_pgw)
                                     _af_pint = _AF_pInt()
                                     _af_pint.integrate_phase_result(
-                                        audio_before=getattr(self, '_current_phase_audio_before', current_audio),
+                                        audio_before=getattr(self, "_current_phase_audio_before", current_audio),
                                         audio_after=current_audio,
                                         sr=sample_rate,
                                         phase_id=phase_id,
@@ -35390,14 +35430,13 @@ class UnifiedRestorerV3:
         except Exception as _lp2a_exc:
             logger.debug("LAG_PROBE_2a fehlgeschlagen: %s", _lp2a_exc)
 
-        
         # ── §v10 Cumulative Processing Budget Guard ──
         _cumulative_rms = 0.0
-        if hasattr(self, '_cumulative_spectral_tilt'):
-            _cumulative_rms = float(abs(getattr(self, '_cumulative_spectral_tilt', 0.0)))
+        if hasattr(self, "_cumulative_spectral_tilt"):
+            _cumulative_rms = float(abs(getattr(self, "_cumulative_spectral_tilt", 0.0)))
         if _cumulative_rms > 12.0:
             logger.warning("§v10 Do-No-Harm: Cumulative processing %.1fdB > 12dB limit", _cumulative_rms)
-        if hasattr(self, '_phase_metadata_accumulator'):
+        if hasattr(self, "_phase_metadata_accumulator"):
             self._phase_metadata_accumulator["cumulative_budget"] = {
                 "exceeded": _cumulative_rms > 12.0,
                 "total_change_db": _cumulative_rms,

@@ -254,26 +254,25 @@ class _AREAdapter:
 # ---------------------------------------------------------------------------
 
 
-
 class DecisionVerdict(str, Enum):
     """Endgültiges Urteil des Denkers über eine Phase."""
 
-    CONTINUE = "continue"               # Phase-Ergebnis akzeptieren, weitermachen
-    RETRY_LIGHTER = "retry_lighter"     # Gleiche Phase, reduzierte Intensität
-    RETRY_DIFFERENT = "retry_different" # Anderen Ansatz/Plugin versuchen
-    OVERRIDE_GUARD = "override_guard"   # Guard ist false-positive → volle Strength
-    SKIP = "skip"                       # Phase überspringen (würde nur schaden)
-    ROLLBACK = "rollback"               # Zurück zum besten bekannten Zustand
-    STOP_GRACEFUL = "stop_graceful"     # Keine Verbesserung mehr möglich
+    CONTINUE = "continue"  # Phase-Ergebnis akzeptieren, weitermachen
+    RETRY_LIGHTER = "retry_lighter"  # Gleiche Phase, reduzierte Intensität
+    RETRY_DIFFERENT = "retry_different"  # Anderen Ansatz/Plugin versuchen
+    OVERRIDE_GUARD = "override_guard"  # Guard ist false-positive → volle Strength
+    SKIP = "skip"  # Phase überspringen (würde nur schaden)
+    ROLLBACK = "rollback"  # Zurück zum besten bekannten Zustand
+    STOP_GRACEFUL = "stop_graceful"  # Keine Verbesserung mehr möglich
 
 
 class RetryStrategy(str, Enum):
     """Wie soll retried werden?"""
 
-    REDUCE_INTENSITY = "reduce_intensity"     # Strength × 0.65, 0.40, 0.25...
-    SWITCH_PLUGIN = "switch_plugin"            # Anderes Plugin/Algorithmus
-    BYPASS_GUARD = "bypass_guard"              # Guard deaktivieren, volle Strength
-    ADAPTIVE = "adaptive"                      # Denker wählt basierend auf Kontext
+    REDUCE_INTENSITY = "reduce_intensity"  # Strength × 0.65, 0.40, 0.25...
+    SWITCH_PLUGIN = "switch_plugin"  # Anderes Plugin/Algorithmus
+    BYPASS_GUARD = "bypass_guard"  # Guard deaktivieren, volle Strength
+    ADAPTIVE = "adaptive"  # Denker wählt basierend auf Kontext
 
 
 @dataclass
@@ -281,8 +280,8 @@ class DenkerContext:
     """Vollständiger Kontext für eine Denker-Entscheidung."""
 
     phase_id: str
-    mode: str = "restoration"                    # "restoration" | "studio_2026"
-    restorability: float = 70.0                  # 0-100
+    mode: str = "restoration"  # "restoration" | "studio_2026"
+    restorability: float = 70.0  # 0-100
     initial_strength: float = 1.0
     current_strength: float = 1.0
     retry_count: int = 0
@@ -513,28 +512,39 @@ class RestaurierDenker:
             # §v10 Song-Profil laden: Genre+Medium → optimale Start-Parameter
             try:
                 from backend.core.aurik_completion_engine import load_song_profile
-                _genre = str(getattr(cached_genre_result, "primary_genre", "unknown")) if cached_genre_result else "unknown"
+
+                _genre = (
+                    str(getattr(cached_genre_result, "primary_genre", "unknown")) if cached_genre_result else "unknown"
+                )
                 _mat = material or "unknown"
                 _profile = load_song_profile(_genre, _mat)
                 if _profile.success_count > 2:
                     _uv3_kwargs["nr_strength_hint"] = _profile.optimal_nr_strength
                     _uv3_kwargs["eq_presence_hint"] = _profile.optimal_eq_presence
                     _uv3_kwargs["comp_ratio_hint"] = _profile.optimal_compression_ratio
-                    logger.info("RestaurierDenker: Song-Profil geladen (%s/%s, n=%d NR=%.2f EQ=%.1f)",
-                               _genre, _mat, _profile.success_count,
-                               _profile.optimal_nr_strength, _profile.optimal_eq_presence)
-            except Exception: pass
+                    logger.info(
+                        "RestaurierDenker: Song-Profil geladen (%s/%s, n=%d NR=%.2f EQ=%.1f)",
+                        _genre,
+                        _mat,
+                        _profile.success_count,
+                        _profile.optimal_nr_strength,
+                        _profile.optimal_eq_presence,
+                    )
+            except Exception:
+                pass
 
             # §v10 Bitrate-Erkennung
             try:
                 from backend.core.bitrate_estimator import estimate_lossy_bitrate, get_bitrate_aware_limits
+
                 _mat_lower = str(material or "").lower()
                 if "mp3" in _mat_lower or "aac" in _mat_lower:
                     _kbps, _conf = estimate_lossy_bitrate(audio, sr)
                     _uv3_kwargs["estimated_bitrate_kbps"] = _kbps
                     _uv3_kwargs["bitrate_aware_limits"] = get_bitrate_aware_limits(str(material), audio, sr)
                     logger.info("RestaurierDenker: Bitrate ~%d kbps (conf=%.2f)", _kbps, _conf)
-            except Exception: pass
+            except Exception:
+                pass
 
             try:
                 # §v10 HPE Baseline + Inviting VOR UV3
@@ -543,27 +553,28 @@ class RestaurierDenker:
                 try:
                     from backend.core.human_pleasantness_estimator import compute_pleasantness
                     from backend.core.inviting_sound_checker import check_inviting_sound
+
                     _hpe_pre = compute_pleasantness(audio, sr).score
                     _inv_pre = check_inviting_sound(audio, sr).score
-                except Exception: pass
+                except Exception:
+                    pass
 
                 raw = restorer.restore(audio, **_uv3_kwargs)
                 result = self._konvertiere(raw, material=material)
 
                 # §v10 HPE + Inviting Check: Hat UV3 versagt?
                 try:
-                    from backend.core.human_pleasantness_estimator import compute_pleasantness, compare_pleasantness
+                    from backend.core.human_pleasantness_estimator import compare_pleasantness, compute_pleasantness
                     from backend.core.inviting_sound_checker import check_inviting_sound
                     from backend.core.pleasantness_registry import get_pleasantness_registry
 
                     _restored = result.audio
-                    if _restored.ndim == 2: _restored = _restored.mean(axis=1)
+                    if _restored.ndim == 2:
+                        _restored = _restored.mean(axis=1)
                     _restored_f32 = _restored.astype(np.float32)
                     _hpe_post = compute_pleasantness(_restored_f32, sr).score
                     _inv_post = check_inviting_sound(_restored_f32, sr).score
-                    _cmp = compare_pleasantness(
-                        np.asarray(audio, dtype=np.float32),
-                        _restored_f32, sr)
+                    _cmp = compare_pleasantness(np.asarray(audio, dtype=np.float32), _restored_f32, sr)
                     _delta = float(_cmp.get("delta_score", 0.0))
 
                     _reg = get_pleasantness_registry()
@@ -577,34 +588,45 @@ class RestaurierDenker:
 
                     if _failed_hpe or _failed_inv:
                         _reasons = []
-                        if _failed_hpe: _reasons.append(f"HPE {_delta:+.3f}")
-                        if _failed_inv: _reasons.append(f"Inviting {_inv_delta:+.3f}")
+                        if _failed_hpe:
+                            _reasons.append(f"HPE {_delta:+.3f}")
+                        if _failed_inv:
+                            _reasons.append(f"Inviting {_inv_delta:+.3f}")
 
                         # §v10 STUFE 0: Transparency Guard — klingt es natürlich?
-                        _failed_transparency = False
                         try:
                             from backend.core.transparency_guard import check_transparency
+
                             _trans = check_transparency(_restored_f32, sr)
                             if _trans.score < 0.50:
-                                _failed_transparency = True
                                 _reasons.append(f"Transparenz {_trans.score:.2f} ({_trans.label})")
                                 if _trans.artifacts:
                                     _reasons[-1] += f": {', '.join(_trans.artifacts)}"
-                                logger.warning("RestaurierDenker: Transparenz UNNATÜRLICH: T=%.3f %s",
-                                             _trans.score, _trans.artifacts)
-                        except Exception: pass
+                                logger.warning(
+                                    "RestaurierDenker: Transparenz UNNATÜRLICH: T=%.3f %s",
+                                    _trans.score,
+                                    _trans.artifacts,
+                                )
+                        except Exception:
+                            pass
 
                         # §v10 SWEET SPOT OPTIMIERUNG: Alle 20 Metriken gleichzeitig
                         _sweet = None
                         try:
                             from backend.core.sweet_spot_optimizer import find_sweet_spot
+
                             _sweet = find_sweet_spot(_restored_f32, sr)
-                            logger.info("RestaurierDenker SweetSpot: %.2f (%d/7 green) %s",
-                                       _sweet.score, _sweet.green_count, _sweet.label)
+                            logger.info(
+                                "RestaurierDenker SweetSpot: %.2f (%d/7 green) %s",
+                                _sweet.score,
+                                _sweet.green_count,
+                                _sweet.label,
+                            )
                             if _sweet.warnings:
                                 for w in _sweet.warnings[:3]:
                                     logger.info("  - %s", w)
-                        except Exception: pass
+                        except Exception:
+                            pass
 
                         if _sweet is not None and _sweet.all_green:
                             # PERFEKT — alle Metriken in Grünzone + Aura Check
@@ -612,30 +634,30 @@ class RestaurierDenker:
                             # §v10 Aura-Check: Wurde die Epoche zerstört?
                             try:
                                 from backend.core.aura_guard import compare_aura
-                                _aura_cmp = compare_aura(
-                                    np.asarray(audio, dtype=np.float32),
-                                    _restored_f32, sr)
+
+                                _aura_cmp = compare_aura(np.asarray(audio, dtype=np.float32), _restored_f32, sr)
                                 if not _aura_cmp.get("aura_preserved", True):
-                                    logger.warning("RestaurierDenker: AURA VERLETZT — %s",
-                                                 _aura_cmp.get("verdict", ""))
-                            except Exception: pass
+                                    logger.warning("RestaurierDenker: AURA VERLETZT — %s", _aura_cmp.get("verdict", ""))
+                            except Exception:
+                                pass
                             # §v10 Song-Profil aktualisieren
                             try:
                                 from backend.core.aurik_completion_engine import update_song_profile
+
                                 _mat = material or "unknown"
                                 update_song_profile("unknown", _mat, _delta)
-                            except Exception: pass
+                            except Exception:
+                                pass
                             result.quality_delta = _delta
                             return result
 
                         # Nicht am Sweet Spot → iterative Optimierung
-                        _optimized = self._optimize_to_sweet_spot(
-                            audio, _restored_f32, sr, result, max_iterations=3)
+                        _optimized = self._optimize_to_sweet_spot(audio, _restored_f32, sr, result, max_iterations=3)
                         if _optimized is not None:
                             return _optimized
 
                         # Optimierung nicht erfolgreich → FAILSAFE
-                        _fail_msg = f"Sweet Spot nicht erreichbar"
+                        _fail_msg = "Sweet Spot nicht erreichbar"
                         if _sweet is not None:
                             _fail_msg += f" ({_sweet.green_count}/7 green)"
                         logger.warning("RestaurierDenker: %s — versuche RETRY_LIGHTER", _fail_msg)
@@ -649,10 +671,18 @@ class RestaurierDenker:
                         fallback.audio = audio.copy()
                         return fallback
                     else:
-                        logger.info("RestaurierDenker: HPE %.3f->%.3f (%+.3f) Inviting %.3f->%.3f (%+.3f) %s",
-                                   _hpe_pre, _hpe_post, _delta, _inv_pre, _inv_post, _inv_delta,
-                                   _cmp.get("verdict",""))
-                except Exception: pass
+                        logger.info(
+                            "RestaurierDenker: HPE %.3f->%.3f (%+.3f) Inviting %.3f->%.3f (%+.3f) %s",
+                            _hpe_pre,
+                            _hpe_post,
+                            _delta,
+                            _inv_pre,
+                            _inv_post,
+                            _inv_delta,
+                            _cmp.get("verdict", ""),
+                        )
+                except Exception:
+                    pass
 
                 return result
             except Exception as uv3_exc:
@@ -950,8 +980,11 @@ class RestaurierDenker:
 
     @staticmethod
     def _optimize_to_sweet_spot(
-        original: np.ndarray, restored: np.ndarray, sr: int,
-        result: Any, max_iterations: int = 3,
+        original: np.ndarray,
+        restored: np.ndarray,
+        sr: int,
+        result: Any,
+        max_iterations: int = 3,
     ) -> Any | None:
         """§v10 Iterative Sweet-Spot-Optimierung: Findet den optimalen Klang."""
         current = restored.copy().astype(np.float64)
@@ -959,36 +992,55 @@ class RestaurierDenker:
 
         for iteration in range(max_iterations):
             try:
-                from backend.core.sweet_spot_optimizer import find_sweet_spot, GREEN_ZONE
+                from backend.core.sweet_spot_optimizer import GREEN_ZONE, find_sweet_spot
+
                 sweet = find_sweet_spot(current.astype(np.float32), sr)
                 if sweet.all_green:
-                    logger.info("SweetSpot Iter %d: ERREICHT!", iteration+1)
+                    logger.info("SweetSpot Iter %d: ERREICHT!", iteration + 1)
                     result.audio = current.astype(np.float32)
                     return result
                 if sweet.score > best_score:
                     best_score = sweet.score
                     result.audio = current.astype(np.float32)
 
-                m = {"hpe":sweet.hpe_score,"inviting":sweet.inviting_score,
-                     "transparency":sweet.transparency_score,"goosebumps":sweet.goosebumps_score,
-                     "comb":sweet.comb_filter,"compress":sweet.musical_compression,
-                     "masking":sweet.masking_health}
+                m = {
+                    "hpe": sweet.hpe_score,
+                    "inviting": sweet.inviting_score,
+                    "transparency": sweet.transparency_score,
+                    "goosebumps": sweet.goosebumps_score,
+                    "comb": sweet.comb_filter,
+                    "compress": sweet.musical_compression,
+                    "masking": sweet.masking_health,
+                }
                 t = GREEN_ZONE
-                worst = min(m, key=lambda k: m[k]-t.get(k.replace("compress","musical_compression").replace("comb","comb_filter").replace("masking","masking_health"),0.5))
-                gap = t.get(worst,0.5)-m[worst]
-                if gap < 0.05: break
+                worst = min(
+                    m,
+                    key=lambda k: (
+                        m[k]
+                        - t.get(
+                            k.replace("compress", "musical_compression")
+                            .replace("comb", "comb_filter")
+                            .replace("masking", "masking_health"),
+                            0.5,
+                        )
+                    ),
+                )
+                gap = t.get(worst, 0.5) - m[worst]
+                if gap < 0.05:
+                    break
 
-                logger.info("SweetSpot Iter %d: worst=%s (%.2f gap=%.3f)", iteration+1, worst, m[worst], gap)
+                logger.info("SweetSpot Iter %d: worst=%s (%.2f gap=%.3f)", iteration + 1, worst, m[worst], gap)
                 # §v10 Gezielte Korrektur via Band-Korrektur
                 _fixed = RestaurierDenker._apply_targeted_band_correction(
-                    original.astype(np.float64), current, sr, result)
+                    original.astype(np.float64), current, sr, result
+                )
                 if _fixed is not None:
-                    current = _fixed.audio.astype(np.float64) if hasattr(_fixed, 'audio') else current * 0.98
+                    current = _fixed.audio.astype(np.float64) if hasattr(_fixed, "audio") else current * 0.98
                 else:
                     current = np.clip(current * 0.98, -1, 1).astype(np.float64)
 
             except Exception as e:
-                logger.debug("SweetSpot Iter %d: %s", iteration+1, e)
+                logger.debug("SweetSpot Iter %d: %s", iteration + 1, e)
                 break
 
         return result if best_score > 0 else None
@@ -1008,15 +1060,16 @@ class RestaurierDenker:
             _lighter_kwargs["mode"] = "balanced"  # Weniger aggressiv als "quality"
             raw2 = restorer.restore(audio, **_lighter_kwargs)
             from denker.restaurier_denker import RestaurierDenker
+
             result2 = RestaurierDenker._konvertiere.__func__(None, raw2, material=material)
 
             # Prüfe ob der Retry besser ist
             from backend.core.human_pleasantness_estimator import compare_pleasantness
+
             _r2 = result2.audio
-            if _r2.ndim == 2: _r2 = _r2.mean(axis=1)
-            _cmp2 = compare_pleasantness(
-                np.asarray(audio, dtype=np.float32),
-                np.asarray(_r2, dtype=np.float32), sr)
+            if _r2.ndim == 2:
+                _r2 = _r2.mean(axis=1)
+            _cmp2 = compare_pleasantness(np.asarray(audio, dtype=np.float32), np.asarray(_r2, dtype=np.float32), sr)
             _delta2 = float(_cmp2.get("delta_score", 0.0))
             if _delta2 > -0.02:
                 logger.info("RestaurierDenker RETRY_LIGHTER erfolgreich: HPE %+.3f", _delta2)
@@ -1031,23 +1084,28 @@ class RestaurierDenker:
 
     @staticmethod
     def _apply_targeted_band_correction(
-        original: np.ndarray, restored: np.ndarray, sr: int, result: Any,
+        original: np.ndarray,
+        restored: np.ndarray,
+        sr: int,
+        result: Any,
     ) -> Any | None:
         """§v10 STUFE 1: Korrigiert nur das kranke Band statt alles zu verwerfen."""
         try:
-            from backend.core.inviting_sound_checker import check_inviting_sound, check_inviting_sound_per_band
+            pass
+
             from backend.core.human_pleasantness_estimator import compare_pleasantness
-            from scipy.signal import butter, sosfiltfilt
+            from backend.core.inviting_sound_checker import check_inviting_sound, check_inviting_sound_per_band
 
             bands_orig = check_inviting_sound_per_band(np.asarray(original, dtype=np.float64), sr)
             bands_rest = check_inviting_sound_per_band(np.asarray(restored, dtype=np.float64), sr)
             degraded = {}
             for b in bands_orig:
                 s0 = bands_orig[b][0]
-                s1 = bands_rest.get(b, (0.5,''))[0]
+                s1 = bands_rest.get(b, (0.5, ""))[0]
                 if s1 - s0 < -0.15:
                     degraded[b] = s1 - s0
-            if not degraded: return None
+            if not degraded:
+                return None
 
             logger.info("BAND-KORREKTUR: %d Baender verschlechtert", len(degraded))
 
@@ -1059,6 +1117,7 @@ class RestaurierDenker:
             corrected = restored.copy().astype(np.float64)
             try:
                 from backend.core.aurik_completion_engine import apply_dynamic_eq
+
                 corrected = apply_dynamic_eq(corrected, sr, eq_corrections)
             except Exception:
                 corrected *= 0.98
@@ -1075,7 +1134,9 @@ class RestaurierDenker:
             return None
         except Exception as e:
             logger.warning("BAND-KORREKTUR Fehler: %s", e)
-            return None# ---------------------------------------------------------------------------
+            return None  # ---------------------------------------------------------------------------
+
+
 # Thread-sicherer Singleton (Double-Checked Locking — §3.2)
 # ---------------------------------------------------------------------------
 
@@ -1094,6 +1155,7 @@ def get_restaurier_denker() -> RestaurierDenker:
                 _instance_holder[0] = instance
     assert instance is not None
     return instance
+
     def start_session(
         self,
         mode: str = "restoration",
@@ -1182,9 +1244,7 @@ def get_restaurier_denker() -> RestaurierDenker:
                 alt_reg = self._get_alternative_regression(ctx)
                 if alt_reg is not None and alt_reg < ctx.regression * 0.5:
                     proxy_regression = alt_reg
-                    decision = self._decide_on_regression(
-                        proxy_regression, ctx, thresholds, is_studio
-                    )
+                    decision = self._decide_on_regression(proxy_regression, ctx, thresholds, is_studio)
                     decision.false_positive_corrected = True
                     decision.proxy_alternative_used = True
                     decision.details["original_regression"] = ctx.regression
@@ -1193,14 +1253,10 @@ def get_restaurier_denker() -> RestaurierDenker:
                     return decision
 
             # ── Ebene 5: Mode-Adaptive Steering ──
-            decision = self._decide_on_regression(
-                proxy_regression, ctx, thresholds, is_studio
-            )
+            decision = self._decide_on_regression(proxy_regression, ctx, thresholds, is_studio)
             decision.mode_adjusted = True
             decision.details["regression"] = proxy_regression
-            decision.details["threshold_used"] = (
-                thresholds["retry_light"] if is_studio else thresholds["retry_light"]
-            )
+            decision.details["threshold_used"] = thresholds["retry_light"] if is_studio else thresholds["retry_light"]
 
             # ── Ebene 6: Standard Regression (PMGG) ──
             self._record(decision)
@@ -1212,12 +1268,12 @@ def get_restaurier_denker() -> RestaurierDenker:
         """Mode-adjustierte Schwellwerte."""
         if is_studio:
             return {
-                "retry_light": 0.060,       # HPE-Drop für RETRY_LIGHTER
-                "retry_heavy": 0.100,       # HPE-Drop für SKIP/ROLLBACK
-                "continue_up": 0.025,       # HPE-Verbesserung für CONTINUE
-                "proxy_check_min": 0.015,   # Regression ab wann Proxy-Check
-                "max_drops": 3,             # Max erlaubte Drops vor ROLLBACK
-                "paralysis_strength": 0.30, # Strength unterhalb = Paralysis
+                "retry_light": 0.060,  # HPE-Drop für RETRY_LIGHTER
+                "retry_heavy": 0.100,  # HPE-Drop für SKIP/ROLLBACK
+                "continue_up": 0.025,  # HPE-Verbesserung für CONTINUE
+                "proxy_check_min": 0.015,  # Regression ab wann Proxy-Check
+                "max_drops": 3,  # Max erlaubte Drops vor ROLLBACK
+                "paralysis_strength": 0.30,  # Strength unterhalb = Paralysis
             }
         return {
             "retry_light": 0.020,
@@ -1258,8 +1314,8 @@ def get_restaurier_denker() -> RestaurierDenker:
                         return Decision(
                             verdict=DecisionVerdict.RETRY_LIGHTER,
                             reason=f"Undo erkannt: {ctx.phase_id} hat "
-                                   f"{conf['original_contributor']}'s Arbeit an "
-                                   f"{conf.get('goal', '?')} rückgängig gemacht",
+                            f"{conf['original_contributor']}'s Arbeit an "
+                            f"{conf.get('goal', '?')} rückgängig gemacht",
                             recommended_strength=ctx.current_strength * 0.5,
                             undo_detected=True,
                             details={"conflict": conf},
@@ -1278,9 +1334,7 @@ def get_restaurier_denker() -> RestaurierDenker:
                 )
 
                 if ctx.audio_before is not None and ctx.audio_after is not None:
-                    alt_scores = _cv_proxy(
-                        ctx.phase_id, ctx.audio_before, ctx.audio_after, ctx.sr
-                    )
+                    alt_scores = _cv_proxy(ctx.phase_id, ctx.audio_before, ctx.audio_after, ctx.sr)
                     alt_regression = 0.0
                     for g in ctx.effective_goals:
                         b = ctx.scores_before.get(g, 0.5)
@@ -1294,8 +1348,8 @@ def get_restaurier_denker() -> RestaurierDenker:
                         return Decision(
                             verdict=DecisionVerdict.OVERRIDE_GUARD,
                             reason=f"Guard-Paralysis bei {ctx.current_strength:.0%}: "
-                                   f"PMGG Δ={ctx.regression:.3f} → Alternativ Δ={alt_regression:.3f} "
-                                   f"(false positive). Re-run mit voller Strength.",
+                            f"PMGG Δ={ctx.regression:.3f} → Alternativ Δ={alt_regression:.3f} "
+                            f"(false positive). Re-run mit voller Strength.",
                             recommended_strength=1.0,
                             retry_strategy=RetryStrategy.BYPASS_GUARD,
                             paralysis_detected=True,
@@ -1318,9 +1372,7 @@ def get_restaurier_denker() -> RestaurierDenker:
             )
 
             if ctx.audio_before is not None and ctx.audio_after is not None:
-                alt_scores = _cv_proxy(
-                    ctx.phase_id, ctx.audio_before, ctx.audio_after, ctx.sr
-                )
+                alt_scores = _cv_proxy(ctx.phase_id, ctx.audio_before, ctx.audio_after, ctx.sr)
                 alt_reg = 0.0
                 for g in ctx.effective_goals:
                     if g in alt_scores:
@@ -1347,7 +1399,7 @@ def get_restaurier_denker() -> RestaurierDenker:
             return Decision(
                 verdict=DecisionVerdict.CONTINUE,
                 reason=f"Regression {regression:.4f} < {thresholds['retry_light']} — "
-                       f"Phase erfolgreich ({'Studio' if is_studio else 'Restoration'})",
+                f"Phase erfolgreich ({'Studio' if is_studio else 'Restoration'})",
                 recommended_strength=ctx.current_strength,
             )
 
@@ -1357,15 +1409,14 @@ def get_restaurier_denker() -> RestaurierDenker:
                 return Decision(
                     verdict=DecisionVerdict.RETRY_DIFFERENT,
                     reason=f"Leichter Drop (Δ={regression:.3f}) nach {ctx.retry_count} Retries "
-                           f"→ alternativen Ansatz versuchen (Studio 2026)",
+                    f"→ alternativen Ansatz versuchen (Studio 2026)",
                     recommended_strength=1.0,
                     retry_strategy=RetryStrategy.SWITCH_PLUGIN,
                 )
             new_strength = ctx.current_strength * (0.65 if ctx.retry_count == 0 else 0.40)
             return Decision(
                 verdict=DecisionVerdict.RETRY_LIGHTER,
-                reason=f"Leichter Drop (Δ={regression:.3f}) → reduzierte Intensität "
-                       f"({new_strength:.0%})",
+                reason=f"Leichter Drop (Δ={regression:.3f}) → reduzierte Intensität ({new_strength:.0%})",
                 recommended_strength=new_strength,
                 retry_strategy=RetryStrategy.REDUCE_INTENSITY,
             )
@@ -1374,8 +1425,7 @@ def get_restaurier_denker() -> RestaurierDenker:
         if ctx.retry_count >= thresholds["max_drops"]:
             return Decision(
                 verdict=DecisionVerdict.ROLLBACK,
-                reason=f"Starker Drop (Δ={regression:.3f}) nach "
-                       f"{ctx.retry_count} Retries → ROLLBACK",
+                reason=f"Starker Drop (Δ={regression:.3f}) nach {ctx.retry_count} Retries → ROLLBACK",
                 recommended_strength=0.0,
             )
         return Decision(
@@ -1415,5 +1465,3 @@ def get_restaurier_denker() -> RestaurierDenker:
             self._phase_count = 0
             self._best_effort_count = 0
             self._decision_history.clear()
-
-

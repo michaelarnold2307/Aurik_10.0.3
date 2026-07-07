@@ -12,7 +12,9 @@ from Aurik10.ui.modern_window import ModernMainWindow
 def _mock_window():
     """Create a mock window with the methods _build_quality_banner_sections needs."""
     m = MagicMock()
-    m._build_recovery_diagnostic_line.return_value = "🧾  Recovery-Diagnose: Urteil=UPGRADE  ·  Pipeline=ok  ·  Export=vorhanden  ·  A/B=—"
+    m._build_recovery_diagnostic_line.return_value = (
+        "🧾  Recovery-Diagnose: Urteil=UPGRADE  ·  Pipeline=ok  ·  Export=vorhanden  ·  A/B=—"
+    )
     return m
 
 

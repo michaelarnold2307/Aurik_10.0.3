@@ -14,23 +14,26 @@ import pytest
 GUI_FILE = Path("Aurik10/ui/modern_window.py")
 
 
-
 # ── Semantic Contract Helpers (empfohlen statt String-Suche) ──
+
 
 def _gui_has_method(method_name: str) -> bool:
     """Check if ModernMainWindow has a specific method — semantic, not string-based."""
     src = _read_gui_source()
     return f"def {method_name}" in src
 
+
 def _gui_has_attribute(attr_name: str) -> bool:
     """Check if ModernMainWindow.__init__ sets a specific attribute."""
     src = _read_gui_source()
     return f"self.{attr_name}" in src
 
+
 def _gui_has_widget_class(class_name: str) -> bool:
     """Check if a widget class is referenced in the GUI source."""
     src = _read_gui_source()
     return class_name in src
+
 
 def _read_gui_source() -> str:
     assert GUI_FILE.exists(), f"Missing GUI file: {GUI_FILE}"
@@ -623,7 +626,7 @@ def test_defect_progress_uses_open_done_wording_and_deduped_event_totals() -> No
     src = _read_gui_source()
     assert "_has_progress = _remaining < _total or _resolved > 0 or _reduced >= 3" in src
     assert "if _pct < 19.0 and not _has_progress:" in src
-    assert 'offen' in src
+    assert "offen" in src
     assert "def _sum_event_counts_dedup" in src
     assert '_alias_groups = (("pops", "clipping"), ("noise", "noise_level"))' in src
     assert "_total_count += max(max(0, int(_counts.get(_member, 0) or 0)) for _member in _group)" in src

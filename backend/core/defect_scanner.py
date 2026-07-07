@@ -207,7 +207,6 @@ class DefectType(Enum):
     TAPE_HEAD_CLOG = "tape_head_clog"
 
 
-
 class MaterialType(Enum):
     """Material-Typen für adaptive Thresholds."""
 
@@ -1761,9 +1760,7 @@ class DefectScanner:
 
         # ── Tier 2: Dropout-Subtypen ───────────────────────────────────────
         # Klassifiziert Dropouts aus _detect_dropouts in drei Subtypen.
-        _oxide_score, _hc_score, _splice_score, _all_dropout_locs = (
-            self._detect_dropout_subtypes(_audio_mono_full)
-        )
+        _oxide_score, _hc_score, _splice_score, _all_dropout_locs = self._detect_dropout_subtypes(_audio_mono_full)
         scores[DefectType.DROPOUT_OXIDE] = _oxide_score
         scores[DefectType.DROPOUT_HEAD_CONTACT] = _hc_score
         scores[DefectType.DROPOUT_SPLICE] = _splice_score
@@ -1778,8 +1775,7 @@ class DefectScanner:
             scores[DefectType.STEREO_FIELD_COLLAPSE] = self._detect_stereo_collapse(audio)
         else:
             scores[DefectType.STEREO_FIELD_COLLAPSE] = DefectScore(
-                DefectType.STEREO_FIELD_COLLAPSE, 0.0, 0.5,
-                metadata={"reason": "mono"}
+                DefectType.STEREO_FIELD_COLLAPSE, 0.0, 0.5, metadata={"reason": "mono"}
             )
         _tail_tick("Stereofeld-Kollaps")
 
@@ -4388,7 +4384,7 @@ class DefectScanner:
         # Pegelverlust-Tiefe: RMS vor Dropout vs während Dropout
         pre_start = max(0, start_sample - (end_sample - start_sample))
         pre_rms = float(np.sqrt(np.mean(audio_data[pre_start:start_sample] ** 2))) + 1e-12
-        seg_rms = float(np.sqrt(np.mean(segment ** 2)))
+        seg_rms = float(np.sqrt(np.mean(segment**2)))
         loss_ratio = 1.0 - float(np.clip(seg_rms / pre_rms, 0.0, 1.0))
 
         # Modulationsmuster: RMS-Verlauf während des Dropouts
@@ -4427,7 +4423,10 @@ class DefectScanner:
     def _detect_dropout_subtypes(
         self, audio_data: np.ndarray
     ) -> tuple[
-        DefectScore, DefectScore, DefectScore, list[tuple[float, float]],
+        DefectScore,
+        DefectScore,
+        DefectScore,
+        list[tuple[float, float]],
     ]:
         """Erweiterte Dropout-Detektion mit Subtyp-Differenzierung.
 
@@ -4449,12 +4448,24 @@ class DefectScanner:
         locations = base_result.locations or []
 
         if not locations:
-            zero_oxide = DefectScore(DefectType.DROPOUT_OXIDE, 0.0, 0.3,
-                metadata={"oxide_count": 0, "oxide_total_s": 0.0, "base_severity": 0.0})
-            zero_hc = DefectScore(DefectType.DROPOUT_HEAD_CONTACT, 0.0, 0.3,
-                metadata={"head_contact_count": 0, "head_contact_total_s": 0.0, "base_severity": 0.0})
-            zero_splice = DefectScore(DefectType.DROPOUT_SPLICE, 0.0, 0.3,
-                metadata={"splice_count": 0, "splice_total_s": 0.0, "base_severity": 0.0})
+            zero_oxide = DefectScore(
+                DefectType.DROPOUT_OXIDE,
+                0.0,
+                0.3,
+                metadata={"oxide_count": 0, "oxide_total_s": 0.0, "base_severity": 0.0},
+            )
+            zero_hc = DefectScore(
+                DefectType.DROPOUT_HEAD_CONTACT,
+                0.0,
+                0.3,
+                metadata={"head_contact_count": 0, "head_contact_total_s": 0.0, "base_severity": 0.0},
+            )
+            zero_splice = DefectScore(
+                DefectType.DROPOUT_SPLICE,
+                0.0,
+                0.3,
+                metadata={"splice_count": 0, "splice_total_s": 0.0, "base_severity": 0.0},
+            )
             return zero_oxide, zero_hc, zero_splice, []
 
         # Classify each dropout
@@ -4471,9 +4482,7 @@ class DefectScanner:
             start_samp = max(0, min(start_samp, len(audio_data) - 1))
             end_samp = max(start_samp + 1, min(end_samp, len(audio_data)))
 
-            subtype = self._classify_dropout_subtype(
-                audio_data, start_samp, end_samp
-            )
+            subtype = self._classify_dropout_subtype(audio_data, start_samp, end_samp)
             dur = end_s - start_s
 
             if subtype == DefectType.DROPOUT_OXIDE:
@@ -4579,17 +4588,12 @@ class DefectScanner:
         from backend.core.defect_detection.stereo_collapse import detect_stereo_collapse
 
         if audio.ndim < 2 or audio.shape[1] < 2:
-            return DefectScore(
-                DefectType.STEREO_FIELD_COLLAPSE, 0.0, 0.5,
-                metadata={"reason": "mono"}
-            )
+            return DefectScore(DefectType.STEREO_FIELD_COLLAPSE, 0.0, 0.5, metadata={"reason": "mono"})
 
         if len(audio) < self.sample_rate * 10:
             return DefectScore(DefectType.STEREO_FIELD_COLLAPSE, 0.0, 0.5)
 
-        locations, collapse_ratio, confidence = detect_stereo_collapse(
-            audio, self.sample_rate
-        )
+        locations, collapse_ratio, confidence = detect_stereo_collapse(audio, self.sample_rate)
 
         severity = float(np.clip(collapse_ratio * 1.5, 0.0, 1.0))
         confidence = float(np.clip(confidence, 0.0, 1.0))
@@ -4614,9 +4618,7 @@ class DefectScanner:
         if len(audio_mono) < self.sample_rate * 0.2:
             return DefectScore(DefectType.PHASE_ROTATION, 0.0, 0.5)
 
-        locations, phase_dispersion, confidence = detect_phase_rotation(
-            audio_mono, self.sample_rate
-        )
+        locations, phase_dispersion, confidence = detect_phase_rotation(audio_mono, self.sample_rate)
 
         duration = len(audio_mono) / max(self.sample_rate, 1)
         anomaly_ratio = sum(end - start for start, end in locations) / max(duration, 1e-6)
@@ -9128,58 +9130,53 @@ class DefectScanner:
         Nur für batch/offline-Verarbeitung — nicht streaming-geeignet.
         """
         import concurrent.futures
-        from copy import deepcopy
-        
+
         # Partition detectors into independent groups
         # Group 1: Spectral detectors (CLICK, CRACKLE, HUM, RUMBLE, NOISE)
         # Group 2: Temporal detectors (WOW, FLUTTER, DROPOUT, TRANSPORT)
         # Group 3: Structural detectors (STEREO, PHASE, CLIPPING, DC)
         # Group 4: Codec detectors (COMPRESSION, PRE_ECHO, ALIASING)
-        
+
         independent_tasks = [
             ("spectral", self._scan_spectral_defects),
             ("temporal", self._scan_temporal_defects),
             ("structural", self._scan_structural_defects),
             ("codec", self._scan_codec_defects),
         ]
-        
+
         results: dict[str, object] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, len(independent_tasks))) as executor:
-            futures = {
-                executor.submit(task_fn, audio, sr): name
-                for name, task_fn in independent_tasks
-            }
+            futures = {executor.submit(task_fn, audio, sr): name for name, task_fn in independent_tasks}
             for future in concurrent.futures.as_completed(futures):
                 name = futures[future]
                 try:
                     results[name] = future.result(timeout=120)
                 except Exception as e:
                     logger.warning("Parallel scan group '%s' failed: %s", name, e)
-        
+
         # Merge results
         return self._merge_parallel_results(audio, sr, results)
-    
+
     def _scan_spectral_defects(self, audio, sr):
         """Gruppe 1: Spektrale Defekte."""
         return {"crackle": None, "hum": None, "rumble": None}
-    
+
     def _scan_temporal_defects(self, audio, sr):
         """Gruppe 2: Zeitliche Defekte."""
         return {"wow": None, "flutter": None, "dropout": None}
-    
+
     def _scan_structural_defects(self, audio, sr):
         """Gruppe 3: Strukturelle Defekte."""
         return {"stereo": None, "phase": None, "clipping": None, "dc_offset": None}
-    
+
     def _scan_codec_defects(self, audio, sr):
         """Gruppe 4: Codec-Defekte."""
         return {"compression": None, "pre_echo": None, "aliasing": None}
-    
+
     def _merge_parallel_results(self, audio, sr, results):
         """Merge-Ergebnisse aus parallelen Scan-Gruppen."""
         # Fallback: run sequential scan
         return self.scan(audio, sr)
-
 
     # §QW4 Vibrato-Guard: Cross-band coherence check prevents vibrato (5-8 Hz,
     # ±50 cent, band-übergreifend kohärent) from being misclassified as flutter.
@@ -9190,6 +9187,7 @@ class DefectScanner:
         Flutter ist band-spezifisch und unkohärent (cross-band coherence < 0.5).
         """
         import numpy as np
+
         bands = list(pitch_deviations.values()) if isinstance(pitch_deviations, dict) else []
         if len(bands) < 2:
             return False

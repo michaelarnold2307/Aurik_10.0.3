@@ -265,7 +265,7 @@ class AirBandEnhancement(PhaseInterface):
             _skip_audio = np.clip(_skip_audio, -1.0, 1.0)
             logger.info(
                 "Phase 39 §0a skip: Restoration-Mode + analog material '%s' — "
-                    "Air-Band-Enhancement (Harmonic Exciter) verboten",
+                "Air-Band-Enhancement (Harmonic Exciter) verboten",
                 _mat_name_39,
             )
             return PhaseResult(

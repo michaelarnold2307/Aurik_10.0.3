@@ -2232,8 +2232,11 @@ class GrooveMetric:
                     _onset_score = float(np.clip(0.85 + 0.15 * (_onset_preservation - 0.90) / 0.10, 0.85, 1.0))
                     logger.info(
                         "GrooveMetric Onset-Guard: %d/%d onsets (%.0f%%) → score %.3f→%.3f",
-                        result.n_onsets_restored, result.n_onsets_original,
-                        _onset_preservation * 100, _dtw_score, _onset_score,
+                        result.n_onsets_restored,
+                        result.n_onsets_original,
+                        _onset_preservation * 100,
+                        _dtw_score,
+                        _onset_score,
                     )
                     return _onset_score
                 # Katastrophaler DTW-Score: kein echter Groove-Verlust fällt unter 0.05.
