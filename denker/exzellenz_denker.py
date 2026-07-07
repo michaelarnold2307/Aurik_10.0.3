@@ -494,6 +494,10 @@ class ExzellenzDenker:
             logger.warning("ExzellenzDenker: Goal-Messung fehlgeschlagen: %s", exc)
             return {}
 
+    def _get_surgical_zones(self, ctx: dict) -> list:
+        """§2.59: Bereits chirurgisch behandelte Zonen — nicht erneut anfassen."""
+        return ctx.get("surgical_defect_types", [])
+
     def messe_und_repariere(
         self,
         audio: np.ndarray,

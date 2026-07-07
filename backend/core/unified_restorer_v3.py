@@ -7194,6 +7194,11 @@ class UnifiedRestorerV3:
         self._active_global_plan = _gp_kwarg if _gp_kwarg is not None else self.config.global_plan
         self._active_chain_info = _chain_kwarg  # TonträgerketteDenker: Ketten-Phasen
         self._active_defekt_hint = _defekt_hint_kwarg  # DefektDenker: heuristische Phasen-Empfehlung
+        # §2.59: Chirurgische Defekte in restoration_context für alle Module sichtbar
+        if isinstance(_defekt_hint_kwarg, dict):
+            _surg = _defekt_hint_kwarg.get("surgical_defect_types", [])
+            if _surg:
+                self._restoration_context["surgical_defect_types"] = list(_surg)
 
         _cb(1, "Initialisierung…")
         # Robuste Sample-Count-Ermittlung: (N,2) → N, (2,N) → N, (N,) → N
