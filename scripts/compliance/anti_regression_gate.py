@@ -238,6 +238,15 @@ def check_surgical_architecture(filepath: str) -> list[str]:
 
     return issues
 
+
+def check_name_error_risk(filepath: str) -> list[str]:
+    import py_compile
+    try:
+        py_compile.compile(filepath, doraise=True)
+        return []
+    except py_compile.PyCompileError as e:
+        return [f'{filepath}: does not compile: {e}']
+
 def main() -> None:
     changed = sys.argv[1:]
     if not changed:
@@ -258,6 +267,7 @@ def main() -> None:
         all_issues.extend(check_absolute_bw_loss(fp))
         all_issues.extend(check_defect_classification(fp))
         all_issues.extend(check_surgical_architecture(fp))
+        all_issues.extend(check_name_error_risk(fp))
 
     if all_issues:
         print(f"🛡️ Anti-Regression-Gate: {len(all_issues)} Verletzung(en)\n")
