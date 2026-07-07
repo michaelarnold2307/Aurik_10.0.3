@@ -1,13 +1,13 @@
 """
-§2.59 Vocal Distortion Sentinel (2026-07-09)
+§2.59 Vocal Distortion Sentinel — AKTIV (2026-07-09)
 
-Läuft während restore() und erkennt akustische Anzeichen für
-vokale Verzerrung. Warnt frühzeitig, damit Aurik gegensteuern kann.
+Erkennt Gesangsverzerrung und HANDELT:
+1. Warnt lautstark (WARNING)
+2. Injiziert De-Esser in den Phasenplan
+3. Reduziert Harmonic-Restoration-Stärke
+4. Meldet an RestorationContext für Downstream-Phasen
 
-Erkennt:
-  - HNR-Abfall (Harmonic-to-Noise Ratio) in Gesangszonen
-  - Übermäßige Harmonic-Restoration ohne De-Essing
-  - SFT-Echo-Artefakte in Vocal-Segmenten
+Aktiviert bei: HNR-Abfall > 3 dB oder Harmonic-Restoration ohne De-Esser.
 """
 
 from __future__ import annotations
@@ -15,14 +15,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
 class VocalDistortionSentinel:
-    """Überwacht Gesangsqualität während der Pipeline."""
-
     def __init__(self, singing_confidence: float = 0.0) -> None:
         self._singing_conf = singing_confidence
         self._hnr_before: float | None = None
@@ -30,6 +26,8 @@ class VocalDistortionSentinel:
         self._harmonic_restoration_applied: bool = False
         self._deesser_applied: bool = False
         self._warnings: list[str] = []
+        self._injected_phases: list[str] = []
+        self._strength_overrides: dict[str, float] = {}
 
     def set_baseline_hnr(self, hnr_db: float) -> None:
         self._hnr_before = hnr_db
@@ -37,49 +35,50 @@ class VocalDistortionSentinel:
     def record_phase(self, phase_id: str) -> None:
         if "harmonic_restoration" in phase_id:
             self._harmonic_restoration_applied = True
-        if "de_esser" in phase_id:
+        if "de_esser" in phase_id or "deesser" in phase_id:
             self._deesser_applied = True
 
-    def check(self, post_hnr_db: float | None = None) -> list[str]:
-        """Prüft auf Verzerrungs-Risiken. Returns Liste von Warnungen."""
+    def check(self, post_hnr_db: float | None = None) -> dict[str, Any]:
+        """Check + ACT: Returns dict with actions for UV3."""
         self._warnings = []
+        self._injected_phases = []
+        self._strength_overrides = {}
 
-        # 1. HNR vorher/nachher
+        # 1. HNR-Abfall → AKTION: Harmonic Restoration drosseln
         if post_hnr_db is not None and self._hnr_before is not None:
             delta = post_hnr_db - self._hnr_before
             if delta < -3.0:
                 self._warnings.append(
-                    f"HNR-Abfall {delta:+.1f} dB ({self._hnr_before:.1f} → {post_hnr_db:.1f}) — "
-                    f"mögliche vokale Verzerrung"
+                    f"HNR-Abfall {delta:+.1f} dB → Harmonic Restoration wird "
+                    f"auf 30% reduziert"
                 )
+                self._strength_overrides["phase_07_harmonic_restoration"] = 0.30
             elif delta < -1.5:
-                logger.info(
-                    "VocalSentinel: leichter HNR-Abfall %+.1f dB — beobachten", delta
-                )
+                self._strength_overrides["phase_07_harmonic_restoration"] = 0.50
 
-        # 2. Harmonic Restoration ohne De-Esser
+        # 2. Harmonic Restoration ohne De-Esser → AKTION: De-Esser injizieren
         if self._harmonic_restoration_applied and not self._deesser_applied:
             if self._singing_conf >= 0.25:
                 self._warnings.append(
-                    "Harmonic Restoration aktiv, aber KEIN De-Esser — "
-                    "Gefahr von Gesangs-Verzerrung in lauten Passagen. "
-                    "→ phase_19_de_esser oder phase_43_ml_deesser zum Plan hinzufügen."
+                    "Harmonic Restoration AKTIV aber KEIN De-Esser → "
+                    "phase_19_de_esser + phase_43_ml_deesser werden injiziert"
                 )
+                self._injected_phases.extend([
+                    "phase_19_de_esser",
+                    "phase_43_ml_deesser",
+                ])
+                self._strength_overrides["phase_07_harmonic_restoration"] = 0.40
 
-        # 3. Hohe Singing-Confidence ohne Vocal-Protection
-        if self._singing_conf >= 0.35:
-            if not self._deesser_applied:
-                logger.info(
-                    "VocalSentinel: singing=%.2f aber kein De-Esser — "
-                    "Zischlaute könnten verstärkt werden",
-                    self._singing_conf,
-                )
+        # 3. Gesang erkannt → Vocal-Protection aktivieren
+        if self._singing_conf >= 0.35 and not self._deesser_applied:
+            self._injected_phases.append("phase_19_de_esser")
 
         for w in self._warnings:
-            logger.warning("🎤 VocalSentinel: %s", w)
+            logger.warning("🎤 VocalSentinel AKTION: %s", w)
 
-        return self._warnings
-
-    @property
-    def has_warnings(self) -> bool:
-        return len(self._warnings) > 0
+        return {
+            "warnings": self._warnings,
+            "injected_phases": self._injected_phases,
+            "strength_overrides": self._strength_overrides,
+            "has_actions": bool(self._injected_phases or self._strength_overrides),
+        }
