@@ -85,7 +85,12 @@ class PhaseMetadata:
 # ---------------------------------------------------------------------------
 @dataclass
 class PhaseResult:
-    """Ergebnis einer Phase-Verarbeitung — immer NaN/Inf-frei und geclippt."""
+    """Ergebnis einer Phase-Verarbeitung — immer NaN/Inf-frei und geclippt.
+
+    §2.59: time_range ermöglicht chirurgische Verarbeitung.
+    Wenn gesetzt, wurde die Phase NUR auf diesen Zeitbereich angewendet.
+    None = Phase hat gesamtes Audio verarbeitet (global).
+    """
 
     audio: np.ndarray  # Verarbeitetes Audio (float32, [-1,1])
     modifications: dict[str, Any] = field(default_factory=dict)
@@ -94,6 +99,7 @@ class PhaseResult:
     # metrics ist ein echtes Feld als Alias fuer metadata-Inhalte.
     # Wird es beim Konstruktor-Aufruf uebergeben, landet der Inhalt
     # in metadata (via __post_init__).
+    time_range: tuple[float, float] | None = None  # §2.59: (start_s, end_s) oder None=global
     metrics: dict[str, Any] = field(default_factory=dict)
     execution_time_seconds: float = 0.0
     ml_used: bool = False
