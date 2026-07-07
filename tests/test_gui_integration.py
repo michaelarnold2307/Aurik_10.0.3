@@ -20,7 +20,7 @@ pytestmark = pytest.mark.gui
 def test_gui_import():
     """Test that GUI modules can be imported"""
     pytest.importorskip("PyQt5")
-    from Aurik910.ui.modern_window import (
+    from Aurik10.ui.modern_window import (
         BatchProcessingThread,
         DefectCounterWidget,
         ModernMainWindow,
@@ -39,7 +39,7 @@ def test_gui_import():
 def test_unified_restorer_v3_integration():
     """Test that BatchProcessingThread uses the correct Pipeline-Signals."""
     pytest.importorskip("PyQt5")
-    from Aurik910.ui.modern_window import BatchProcessingThread
+    from Aurik10.ui.modern_window import BatchProcessingThread
 
     # Check that BatchProcessingThread has all required signals
     assert hasattr(BatchProcessingThread, "mode_update")
@@ -62,7 +62,7 @@ def test_resource_widget_initialization():
     if app is None:
         app = QApplication(sys.argv)
 
-    from Aurik910.ui.modern_window import ResourceStatusWidget
+    from Aurik10.ui.modern_window import ResourceStatusWidget
 
     widget = ResourceStatusWidget()
 
@@ -141,7 +141,7 @@ def test_restoration_config_creation():
 def test_processing_thread_signals():
     """Test that BatchProcessingThread has all required signal attributes."""
     pytest.importorskip("PyQt5")
-    from Aurik910.ui.modern_window import BatchProcessingThread
+    from Aurik10.ui.modern_window import BatchProcessingThread
 
     assert hasattr(BatchProcessingThread, "item_progress")
     assert hasattr(BatchProcessingThread, "item_started")
@@ -161,7 +161,7 @@ def test_processing_thread_signals():
 def test_live_quality_estimate_updates_during_pipeline():
     """Test that GUI quality has a live estimate before final MOS calculation."""
     pytest.importorskip("PyQt5")
-    from Aurik910.ui.modern_window import BatchProcessingThread
+    from Aurik10.ui.modern_window import BatchProcessingThread
 
     start = BatchProcessingThread._estimate_live_quality_mos(5.0, baseline_mos=3.4)
     mid = BatchProcessingThread._estimate_live_quality_mos(45.0, baseline_mos=3.4, active_phase_count=4)
@@ -182,7 +182,7 @@ def test_main_window_layout_gate_keeps_primary_controls_visible():
     from PyQt5.QtCore import QSize
     from PyQt5.QtWidgets import QApplication
 
-    from Aurik910.ui.modern_window import ModernMainWindow
+    from Aurik10.ui.modern_window import ModernMainWindow
 
     app = QApplication.instance()
     if app is None:

@@ -935,7 +935,7 @@ def test_restoration_criteria(criterion: dict[str, Any], real_audio_runtime_case
         if criterion["id"] == "R1":
             # Mode announcement
             found = check_code_for_pattern(
-                "Aurik910/ui/modern_window.py",
+                "Aurik10/ui/modern_window.py",
                 [
                     r"Restoration\s+gew[äa]hlt",
                     r"Studio\s+2026\s+gew[äa]hlt",
@@ -947,7 +947,7 @@ def test_restoration_criteria(criterion: dict[str, Any], real_audio_runtime_case
         elif criterion["id"] == "R2":
             # Defect scanning
             found = check_code_for_pattern(
-                "Aurik910/ui/modern_window.py",
+                "Aurik10/ui/modern_window.py",
                 [r"scan_progress", r"_on_scan_progress"],
             )
             assert found, "scan_progress signal not found"
@@ -956,7 +956,7 @@ def test_restoration_criteria(criterion: dict[str, Any], real_audio_runtime_case
         elif criterion["id"] == "R3":
             # Progress bars
             found = check_code_for_pattern(
-                "Aurik910/ui/modern_window.py",
+                "Aurik10/ui/modern_window.py",
                 [r"phase_progress_bar", r"setRange\(0,\s*10000\)"],
             )
             assert found, "Phase progress bar not configured"
@@ -965,7 +965,7 @@ def test_restoration_criteria(criterion: dict[str, Any], real_audio_runtime_case
         elif criterion["id"] == "R4":
             # Waveform cursor
             found = check_code_for_pattern(
-                "Aurik910/ui/modern_window.py",
+                "Aurik10/ui/modern_window.py",
                 [r"set_scan_pos", r"waveform_widget"],
             )
             assert found, "Waveform scan position not implemented"
@@ -1112,7 +1112,7 @@ def test_restoration_criteria(criterion: dict[str, Any], real_audio_runtime_case
 
         elif criterion["id"] == "R9":
             # Reversing (Ctrl+Z)
-            found = check_code_for_pattern("Aurik910/ui/modern_window.py", [r"Ctrl\+Z", r"Undo"])
+            found = check_code_for_pattern("Aurik10/ui/modern_window.py", [r"Ctrl\+Z", r"Undo"])
             assert found, "Undo shortcut not found"
             result["evidence"] = "Ctrl+Z shortcut defined"
 
@@ -1264,7 +1264,7 @@ def test_studio_2026_criteria(criterion: dict[str, Any]):
     try:
         if criterion["id"] == "S1":
             # Studio 2026 mode announcement
-            found = check_code_for_pattern("Aurik910/ui/modern_window.py", [r"Studio\s+2026\s+gew[äa]hlt"])
+            found = check_code_for_pattern("Aurik10/ui/modern_window.py", [r"Studio\s+2026\s+gew[äa]hlt"])
             assert found, "Studio 2026 announcement not found"
             result["evidence"] = "Studio 2026 mode announcement present"
 
@@ -1455,7 +1455,7 @@ def test_kmv_batch_audio_correct():
     # Check that KMV refinement path uses audio_original, not tube3_export
     try:
         base = Path("/media/michael/Software 4TB/Aurik_Standalone")
-        code_path = base / "Aurik910" / "ui" / "modern_window.py"
+        code_path = base / "Aurik10" / "ui" / "modern_window.py"
         with open(code_path, encoding="utf-8") as f:
             content = f.read()
         # Ensure KMV job payload carries original audio and no legacy tube3 reference.
@@ -1470,7 +1470,7 @@ def test_no_silent_refinement_cancellation():
     from pathlib import Path
 
     try:
-        code_path = Path("/media/michael/Software 4TB/Aurik_Standalone") / "Aurik910" / "ui" / "ml_refinement_thread.py"
+        code_path = Path("/media/michael/Software 4TB/Aurik_Standalone") / "Aurik10" / "ui" / "ml_refinement_thread.py"
         with open(code_path, encoding="utf-8") as f:
             content = f.read()
         # Check for refinement_cancelled signal emission
@@ -1484,7 +1484,7 @@ def test_no_silent_refinement_cancellation():
 def test_progress_counter_consistency():
     """Gate G4: Progress counter increments/decrements correctly."""
     try:
-        code_path = Path("/media/michael/Software 4TB/Aurik_Standalone") / "Aurik910" / "ui" / "modern_window.py"
+        code_path = Path("/media/michael/Software 4TB/Aurik_Standalone") / "Aurik10" / "ui" / "modern_window.py"
         with open(code_path, encoding="utf-8") as f:
             content = f.read()
         # Check for counter update logic

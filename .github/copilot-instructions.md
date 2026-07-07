@@ -100,7 +100,7 @@ Dosiergenauigkeit **keine Konkurrenz** zulaesst.
 
 **Vollständige Spezifikation**: [`.github/specs/10_bug_gap_strategy.md`](specs/10_bug_gap_strategy.md)
 
-**Jede Session MUSS den 5-Layer-Scan durchführen**: L1 Frontend → L2 Bridge/CLI → L3 Denker → L4 UV3-Pipeline → L5 Phasen/DSP/Plugins (§10.1). Bug-Klassen: R-BLOCKER (P0/sofort) → AUDIO-QUALITY (P1) → SPEC-GAP (P2) → TYPE-SAFETY (P3). Behebungs-Workflow: Fix → Test → VERBOTEN-Regel → Spec → Commit (§10.5). **Aktueller Type-Safety-Stand** (v9.21.2): `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` haben 0 mypy-Fehlercodes; `no-any-return` und `var-annotated` sind in diesen Release-Layern auf 0. Pre-commit MUSS `aurik-type-ignore-order` und `aurik-mypy-real-bug-gate` ausführen; `scripts/check_mypy_real_bugs.py::IGNORED_CODES` MUSS leer bleiben. Worldclass-Gates MÜSSEN R5-R12-Real-Audio-Corpus-Coverage (`shellac`, `vinyl`, `tape`, `cd_digital`, `mp3_low`, vokaler Fokus), GUI/CLI/Batch-Bridge-Parität, Vocal-Naturalness/Phase-Koalitions-Contracts, A/B-Counterfactual-Safety-Veto und Export-Hörschaden-Gates (Structural Silence + schwere Vocal-Guard-Schäden) prüfen.
+**Jede Session MUSS den 5-Layer-Scan durchführen**: L1 Frontend → L2 Bridge/CLI → L3 Denker → L4 UV3-Pipeline → L5 Phasen/DSP/Plugins (§10.1). Bug-Klassen: R-BLOCKER (P0/sofort) → AUDIO-QUALITY (P1) → SPEC-GAP (P2) → TYPE-SAFETY (P3). Behebungs-Workflow: Fix → Test → VERBOTEN-Regel → Spec → Commit (§10.5). **Aktueller Type-Safety-Stand** (v9.21.2): `backend/core/`, `backend/api/`, `plugins/`, `Aurik10/`, `cli/` haben 0 mypy-Fehlercodes; `no-any-return` und `var-annotated` sind in diesen Release-Layern auf 0. Pre-commit MUSS `aurik-type-ignore-order` und `aurik-mypy-real-bug-gate` ausführen; `scripts/check_mypy_real_bugs.py::IGNORED_CODES` MUSS leer bleiben. Worldclass-Gates MÜSSEN R5-R12-Real-Audio-Corpus-Coverage (`shellac`, `vinyl`, `tape`, `cd_digital`, `mp3_low`, vokaler Fokus), GUI/CLI/Batch-Bridge-Parität, Vocal-Naturalness/Phase-Koalitions-Contracts, A/B-Counterfactual-Safety-Veto und Export-Hörschaden-Gates (Structural Silence + schwere Vocal-Guard-Schäden) prüfen.
 
 **§0q-Invariante**: Jeder Bug der ≥2 Mal re-introduced wurde, MUSS eine VERBOTEN-Regel (V01–V58) und einen Linter-Test erhalten. Systemische Fixes (≥5 Stellen) via `§0f`-Workflow. `# type: ignore[...]` MUSS vor anderen Inline-Kommentaren stehen (`code  # type: ignore[code]  # Kommentar`), sonst blockiert `aurik-type-ignore-order`. Worldclass-Release-Gates MÜSSEN zusätzlich den Trusted Vocal Restoration Report erzwingen: mindestens 20 vokale Real-Cases, Ziel 50, Baseline-Familien `input_passthrough`/`classical_dsp`/`sota_ml`/`commercial_reference`, Human-Hearing-Fokus, vollautomatischer Betrieb, keine Safety-Regression gegen beste Baseline und lesbarer JSON/Markdown-Report mit `PASS`/`RECOVERED`/`DEGRADED` statt hartem Audio-Abbruch.
 
@@ -234,10 +234,10 @@ Telemetry     → metadata mit fail_reason / degradation_status / quality_gate_p
 
 Bei jedem Release-Bump MUSS die sichtbare Frontend-Version konsistent mit der Paketversion sein.
 
-- Kanonische Quelle: `Aurik910/__init__.py::__version__`
-- Fenstertitel: `Aurik910/ui/modern_window.py` (`setWindowTitle(f"AURIK Professional v{_AURIK_VERSION}")`)
-- Splashscreen-Badge: `Aurik910/ui/splash_screen.py` (`_VERSION`)
-- App-Metadaten für About/Update-Dialog: `Aurik910/main.py` (`app.setApplicationVersion(__version__)`)
+- Kanonische Quelle: `Aurik10/__init__.py::__version__`
+- Fenstertitel: `Aurik10/ui/modern_window.py` (`setWindowTitle(f"AURIK Professional v{_AURIK_VERSION}")`)
+- Splashscreen-Badge: `Aurik10/ui/splash_screen.py` (`_VERSION`)
+- App-Metadaten für About/Update-Dialog: `Aurik10/main.py` (`app.setApplicationVersion(__version__)`)
 
 Release-Regel: Ein neuer Versionsstand gilt erst als fertig, wenn alle vier Pfade denselben
 Wert anzeigen bzw. aus derselben Quelle ableiten. Abweichungen sind Release-Blocker.
@@ -264,10 +264,10 @@ validieren: `torch` und `torchaudio` muessen im selben Build-Track laufen
 |---|---|
 | `core/<modul>.py` | `backend/core/` |
 | `plugins/<plugin>.py` | `plugins/` |
-| Frontend/UI | `Aurik910/` (kein `frontend/`!) |
-| i18n | `from Aurik910.i18n import t, set_language` |
+| Frontend/UI | `Aurik10/` (kein `frontend/`!) |
+| i18n | `from Aurik10.i18n import t, set_language` |
 | Audio-Import | `from backend.file_import import load_audio_file` |
-| GUI-Launcher | `./run_aurik.sh` (Legacy: `start_aurik_90.py` delegiert auf `Aurik910/main.py`) |
+| GUI-Launcher | `./run_aurik.sh` (Legacy: `start_aurik_90.py` delegiert auf `Aurik10/main.py`) |
 | CLI-Entry | `cli/aurik_cli.py` via Bridge (`get_load_audio_fn`, `run_pre_analysis`, `get_aurik_denker_instance`) |
 | RecordingChainProfiler | `backend/core/recording_chain_profiler.py` (Singleton, `get_recording_chain_profiler()`) |
 | TemporalContinuityGuard | `backend/core/temporal_continuity_guard.py` (Dataclass `TemporalContinuityResult`, Funktion `check_temporal_continuity`) |

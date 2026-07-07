@@ -175,6 +175,11 @@ class MediumDetectionResult:
     classification_result: object | None = None
     """ClassificationResult aus MediumClassifier (für cached_medium_result)."""
 
+    # §6.8 (v9.20.3): Physikalische Analog-Quellen für Durchreichung an Phasen
+    physical_analog_sources: list[tuple[str, float]] = field(default_factory=list)
+    """Physisch erkannte Analog-Quellen: [(material, confidence), ...] z. B. [("vinyl",0.58), ("cassette",0.42)].
+    Wird als kwargs an Phasen durchgereicht für Vinyl-spezifische Restaurierung (RIAA, Rumble, Knistern)."""
+
     dolby_nr_type: str = "none"
     """Erkannter Dolby/DBX NR-Typ: 'dolby_b'|'dolby_c'|'dolby_s'|'dbx_i'|'dbx_ii'|'none'."""
 
@@ -1385,10 +1390,24 @@ class MediumDetector:
                     reverse=True,
                 )
             )
+            # Zeige, welche analogen Träger in den Posteriors enthalten sind
+            # (werden via Penalty bewahrt, nicht genullt — physikalische Features
+            # entscheiden später über den tatsächlichen analogen Ursprung).
+            _analog_in_posteriors = [
+                f"{m}={s:.3f}" for m, s in posteriors.items()
+                if m in self._ANALOG_MATERIALS and s >= 0.001
+            ]
+            _non_analog_top = [
+                f"{m}={s:.3f}" for m, s in list(posteriors.items())[:3]
+                if m not in self._ANALOG_MATERIALS
+            ]
             logger.info(
-                "MediumDetector: file_ext=%s → analog posteriors zeroed; top-3 adjusted: %s",
+                "MediumDetector: file_ext=%s → analog posteriors PENALIZED (×%.2f, NOT zeroed); "
+                "analog candidates preserved: [%s]; top non-analog: [%s]",
                 _ext_lower,
-                ", ".join(f"{m}={s:.3f}" for m, s in list(posteriors.items())[:3]),
+                _ANALOG_PENALTY,
+                ", ".join(_analog_in_posteriors) if _analog_in_posteriors else "none",
+                ", ".join(_non_analog_top) if _non_analog_top else "none",
             )
 
         # Flag: analog Bayesian posteriors wurden durch file_ext genullt
@@ -1480,12 +1499,41 @@ class MediumDetector:
                         elif _cand_analog != "vinyl":
                             # Spätere Nicht-Vinyl-Kandidaten heben vinyl-Force zurück.
                             pass
+                        # Baue eine menschenlesbare Beschreibung des Erkennungswegs
+                        _detection_method: str
+                        if _via_rotation_gate:
+                            _detection_method = (
+                                "Vinyl-Rotation-Gate (rotation=%.3f≥0.30, "
+                                "infrasonic=%.4f≥0.008)" % (
+                                    fp.rotation_strength, fp.infrasonic_rms
+                                )
+                            )
+                        elif _cand_analog == "cassette":
+                            _detection_method = (
+                                "Cassette wow/flutter+bandwidth (wow=%.3f, conf≥0.35)" % (
+                                    fp.wow_flutter_index
+                                )
+                            )
+                        elif _cand_analog == "vinyl":
+                            _detection_method = (
+                                "Vinyl crackle+infrasonic (crackle=%.4f, infrasonic=%.4f)" % (
+                                    fp.crackle_density, fp.infrasonic_rms
+                                )
+                            )
+                        else:
+                            _detection_method = (
+                                "codec-adaptive gate (conf=%.3f≥%.3f)" % (
+                                    _cand_conf, _pa_conf_thresh
+                                )
+                            )
                         logger.info(
-                            "MediumDetector: physical-feature analog inference — "
-                            "primary=%s (conf=%.3f) chain=%s "
-                            "[crackle=%.4f infrasonic=%.4f rotation=%.3f wow_flutter=%.3f]",
+                            "MediumDetector: ✅ PHYSICAL ANALOG DETECTED — "
+                            "primary=%s (confidence=%.3f) via %s; "
+                            "full chain=%s; "
+                            "features [crackle=%.4f infrasonic=%.4f rotation=%.3f wow_flutter=%.3f]",
                             best_analog,
                             best_analog_score,
+                            _detection_method,
                             [m for m, _ in _physical_analog_sources],
                             fp.crackle_density,
                             fp.infrasonic_rms,
@@ -1497,14 +1545,41 @@ class MediumDetector:
                         # Ausnahme: vinyl via Rotation-Gate bleibt Primary (_primary_vinyl_forced_by_rotation_gate).
 
                 if best_analog is None:
+                    _sources_detail = ", ".join(
+                        f"{m}(conf={c:.3f})" for m, c in _physical_analog_sources
+                    ) if _physical_analog_sources else "none"
                     logger.info(
-                        "MediumDetector: weak physical analog evidence suppressed for digital file_ext=%s "
-                        "(all %d sources failed gate; rotation=%.3f wow=%.3f)",
+                        "MediumDetector: ❌ NO physical analog confirmed for digital file_ext=%s — "
+                        "%d candidate(s) [%s] failed gate; "
+                        "features [rotation=%.3f wow=%.3f crackle=%.4f infrasonic=%.4f]",
                         _ext_lower,
                         len(_physical_analog_sources),
+                        _sources_detail,
                         fp.rotation_strength,
                         fp.wow_flutter_index,
+                        fp.crackle_density,
+                        fp.infrasonic_rms,
                     )
+
+        # §6.8 Bayesian-Physical-Fusion (v9.20.3): Wenn der Bayesian-Klassifikator
+        # "unknown > 0.9" sagt (kein Material erkannt), aber physikalische Features
+        # Analog-Quellen gefunden haben → physikalische Evidenz als Primary übernehmen.
+        # Bayesian-Scoring versagt bei stark codec-degradierten Mehrgenerationen-Ketten
+        # (z. B. vinyl→kassette→mp3), weil alle analogen Signaturen durch Encoding
+        # gedämpft sind. Physikalische Merkmale (rotation, infrasonic, crackle, wow)
+        # sind robuster gegen Codec-Artefakte.
+        if best_analog is None and _physical_analog_sources and posteriors.get("unknown", 0.0) > 0.90:
+            # Nimm die stärkste physikalische Analog-Quelle als Primary
+            _best_phys = max(_physical_analog_sources, key=lambda x: x[1])
+            best_analog, best_analog_score = _best_phys[0], _best_phys[1]
+            _best_analog_set_by_physical_gate = True
+            logger.info(
+                "MediumDetector: 🔄 Bayesian-Physical-Fusion — Bayesian unknown=%.3f, "
+                "physical found %d source(s) → overriding primary=%s (conf=%.3f)",
+                posteriors.get("unknown", 0.0),
+                len(_physical_analog_sources),
+                best_analog, best_analog_score,
+            )
 
         # Best digital lossless
         best_digital: str | None = None
@@ -1622,10 +1697,14 @@ class MediumDetector:
                         or (
                             # Vinyl-Vorläufer durch Kassetten-Transfer: Rillenrauschen bleibt erhalten,
                             # Rumble wird teilweise durch Kassetten-HPF gefiltert → niedrigere Schwellen.
+                            # §FIX v9.20.3: crackle auf 0.001 gesenkt (vorher 0.002) — gut gepflegte
+                            # Vinyl→Kassette-Überspielungen haben sehr geringes Rillenrauschen.
+                            # infrasonic auf 0.003 gesenkt (vorher 0.004) — Kassetten-HPF bei 30-40 Hz
+                            # lässt einen schwachen Rumble-Rest durch.
                             _pre_mat == "vinyl"
-                            and _pre_conf >= 0.18
-                            and fp.crackle_density >= 0.002  # Rillenrauschen überlebt Kassetten-Transfer
-                            and fp.infrasonic_rms >= 0.004  # Schwaches Residual trotz Kassetten-HPF
+                            and _pre_conf >= 0.15
+                            and fp.crackle_density >= 0.001
+                            and fp.infrasonic_rms >= 0.003
                         )
                     )
                     if _pre_strong:
@@ -1828,6 +1907,7 @@ class MediumDetector:
             confidence=confidence,
             spectral_fingerprint=fp,
             evidence=evidence,
+            physical_analog_sources=_physical_analog_sources if _physical_analog_sources else [],
             medium_confidences=chain_confidences,
             bayesian_scores=posteriors,
             classification_result=classification_result,

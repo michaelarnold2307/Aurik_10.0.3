@@ -1,6 +1,6 @@
 """
 Generates a premium 128×128 px photorealistic restoration-completion icon.
-Output: Aurik910/resources/completion_success.png
+Output: Aurik10/resources/completion_success.png
 
 Design: Elegant golden trophy with subtle confetti particles and a small
 vinyl disc badge — symbolises improved audio quality without being garish.
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-OUT = Path(__file__).parent.parent / "Aurik910" / "resources"
+OUT = Path(__file__).parent.parent / "Aurik10" / "resources"
 OUT.mkdir(parents=True, exist_ok=True)
 
 SIZE = 128

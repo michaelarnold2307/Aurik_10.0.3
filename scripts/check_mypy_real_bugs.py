@@ -12,7 +12,7 @@ import subprocess
 import sys
 from collections import Counter
 
-DEFAULT_TARGETS = ["backend/core/", "backend/api/", "plugins/", "Aurik910/", "cli/"]
+DEFAULT_TARGETS = ["backend/core/", "backend/api/", "plugins/", "Aurik10/", "cli/"]
 IGNORED_CODES: set[str] = set()
 ERROR_CODE_RE = re.compile(r"\[([a-z0-9-]+)\]$")
 

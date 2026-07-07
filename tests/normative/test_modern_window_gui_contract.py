@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-GUI_FILE = Path("Aurik910/ui/modern_window.py")
+GUI_FILE = Path("Aurik10/ui/modern_window.py")
 
 
 
@@ -352,7 +352,7 @@ def test_phase_step_label_has_no_audio_callback_fallback() -> None:
 @pytest.mark.normative
 def test_runtime_status_surfaces_share_current_phase_text() -> None:
     src = _read_gui_source()
-    i18n_src = Path("Aurik910/i18n/__init__.py").read_text(encoding="utf-8")
+    i18n_src = Path("Aurik10/i18n/__init__.py").read_text(encoding="utf-8")
     assert "Analyse und Vorbereitung laufen" in i18n_src
     assert "Passende Korrekturen werden ausgewählt" not in i18n_src
     assert "Analysis and preparation running" in i18n_src

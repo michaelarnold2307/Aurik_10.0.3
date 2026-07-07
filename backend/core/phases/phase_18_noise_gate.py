@@ -805,7 +805,17 @@ class NoiseGate(PhaseInterface):
             if makeup_gain_db > 0.0:
                 _gain_lin = float(10.0 ** (makeup_gain_db / 20.0))
                 # §2.45a-II: signal-relative gate — CEDAR/iZotope RX approach (v9.12.2)
+                # §v9.20.3 Genre-adaptive: Schlager/Pop brauchen weicheren Gate
+                # (dichter Mix, keine echten Stille-Passagen). Klassik/Jazz
+                # vertragen tieferen Gate (tatsächliche Pausen zwischen Phrasen).
+                _genre_18 = str(kwargs.get("genre_label", "")).strip().lower()
                 _gate_dbfs_18 = compute_signal_relative_gate_dbfs(original_audio, material_key=material_key)
+                if _genre_18 in ("schlager", "pop", "rock", "metal"):
+                    _gate_dbfs_18 = float(_gate_dbfs_18) + 6.0  # 6 dB softer gate
+                    logger.debug("Phase 18: genre=%s → gate softened by +6dB", _genre_18)
+                elif _genre_18 in ("klassik", "oper", "jazz"):
+                    _gate_dbfs_18 = float(_gate_dbfs_18) - 3.0  # 3 dB deeper gate
+                    logger.debug("Phase 18: genre=%s → gate deepened by -3dB", _genre_18)
                 processed_audio = apply_musical_gain_envelope(
                     processed_audio,
                     _gain_lin,

@@ -2517,12 +2517,69 @@ class UnifiedRestorerV3:
             _genre_reverb_factor = 0.65
             # Chor-Vokalprominenz schützen.
             _genre_vocal_factor = 1.05
+        _snr_val_for_fragile = _snr  # für §2.15 Fragile-Material-Guard
+        _bw_loss_sev = float(defect_scores.get("bandwidth_loss", 0.0)) if isinstance(defect_scores, dict) else 0.0
         _global = 1.0
         _global *= 0.90 + 0.20 * _def
         _global *= 0.88 + 0.24 * _rest
         _global *= 0.90 + 0.10 * (1.0 - _snr)
         _global *= 0.92 + 0.16 * _conf
         _global *= _diversity_penalty
+        # §2.16 Preservation Mode (v9.20.3): Bei extrem degradiertem Material
+        # (bw_loss ≥ 0.90 UND SNR < 16 dB) lohnt sich keine aktive Restaurierung.
+        # Jeder Enhancementschritt riskiert Artefakte ohne hörbaren Gewinn.
+        # → Pipeline auf Minimal-Modus: nur Cleanup (Clicks, Hum, leichte EQ),
+        #   dann Loudness-Normalisierung. Kein Transient Shaping, kein De-Essing
+        #   (kein HF-Inhalt), kein Dynamics Processing.
+        # Dies verhindert Groove-Verlust, Echo-Artefakte und TQC-Fehlschläge.
+        _preservation_mode = (
+            float(_bw_loss_sev) >= 0.90
+            and float(_snr_val_for_fragile) < 16.0
+        )
+        if _preservation_mode:
+            self._restoration_context["preservation_mode"] = True
+            self._restoration_context["preservation_reason"] = (
+                f"bw_loss={_bw_loss_sev:.2f} SNR={_snr_val_for_fragile:.1f}dB"
+            )
+            logger.warning(
+                "§2.16 PRESERVATION MODE: bw_loss=%.2f SNR=%.1fdB — "
+                "nur essentielle Cleanup-Phasen. Enhancements werden übersprungen. "
+                "Das Material ist zu degradiert für aktive Restaurierung.",
+                float(_bw_loss_sev), float(_snr_val_for_fragile),
+            )
+
+        # §2.13 Uncertainty-from-Disagreement: Wenn zwei Klassifikatoren
+        # stark divergieren (>20 Jahre bei Era, oder >0.5 bei Medium-Confidence),
+        # ist das Ergebnis unsicher → global_scalar zusätzlich um 10% reduzieren.
+        _era_disagreement = False
+        _medium_disagreement = False
+        if hasattr(self, "_clap_decade") and era_decade is not None:
+            _clap_d = getattr(self, "_clap_decade", None)
+            if _clap_d is not None and abs(int(_clap_d) - int(era_decade)) >= 20:
+                _era_disagreement = True
+        if hasattr(self, "_pipeline_uncertainty") and _conf < 0.55:
+            _medium_disagreement = True
+        if _era_disagreement or _medium_disagreement:
+            _disagreement_guard = 0.90
+            _global *= _disagreement_guard
+            logger.info(
+                "§2.13 Uncertainty-from-Disagreement: era=%s medium=%s → guard=%.2f → global=%.3f",
+                "divergent" if _era_disagreement else "ok",
+                "low_conf" if _medium_disagreement else "ok",
+                _disagreement_guard, _global,
+            )
+
+        # §2.12 Bandwidth-Loss-Guard: Stark bandbreitenbegrenztes Material
+        # (Kassette, Shellac, Telefon) hat kaum nutzbares Signal oberhalb der
+        # Grenzfrequenz. Aggressive Restaurierung erzeugt hier mehr Artefakte
+        # (Musical Noise, Echo, Groove-Verlust) als sie repariert.
+        # → global_scalar um bis zu 25% reduzieren, proportional zum bw_loss.
+        _bw_loss_guard = 1.0 - 0.25 * min(_bw_loss_sev, 1.0)
+        _global *= _bw_loss_guard
+        logger.debug(
+            "SongCalibration bw_loss_guard: sev=%.2f → guard=%.3f → global=%.3f",
+            _bw_loss_sev, _bw_loss_guard, _global,
+        )
         # [RELEASE_MUST] Lücke-G-Fix v9.10.100: global_scalar ∈ [0.50, 1.50]
         # Unteres Limit 0.50 verhindert Neutralisierung aller Phasen.
         # Oberes Limit 1.50 verhindert Umgehung des Soft-Saturation-Guards.
@@ -7430,7 +7487,7 @@ class UnifiedRestorerV3:
                 try:
                     from backend.core.era_classifier import classify_era
 
-                    return classify_era(a, sr)  # type: ignore[no-any-return]
+                    return classify_era(a, sr, transfer_chain=transfer_chain)  # type: ignore[no-any-return]
                 except Exception as _e:
                     logger.debug("EraClassifier nicht verfügbar: %s", _e)
                     return None
@@ -7665,6 +7722,12 @@ class UnifiedRestorerV3:
             # §9.7.7 Fallback: wenn MediumClassifier-Konfidenz zu niedrig, nutze
             # EraClassifier material_prior als Material-Prior bevor DefectScanner
             # _auto_detect_material() aufgerufen wird (verhindert tape→vinyl Mismatch).
+            # §6.8: Transfer-Chain aus MediumDetector in restoration_context speichern.
+            # Wird später durch Era-Precursor ergänzt.
+            if _mc_result is not None and hasattr(_mc_result, "transfer_chain"):
+                _tc_raw = list(_mc_result.transfer_chain)
+                self._restoration_context["transfer_chain"] = _tc_raw
+            self._era_material_fallback = False
             if _classified_material is None and _era_result is not None:
                 _era_mp = str(getattr(_era_result, "material_prior", "") or "")
                 if _era_mp and _era_mp not in ("unknown", "digital", ""):
@@ -7672,6 +7735,17 @@ class UnifiedRestorerV3:
                         from backend.core.defect_scanner import MaterialType as _MatType
 
                         _classified_material = _MatType(_era_mp)
+                        # §FIX v9.20.3: Era-Fallback markieren. MediumDetector
+                        # (physikalische Evidenz) ist zuverlässiger als der
+                        # statistische Era-Prior. Diese Markierung verhindert
+                        # dass reel_tape→vinyl Override blockiert wird.
+                        self._era_material_fallback = True
+                        # §6.8 Inject reel_tape precursor into chain immediately
+                        _tc = self._restoration_context.get("transfer_chain", [])
+                        if _tc and "reel_tape" not in _tc and "tape" not in _tc:
+                            _tc = ["reel_tape"] + list(_tc)
+                            self._restoration_context["transfer_chain"] = _tc
+                            self._restoration_context["era_precursor_material"] = "reel_tape"
                         logger.info(
                             "EraClassifier material_prior fallback: %s (decade=%d era_conf=%.2f)",
                             _era_mp,
@@ -7740,7 +7814,28 @@ class UnifiedRestorerV3:
                             from backend.core.defect_scanner import MaterialType as _MatType
 
                             _gp_mat_type = _MatType(_gp_material)
-                            if UnifiedRestorerV3._should_preserve_specific_transport_material(
+                            if getattr(self, "_era_material_fallback", False):
+                                # §FIX v9.20.3: Physical (MediumDetector) schlägt
+                                # statistischen Era-Prior für Primär-Material.
+                                # Aber: Era-Information (reel_tape=Studio-Master)
+                                # bleibt als Precursor für Bandbreiten-Ziele erhalten.
+                                _era_mat_val = str(getattr(_classified_material, "value", _classified_material))
+                                _classified_material = _gp_mat_type
+                                # §FIX v9.20.3: Era-Precursor in Effective Chain
+                                if _era_mat_val not in ("unknown", "digital", ""):
+                                    self._restoration_context["era_precursor_material"] = _era_mat_val
+                                    _eff_chain = list(self._restoration_context.get("transfer_chain", []))
+                                    if _eff_chain and _era_mat_val not in _eff_chain:
+                                        _eff_chain.insert(0, _era_mat_val)
+                                        self._restoration_context["transfer_chain"] = _eff_chain
+                                        self._restoration_context["transfer_chain_effective"] = True
+                                logger.info(
+                                    "§Dach GlobalPlan-Prior: Primär=%s (physikalisch), "
+                                    "Era-Precursor=%s → Effective Chain=%s",
+                                    _gp_material, _era_mat_val,
+                                    self._restoration_context.get("transfer_chain", []),
+                                )
+                            elif UnifiedRestorerV3._should_preserve_specific_transport_material(
                                 _classified_material,
                                 _gp_material,
                                 _mc_result,
@@ -7759,11 +7854,44 @@ class UnifiedRestorerV3:
                                     _gp_material,
                                     _chunk_mc_conf,
                                 )
+
+
                         except Exception as _gp_mat_exc:
                             logger.debug(
                                 "GlobalPlan MaterialType-Override fehlgeschlagen: %s — Chunk-Ergebnis behalten",
                                 _gp_mat_exc,
                             )
+
+            # §6.8 UNCONDITIONAL Era-Precursor: Wenn die Era einen Studio-Tonträger
+            # (reel_tape, tape) als material_prior setzt und dieser NICHT in der
+            # physikalischen Chain ist, als virtuellen Precursor voranstellen.
+            # Läuft IMMER — nicht nur wenn Era-Fallback getriggert wurde.
+            if _era_result is not None and not getattr(self, "_era_precursor_injected", False):
+                _era_mp = str(getattr(_era_result, "material_prior", "") or "").lower()
+                # §6.8: Wenn der EraClassifier kein reel_tape/tape meldet, aber die
+                # physikalische Chain mit einem Analog-Träger beginnt (vinyl, shellac)
+                # und die Ära ≤ 1989 ist → reel_tape als Precursor inferieren.
+                # Die Era sagt vielleicht "cd_digital" (weil 2000er), aber die Ceiling
+                # korrigiert auf 1989 — und 1989 bedeutet: Studio-Master war reel_tape.
+                if _era_mp not in ("reel_tape", "tape"):
+                    _era_decade = getattr(_era_result, "decade", 9999)
+                    _chain_first = (_eff_chain or [None])[0] if (_eff_chain := list(
+                        self._restoration_context.get("transfer_chain", []))) else None
+                    _analog_starters = {"vinyl", "shellac", "lacquer_disc", "wax_cylinder"}
+                    if _chain_first and _chain_first in _analog_starters and _era_decade <= 1989:
+                        _era_mp = "reel_tape"
+                if _era_mp in ("reel_tape", "tape"):
+                    _eff_chain = list(self._restoration_context.get("transfer_chain", []))
+                    if _eff_chain and _era_mp not in _eff_chain:
+                        _eff_chain.insert(0, _era_mp)
+                        self._restoration_context["transfer_chain"] = _eff_chain
+                        self._restoration_context["transfer_chain_effective"] = True
+                        self._restoration_context["era_precursor_material"] = _era_mp
+                        self._era_precursor_injected = True
+                        logger.info(
+                            "§6.8 Era-Precursor: %s → Effective Chain=%s",
+                            _era_mp, _eff_chain,
+                        )
 
             # GermanSchlagerClassifier-Ergebnis übernehmen
             _schlager_result = _schlager_result_par
@@ -7822,7 +7950,7 @@ class UnifiedRestorerV3:
                 try:
                     from backend.core.era_classifier import classify_era
 
-                    _era_result = classify_era(analysis_audio, analysis_sample_rate)
+                    _era_result = classify_era(analysis_audio, analysis_sample_rate, transfer_chain=transfer_chain)
                     logger.info(
                         "🎙️ EraClassifier: decade=%d material_prior=%s confidence=%.2f",
                         _era_result.decade,
@@ -8260,6 +8388,25 @@ class UnifiedRestorerV3:
             self._restoration_context["vfa_result"] = _vfa_result.to_dict()
             # Energy-Bias direkt verfügbar (§0j §0p NR-Algorithmen)
             self._restoration_context["vocal_energy_bias_db"] = _vfa_result.energy_bias_db
+            # §2.9 Vocal Analysis Shared Memory: Register + Formanten für
+            # Phase 19 (Gender-Adaption) und SingerVoiceModel (Vibrato-Schutz)
+            self._restoration_context["vocal_register"] = _vfa_result.dominant_register
+            self._restoration_context["vocal_formant_f1_hz"] = _vfa_result.formant_f1_mean
+            self._restoration_context["vocal_formant_f2_hz"] = _vfa_result.formant_f2_mean
+            self._restoration_context["vocal_stable"] = _vfa_result.formant_stable
+            self._restoration_context["vocal_style_confidence"] = _vfa_result.style_confidence
+            self._restoration_context["singer_school"] = _vfa_result.singer_school
+            logger.debug(
+                "§2.9 VFA→Context: register=%s f1=%.0fHz f2=%.0fHz "
+                "vibrato=%d stable=%s style=%.2f school=%s",
+                _vfa_result.dominant_register,
+                _vfa_result.formant_f1_mean,
+                _vfa_result.formant_f2_mean,
+                len(_vfa_result.vibrato_zones),
+                _vfa_result.formant_stable,
+                _vfa_result.style_confidence,
+                _vfa_result.singer_school,
+            )
             # Frisson-Zonen direkt verfügbar (§Frisson MDEM-Schutz)
             self._restoration_context["frisson_zones"] = _vfa_result.frisson_zones
             # Passaggio-Zonen für Phase-Stärke-Cap
@@ -8599,7 +8746,7 @@ class UnifiedRestorerV3:
             self._restoration_context.setdefault("_cht_instance", None)
 
         logger.info(
-            "📋 RestorationContext: decade=%s genre=%s bpm=%.0f subgenre=%s transfer_chain=%s",
+            "📋 RestorationContext: decade=%s genre=%s bpm=%.0f subgenre=%s effective_chain=%s",
             self._restoration_context.get("decade"),
             self._restoration_context.get("genre_label"),
             self._restoration_context.get("bpm", 0.0),
@@ -9473,6 +9620,18 @@ class UnifiedRestorerV3:
         _cal_sf: dict[str, float] = {}
         if hasattr(defect_result, "spectral_fingerprint") and isinstance(defect_result.spectral_fingerprint, dict):
             _cal_sf = defect_result.spectral_fingerprint
+        # §6.8 Physical→Phase Bridge: Physikalische Analog-Quellen aus
+        # MediumDetector in den Restaurierungskontext injizieren. Phasen
+        # wie RIAA-Entzerrung, Vinyl-Rumble-Filter, Knistern-Reparatur
+        # lesen kwargs.get("physical_analog_sources") für Vinyl-spezifische
+        # Restaurierungsentscheidungen.
+        _phys_analog = getattr(_mc_result, "physical_analog_sources", None) if _mc_result is not None else None
+        if _phys_analog:
+            self._restoration_context["physical_analog_sources"] = list(_phys_analog)
+            logger.debug(
+                "§6.8 Physical→Phase: %d analog source(s) in restoration_context",
+                len(_phys_analog),
+            )
         _cal_transfer_chain = self._extract_transfer_chain_from_forensics(
             getattr(defect_result, "transfer_chain_raw", None)
         )
@@ -10248,12 +10407,10 @@ class UnifiedRestorerV3:
                         _sel_set_prerisk.remove("phase_07_harmonic_restoration")
                         _removed_risk_phases.append("phase_07_harmonic_restoration")
 
-                    # Loudness-Normalisierung wird im Export-/Limiter-Endschritt sicherer
-                    # behandelt; im Restaurierungsstrang erzeugt sie bei vocal-heavy
-                    # Analogmaterial unnötige Jump-Artefakte.
-                    if "phase_40_loudness_normalization" in _sel_set_prerisk:
-                        _sel_set_prerisk.remove("phase_40_loudness_normalization")
-                        _removed_risk_phases.append("phase_40_loudness_normalization")
+                    # Loudness-Normalisierung: Phase 40 wurde in v9.20.3 für analoges
+                    # Vokalmaterial repariert (uniformer Gain statt Gate-Envelope,
+                    # ±8 dB statt ±1 dB Cap). Keine Jump-Artefakte mehr → nicht entfernen.
+                    # (Frühere Versionen entfernten Phase 40 hier — das ist obsolet.)
 
                     # Mastering-Polish ist in diesem Kontext kein Restaurierungsdefekt-Fix,
                     # sondern ein additiver Enhancement-Schritt. SFT zeigte für phase_17
@@ -11864,7 +12021,7 @@ class UnifiedRestorerV3:
                 )
 
             if _fc_phases_list:
-                _fc_excellence = True  # v9.14-D1: ExcellenceOptimizer für beide Modi aktiv
+                _fc_excellence = True  # v9.20.3-D1: ExcellenceOptimizer für beide Modi aktiv
                 # §2.33 PhysicalCeiling-Gate: wenn keine weitere Optimierung lohnend,
                 # Iterationen auf 1 reduzieren (verhindert Artefaktakkumulation bei
                 # hochwertigem Material, Ephraim & Malah 1984).
@@ -13017,6 +13174,19 @@ class UnifiedRestorerV3:
         except Exception as _hl_exc:
             logger.debug("HarmonicLatticeAnalyzer nicht verfügbar: %s", _hl_exc)
 
+        # §14.11 Metadaten-Anreicherung (v9.20.3): AURIK-Tags in restoration_context
+        # für den Export vorbereiten. Der Exporter liest diese Tags und schreibt
+        # sie als FLAC/Vorbis-Metadaten.
+        _aurik_tags = {
+            "AURIK_VERSION": "9.20.3",
+            "AURIK_CHAIN": " → ".join(self._restoration_context.get("transfer_chain", [])),
+            "AURIK_MATERIAL": str(getattr(self, "_classified_material", "unknown")),
+            "AURIK_ERA": str(self._restoration_context.get("decade", "unknown")),
+            "AURIK_GENRE": str(self._restoration_context.get("genre_label", "unknown")),
+            "AURIK_MOS": f"{float(getattr(self, '_pqs_mos', 0.0)):.1f}",
+        }
+        self._restoration_context["aurik_metadata"] = _aurik_tags
+
         # §GOAL_EXPORT_COMPLIANCE [RELEASE_MUST v9.12.9] — Finale Ziel-Compliance vor Export
         # Nach ALLEN Post-Pipeline-Schritten (FeedbackChain, EAPC, SAP, TQC, HPG, HarmonicLattice):
         # DSP-Proxy-Messung aller 15 Musical Goals gegen die berechneten song-spezifischen
@@ -13207,6 +13377,18 @@ class UnifiedRestorerV3:
                     "PQS-MOS=%.2f < 4.0 — Korrektur wird im ExzellenzDenker (Stufe 7) behandelt",
                     _pqs_result.pqs_mos,
                 )
+                # §2.14 Quality-Gate→Action: Kritische Qualität signalisiert
+                # ExzellenzDenker, alle Post-Processing-Phasen zurückzurollen.
+                if _pqs_result.pqs_mos < 2.5:
+                    self._restoration_context["quality_gate_rollback"] = True
+                    self._restoration_context.setdefault("quality_gate_reasons", []).append(
+                        f"PQS-MOS={_pqs_result.pqs_mos:.1f}<2.5 (critical)"
+                    )
+                    logger.warning(
+                        "§2.14 Quality-Gate→Action: PQS-MOS=%.1f < 2.5 — "
+                        "signaling rollback to ExzellenzDenker",
+                        _pqs_result.pqs_mos,
+                    )
         except Exception as _pqs_exc:
             logger.warning("PerceptualQualityScorer nicht verfügbar (PQS_UNAVAILABLE): %s", _pqs_exc)
             _fail_reasons.append(
@@ -20014,7 +20196,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.autonomous_restoration_engine import AutonomousRestorationEngine as _ARE29
 
-            _are29 = _ARE29(mode=mode_value, enable_self_learning=False)  # type: ignore[arg-type]  # v9.14-D3
+            _are29 = _ARE29(mode=mode_value, enable_self_learning=False)  # type: ignore[arg-type]  # v9.20.3-D3
             _are_result = {
                 "mode": str(getattr(_are29, "mode", "restoration")),
                 "self_learning": bool(getattr(_are29, "enable_self_learning", False)),
@@ -20031,7 +20213,7 @@ class UnifiedRestorerV3:
         try:
             from backend.core.pipeline_main import AurikAutonomousPipeline as _PAP29
 
-            _pap29 = _PAP29(mode=mode_value, enable_self_learning=False)  # type: ignore[arg-type]  # v9.14-D3
+            _pap29 = _PAP29(mode=mode_value, enable_self_learning=False)  # type: ignore[arg-type]  # v9.20.3-D3
             _pmain_result = {
                 "pipeline_mode": str(getattr(_pap29, "mode", "restoration")),
                 "available": True,
@@ -20119,7 +20301,7 @@ class UnifiedRestorerV3:
 
             _mode_norm = str(mode_value or "").strip().lower().replace("_", "").replace(" ", "")
             _is_studio_amgs = _mode_norm in {"studio2026", "studio", "maximum"}
-            _amgs30 = _AMGS30(mode=_PM_AMGS30.STUDIO_2026 if _is_studio_amgs else _PM_AMGS30.RESTORATION)  # v9.14-D3
+            _amgs30 = _AMGS30(mode=_PM_AMGS30.STUDIO_2026 if _is_studio_amgs else _PM_AMGS30.RESTORATION)  # v9.20.3-D3
             _amgs_result = {
                 "mode": str(_amgs30.mode),
                 "n_base_goals": len(getattr(_amgs30, "_base", {})),
@@ -22117,7 +22299,7 @@ class UnifiedRestorerV3:
         # v9.10.28 — import_pipeline (extracted helper to reduce method complexity)
         _ipipe_result = self._compute_import_pipeline_result()
 
-        # v9.14-D3: aktiven Verarbeitungs-Modus für ARE/PAP/AMGS ableiten
+        # v9.20.3-D3: aktiven Verarbeitungs-Modus für ARE/PAP/AMGS ableiten
         _mode_val = getattr(self.config.mode, "value", "restoration")
 
         # v9.10.29 — autonomous_restoration_engine (extracted helper to reduce method complexity)
@@ -27665,6 +27847,18 @@ class UnifiedRestorerV3:
             except Exception as _fm_exc:
                 logger.debug("§V41 ForwardMaskingGuard pre-phase non-blocking: %s", _fm_exc)
 
+        # §v9.20.3: Section-Strength-Envelope in kwargs injizieren.
+        # Jede Phase kann kwargs.get("strength_envelope") lesen und ihre
+        # base_strength pro Frame damit multiplizieren. Kontinuierliche
+        # Cosine-Crossfades verhindern hörbare Übergänge.
+        _env = (
+            _rest_ctx.get("strength_envelope")
+            if isinstance(_rest_ctx, dict)
+            else getattr(self, "_restoration_context", {}).get("strength_envelope", None)
+        )
+        if _env is not None and "strength_envelope" not in kwargs:
+            kwargs["strength_envelope"] = _env
+
         try:
             result = phase.process(audio, **kwargs)
         finally:
@@ -29682,6 +29876,21 @@ class UnifiedRestorerV3:
             )
             if isinstance(getattr(self, "_restoration_context", None), dict):
                 self._restoration_context["section_targets"] = _section_targets
+                # §v9.20.3: Kontinuierliche Strength-Envelope aus SectionTargets bauen.
+                # Phasen multiplizieren ihre base_strength mit envelope[frame].
+                # Cosine-Crossfade 200ms → keine hörbaren Übergänge.
+                try:
+                    from backend.core.dsp.section_strength_envelope import (
+                        build_strength_envelope,
+                    )
+
+                    _n_total = audio.shape[0] if audio.ndim == 1 else audio.shape[1]
+                    _envelope = build_strength_envelope(
+                        _section_targets, _n_total, sample_rate
+                    )
+                    self._restoration_context["strength_envelope"] = _envelope
+                except Exception as _env_exc:
+                    logger.debug("Strength-Envelope build: %s", _env_exc)
             logger.info(
                 "SectionGoalAdapter: %d Sektion(en) detektiert — sektionsweise Stärke-Skalierung aktiv",
                 len(_section_targets),

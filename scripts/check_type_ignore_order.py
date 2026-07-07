@@ -35,7 +35,7 @@ def iter_python_files(paths: list[str]) -> list[Path]:
 
 
 def main() -> int:
-    roots = sys.argv[1:] or ["backend", "plugins", "Aurik910", "cli", "scripts"]
+    roots = sys.argv[1:] or ["backend", "plugins", "Aurik10", "cli", "scripts"]
     violations: list[tuple[Path, int, str]] = []
 
     for path in iter_python_files(roots):

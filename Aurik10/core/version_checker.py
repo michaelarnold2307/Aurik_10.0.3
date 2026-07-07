@@ -11,7 +11,7 @@ import threading
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from Aurik910 import __version__ as _AURIK_VERSION
+from Aurik10 import __version__ as _AURIK_VERSION
 
 logger = logging.getLogger(__name__)
 

@@ -706,7 +706,7 @@ class TestE2ESystemInfo:
 
     def test_01_korrekte_version(self) -> None:
         """Aurik-Version muss 9.10.41 sein (Spec-Pflicht)."""
-        from Aurik910 import __version__  # type: ignore
+        from Aurik10 import __version__  # type: ignore
 
         assert __version__ == "9.10.41", f"Falsche Version: '{__version__}' — erwartet '9.10.41'"
 

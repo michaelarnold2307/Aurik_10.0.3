@@ -490,14 +490,14 @@ class TestUIIntegration:
         # We import the file and check statically via grep — functional test
         from pathlib import Path
 
-        ui_path = Path(__file__).parent.parent.parent / "Aurik910" / "ui" / "modern_window.py"
+        ui_path = Path(__file__).parent.parent.parent / "Aurik10" / "ui" / "modern_window.py"
         content = ui_path.read_text(encoding="utf-8")
         assert '"transport_bump"' in content or "'transport_bump'" in content
 
     def test_41_phase_reduces_contains_bump(self):
         from pathlib import Path
 
-        ui_path = Path(__file__).parent.parent.parent / "Aurik910" / "ui" / "modern_window.py"
+        ui_path = Path(__file__).parent.parent.parent / "Aurik10" / "ui" / "modern_window.py"
         content = ui_path.read_text(encoding="utf-8")
         assert "transport_bump" in content
 

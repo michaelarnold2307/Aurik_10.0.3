@@ -741,7 +741,7 @@ def main() -> None:
             "backend",
             "forensics",
             "plugins",
-            "Aurik910",
+            "Aurik10",
             "cli",
             "denker",
             "dsp",

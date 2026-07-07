@@ -6,7 +6,7 @@ import importlib
 
 def test_ml_refinement_thread_uses_core_fallback_when_bridge_import_fails(monkeypatch):
     """Bei Bridge-Importfehler muss MLRefinementThread auf Core-DeferredRefinementJob fallen."""
-    import Aurik910.ui.ml_refinement_thread as mrt
+    import Aurik10.ui.ml_refinement_thread as mrt
 
     original_import = builtins.__import__
 

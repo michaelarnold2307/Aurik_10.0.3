@@ -1313,11 +1313,11 @@ UI: _load_file(path)
 
 | Invariante | Ort | Status |
 | --- | --- | --- |
-| Hard Cache Clear bei neuem Import | `Aurik910/ui/modern_window.py` line ~11920 | ✅ |
-| PreAnalysisResult Storage | `Aurik910/ui/modern_window.py` line ~12691 | ✅ |
-| Queue-Handover | `Aurik910/ui/modern_window.py` line ~13939 | ✅ |
-| Batch-Prioritization | `Aurik910/ui/modern_window.py` line ~2117 | ✅ |
-| Defect-Handover-Absicherung | `Aurik910/ui/modern_window.py` line ~2107 | ✅ |
+| Hard Cache Clear bei neuem Import | `Aurik10/ui/modern_window.py` line ~11920 | ✅ |
+| PreAnalysisResult Storage | `Aurik10/ui/modern_window.py` line ~12691 | ✅ |
+| Queue-Handover | `Aurik10/ui/modern_window.py` line ~13939 | ✅ |
+| Batch-Prioritization | `Aurik10/ui/modern_window.py` line ~2117 | ✅ |
+| Defect-Handover-Absicherung | `Aurik10/ui/modern_window.py` line ~2107 | ✅ |
 | Test: Exactly 1 detect() call | `tests/unit/test_pre_analysis_handover_no_double_detect.py` | ✅ |
 
 **Kritische Invariante**: `MediumDetector.detect()` wird **GENAU 1x** aufgerufen (von `run_pre_analysis()`), nie 2x oder 3x.

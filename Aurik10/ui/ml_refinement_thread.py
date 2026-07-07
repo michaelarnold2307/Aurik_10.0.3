@@ -1,5 +1,5 @@
 """
-Aurik910/ui/ml_refinement_thread.py — MLRefinementThread §2.38 KMV Stufe 2
+Aurik10/ui/ml_refinement_thread.py — MLRefinementThread §2.38 KMV Stufe 2
 ==========================================================================
 
 Implements the background ML-refinement thread that re-runs deferred phases

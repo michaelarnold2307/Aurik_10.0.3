@@ -1,7 +1,7 @@
 """Zentrale Versions-Hilfsfunktion für Backend-Layer.
 
-Liefert die Aurik-Version ohne Abhängigkeit auf Aurik910-Frontend-Module
-(Architektur-Invariante V09: Backend darf nicht aus Aurik910 importieren).
+Liefert die Aurik-Version ohne Abhängigkeit auf Aurik10-Frontend-Module
+(Architektur-Invariante V09: Backend darf nicht aus Aurik10 importieren).
 """
 
 import logging

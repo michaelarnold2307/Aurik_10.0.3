@@ -1,6 +1,6 @@
 """Normative guard: UI layer must not import core/dsp/plugin modules directly.
 
-Frontend modules under Aurik910 must communicate with backend internals via
+Frontend modules under Aurik10 must communicate with backend internals via
 backend.api.bridge only (Spec 08 §11).
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-UI_ROOT = Path("Aurik910")
+UI_ROOT = Path("Aurik10")
 FORBIDDEN_PREFIXES: tuple[str, ...] = ("backend.core", "plugins", "dsp")
 
 

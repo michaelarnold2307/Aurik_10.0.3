@@ -1,129 +1,110 @@
 # Spec 13: Klangqualität für das menschliche Ohr
 
-> **Status:** Normativ · **Version:** Aurik 9.12.11 · **Scope:** Perceptual Audio Quality, ISO 226, Listening Modes, Fatigue Prevention
+> **Version:** Aurik 9.20.3 · **Scope:** Perceptual Audio Quality, ISO 226, Listening Modes, Fatigue Prevention
+
+## §13.0 Oberstes Prinzip: Natürlicher Wohlklang
+
+Aurik optimiert nicht für technische Metriken (SNR, THD, PESQ), sondern für das
+menschliche Gehör. Das bedeutet:
+
+1. **Bewahren vor Verbessern** — Was nicht hörbar kaputt ist, wird nicht angefasst
+2. **Physikalische Grenzen akzeptieren** — Fehlende Frequenzen können nicht erfunden werden
+3. **Fließend, nicht segmentiert** — Keine hörbaren Übergänge zwischen Sektionen
+4. **Das Ohr entscheidet, nicht die Metrik** — MUSHRA misst Ähnlichkeit, nicht Qualität
 
 ## §13.1 Das menschliche Ohr als ultimatives Messinstrument
 
-Aurik optimiert nicht für technische Metriken (SNR, THD, PESQ), sondern für das
-menschliche Gehör. Diese Spec definiert die psychoakustischen Prinzipien, nach
-denen alle Restaurierungsentscheidungen getroffen werden.
-
 ### §13.1.1 Frequenzabhängige Wahrnehmung (ISO 226:2003)
 
-Das menschliche Ohr ist maximal empfindlich bei 3–4 kHz. Bei 100 Hz ist die
-Empfindlichkeit ~20 dB geringer, bei 30 Hz ~40 dB. Aurik gewichtet daher:
+| Bereich | Empfindlichkeit | Gewichtung |
+|---|---|---|
+| Bass (20–200 Hz) | −20 dB | 0.5× |
+| Mitten (200–2000 Hz) | Referenz | 1.0× |
+| Präsenz (2000–8000 Hz) | +10 dB | 1.5× |
+| Luft (8000–20000 Hz) | Altersabhängig | 0.7× |
 
-- **Bass-Fehler (20–200 Hz):** 0.5× Gewichtung (Ohr ist unempfindlich)
-- **Mitten-Fehler (200–2000 Hz):** 1.0× (Wärme, Natürlichkeit)
-- **Präsenz-Fehler (2000–8000 Hz):** 1.5× (maximale Empfindlichkeit)
-- **Luft-Fehler (8000–20000 Hz):** 0.7× (Altersabhängig, maskiert)
+### §13.1.2 Psychoakustische Grenzen der Restaurierung
 
-Diese Gewichtung ist in `§H` (GenreGoalProfile.psychoacoustic_weights) und
-`§PQC` (PerceptualQualityCouncil) implementiert.
+**§13.1.2.1 Air-Band auf analogem Material:** Unwiderruflich zerstört. Kein Exciter.
 
-### §13.1.2 Simultane Maskierung
+**§13.1.2.2 Transient Shaping ohne HF:** bw_loss > 0.8 → Phase 36 skipped.
 
-Ein lautes Signal bei Frequenz `f` maskiert leisere Signale in einem
-Frequenzbereich von `f × 0.8` bis `f × 1.4` (Critical Bandwidth).
-Aurik nutzt dies für:
+**§13.1.2.3 Preservation Mode (§2.16):** bw_loss ≥ 0.90 ∧ SNR < 16 dB → global_scalar ≤ 0.70.
 
-- Defect-Audibility-Entscheidungen (nur hörbare Defekte werden repariert)
-- Phase-Strength-Dosierung (Maskierung reduziert nötige Stärke)
+## §13.2 SectionStrengthEnvelope — Fließende per-Segment-Anpassung
 
-## §13.2 Listening Modes (§Q)
+**§13.2.1 Aktivierung (§2.17-ACTIVE):** Die Envelope-Infrastruktur existiert und wird
+zentral in `_profiled_phase_call()` injiziert. Alle Phasen, die im Frequenzbereich
+2–8 kHz (Präsenz, max. Ohrempfindlichkeit) arbeiten, MÜSSEN die Envelope lesen:
+- Phase 19 (De-Esser) — `strength × envelope[frame]`
+- Phase 38 (Presence Boost) — `strength × envelope[frame]`
+- Phase 18 (Noise Gate) — `strength × envelope[frame]`
 
-Verschiedene Wiedergabeszenarien erfordern unterschiedliche Optimierung:
+**§13.2.2 Cosine-Crossfade** 200ms zwischen allen Sektionen. Max. 1 dB/100ms.
 
-| Mode | Goal-Shift | Begründung |
-|------|-----------|------------|
-| **Kopfhörer** | Räumlichkeit +30%, Bass −15% | Kopfhörer haben keine natürliche Crossfeed-Räumlichkeit |
-| **Nahfeld** | Neutral | Referenz-Abhörsituation |
-| **Farfeld/Wohnzimmer** | Bass +15%, Wärme +10% | Raummoden + Fletcher-Munson bei niedriger Lautstärke |
-| **Auto** | Bass +40%, Höhen +30%, Textverständlichkeit +30% | Straßenlärm-Maskierung, Bass-Resonanz |
+**§13.2.3 Invarianten:** Räumlichkeit, Rauschflor, Loudness bleiben song-global.
 
-Aktivierung: `restore(audio, sr, listening_mode="headphones")`
+## §13.3 Blind Reference-Free Quality (§13.8 ROADMAP)
 
-## §13.3 Hörermüdungs-Prävention (§T)
+**Konzept:** „Wie gut KÖNNTE dieser Song klingen?" — absolute Qualitätsschätzung
+ohne Vergleich zum degradierten Original. MERT-Embedding-basiert. Ermöglicht:
+- Qualitätsprognose VOR der Restaurierung
+- Abbruchkriterium: „Besser geht's nicht"
+- Kein Over-Processing für bereits optimales Material
 
-### §13.3.1 Das Problem
+## §13.4 Human-Panel-kalibrierter MUSHRA (§13.9 ROADMAP)
 
-37 DSP-Phasen + 3 ML-Modelle erzeugen kumulativ ein „zu perfektes" Signal.
-Das Gehirn interpretiert fehlende Mikro-Variation als „künstlich" → Ermüdung
-nach 15–20 min Hören.
+**Konzept:** Ridge-Regression auf echten Hörtest-Daten kalibriert den MUSHRA-Proxy.
+- Stufe 1 (heute): Literatur-Korrelationen
+- Stufe 2 (implementiert, unkalibriert): Ridge-Regression via `calibrate_from_panel()`
+- Stufe 3 (Ziel): Echte Panel-Daten → Gewichte rückprojiziert → CI-Proxy
 
-### §13.3.2 Der Humanization-Pass
+## §13.5 Hörermüdungs-Prävention
 
-```
-HumanizationPass.apply(audio, sr, strength=0.15)
-```
+### §13.5.1 Over-Processing vermeiden
+Zu viele Phasen erzeugen ein „zu perfektes", künstlich klingendes Signal.
 
-- Amplituden-Modulation: ±0.02 % bei 0.47 Hz (unterhalb der Wahrnehmungsschwelle)
-- Phasen-Jitter: Allpass 1. Ordnung, g=0.00045, Verzögerung 0.3 ms
-- Blend: 5 % bearbeitet + 95 % Original (nicht hörbar, aber spürbar)
+### §13.5.2 Fragile-Material-Guard (§2.15)
+bw_loss ≥ 0.90 ∧ SNR < 16 dB → global_scalar ≤ 0.70.
 
-Das Ergebnis klingt für das Ohr „lebendig" ohne messbare Klangveränderung.
+### §13.5.3 GrooveMetric Onset-Guard (§2.14)
+≥90% Onsets erhalten → Score ≥ 0.85 trotz DTW-Fehlschlag.
 
-## §13.4 Dynamik-Bogen-Erhalt (§O + §S)
+### §13.5.4 Cross-Phase Naturalness Consensus (§13.10 ROADMAP)
+Phasen im gleichen Frequenzbereich addieren ihre Effekte unabhängig.
+→ **Naturalness-Guard** prüft kumulative Wirkung und reduziert bei Bedarf.
+→ Musical-Noise-, Metallic-Ringing- und Roughness-Regression-Detektion.
 
-### §13.4.1 LUFS Arc Preservation (§O)
+## §13.6 Loudness für analoges Vokalmaterial
 
-Der Dynamik-Verlauf eines Songs (leise Strophe → lauter Refrain) MUSS erhalten
-bleiben. Aurik misst Short-Term-LUFS in 8 Segmenten und prüft:
+Phase 40: ±8 dB Cap, uniformer Gain, keine Gate-Sprünge.
 
-- Max. Abweichung pro Segment: 2 LU
-- Max. Gesamt-Dynamik-Reduktion: 3 dB
+## §13.7 Formant-Stabilität & Gender
 
-### §13.4.2 Emotional Arc Preservation (§S)
+- Vocal Analysis Shared Memory (§2.9): VFA → restoration_context → Phase 19 + SVM
+- Contralto-Erkennung: F0 145–195 Hz + weibliche Formanten → FEMALE
+- Register-adaptives De-Essing: Chest/Head → spezifische Parameter
 
-Über die technische Dynamik hinaus misst Aurik die emotionale Kurve:
+## §13.8 Artist/Track-Fingerprint (§13.11 ROADMAP)
 
-- **Arousal-Proxy:** Energie 2–8 kHz / Gesamtenergie (16 Segmente)
-- **Valence-Proxy:** Spektrales Zentroid 200–2000 Hz (16 Segmente)
-- **Kriterium:** Pearson-Korrelation > 0.85 zwischen Original und restauriert
+**Konzept:** Elke-Best-Stimmenmodell persistieren, beim nächsten Song wiederverwenden.
+BatchSessionLearner existiert bereits — Transfer-Learning für Künstler-Fingerprints:
+- Stimm-Modell (Formanten, Vibrato-Rate, HNR, spektrale Hüllkurve)
+- Track-Modell (Genre, Era, Aufnahmekette, typische Defekte)
+- Wiederverwendung beschleunigt wiederholte Restaurierungen desselben Künstlers
 
-## §13.5 Formant-Stabilität (§M)
+## §13.9 Qualitäts-Schwellwerte
 
-Menschliche Stimmen sind besonders empfindlich gegenüber DSP-Artefakten.
-Aurik überwacht nach stimm-beeinflussenden Phasen (Denoise, Dereverb):
+| Material | Min. MOS | Preservation-Trigger |
+|---|---|---|
+| Vinyl | 4.0 | bw_loss ≥ 0.90 |
+| Kassette | 3.8 | bw_loss ≥ 0.90, SNR < 16dB |
+| Tonband | 4.2 | — |
+| CD/Digital | 4.5 | — |
 
-- Spektrales Zentroid 200–4000 Hz (F2-Proxy)
-- Harmonizität (HNR)
-- **Grenzwert:** F2-Drift < 8 %, HNR-Verlust < 15 %
+---
 
-## §13.6 Stereo-Integrität (§N)
-
-Das menschliche Ohr lokalisiert Schallquellen über interaurale Zeit- und
-Pegeldifferenzen. Aurik schützt das Stereobild:
-
-- ICCC (Interchannel Cross-Correlation) 200–8000 Hz
-- **Grenzwert:** ICCC-Drop < 0.15 (15 %)
-- Phasen: 13, 14, 15 werden überwacht
-
-## §13.7 Bass-Punch-Balance (§L)
-
-Die Balance zwischen „wummerndem" Sub-Bass und „knackigem" Kick ist
-genre-abhängig und entscheidend für den Höreindruck:
-
-- **Sub-Bass (20–60 Hz):** Energie-Integral
-- **Kick-Punch (60–200 Hz):** Energie-Integral
-- **Ratio:** Sub/Kick, Ziel 0.5–1.5 je nach Genre
-- **Grenzwert:** Abweichung > 80 % vom Original → Stärke reduzieren
-
-## §13.8 Qualitäts-Schwellwerte (Material-adaptiv)
-
-| Material | Min. MOS | Min. Goal-Mean | Max. Defect-Residual |
-|----------|----------|---------------|---------------------|
-| Wachszylinder | 3.5 | 0.45 | 0.55 |
-| Schellack | 3.8 | 0.50 | 0.50 |
-| Vinyl | 4.0 | 0.60 | 0.40 |
-| Kassette | 3.8 | 0.55 | 0.45 |
-| Tonband | 4.2 | 0.65 | 0.35 |
-| CD/Digital | 4.5 | 0.80 | 0.15 |
-
-## §13.9 Referenz-Track-Kalibrierung (§V)
-
-Der Nutzer kann eine Referenz-Aufnahme bereitstellen („so soll es klingen").
-Aurik analysiert das Referenz-Spektrum (10 Bänder), LUFS, Stereo-Breite,
-Dynamik-Range und passt die Goal-Targets entsprechend an.
-
-Aktivierung: `restore(audio, sr, reference_audio=reference_array)`
+> **v9.20.3:** SectionStrengthEnvelope, Preservation Mode, Fragile-Guard,
+> Onset-Guard, Contralto-Erkennung, Uniformer Gain.
+> **ROADMAP:** Blind Reference-Free Quality, Human-Panel MUSHRA,
+> Cross-Phase Consensus, Artist/Track-Fingerprint.

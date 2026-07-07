@@ -183,8 +183,8 @@ from PyQt5.QtGui import QIcon  # type: ignore[attr-defined]
 from PyQt5.QtWidgets import QApplication, QMessageBox  # type: ignore[attr-defined]
 
 # pylint: enable=no-name-in-module
-from Aurik910 import __version__
-from Aurik910.ui.modern_window import ModernMainWindow
+from Aurik10 import __version__
+from Aurik10.ui.modern_window import ModernMainWindow
 
 # pylint: enable=wrong-import-position
 
@@ -422,7 +422,7 @@ def main():
     # ── Splash screen ─────────────────────────────────────────────────────────
     splash = None
     try:
-        from Aurik910.ui.splash_screen import AurikSplashScreen  # pylint: disable=import-outside-toplevel
+        from Aurik10.ui.splash_screen import AurikSplashScreen  # pylint: disable=import-outside-toplevel
 
         splash = AurikSplashScreen()
         splash.setWindowOpacity(0.0)

@@ -35,7 +35,7 @@ classifiers = [
 ]
 
 [tool.setuptools]
-packages = ["backend", "cli", "dsp", "Aurik910", "plugins", "denker", "audit", "export", "usability", "benchmarks"]
+packages = ["backend", "cli", "dsp", "Aurik10", "plugins", "denker", "audit", "export", "usability", "benchmarks"]
 
 # =============================================================================
 # BLACK — Code-Formatierung
@@ -84,7 +84,7 @@ skip_glob = [
 ]
 known_first_party = [
     "aurik_90",
-    "Aurik910",
+    "Aurik10",
     "core",
     "backend",
     "dsp",
@@ -258,7 +258,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+_*)|dummy|unused|ignored)
 "backend/processing_pipeline_v8.py" = ["ALL"]
 # UI smooth-progress thread: _sp/_sp2/_sp_lock are intentional shared-state
 # objects, not changing loop-iteration values → B023 false positive
-"Aurik910/ui/modern_window.py" = ["B023"]
+"Aurik10/ui/modern_window.py" = ["B023"]
 # DefectScanner loop closures: also intentional shared-state
 "backend/core/defect_scanner.py" = ["B023"]
 
@@ -326,9 +326,9 @@ ignore_missing_imports = true
 # PyQt5-UI — Stubs-Lücken für Flags/Enums/Signals ignorieren
 [[tool.mypy.overrides]]
 module = [
-    "Aurik910.ui.modern_window",
-    "Aurik910.ui.*",
-    "Aurik910.core.*",
+    "Aurik10.ui.modern_window",
+    "Aurik10.ui.*",
+    "Aurik10.core.*",
 ]
 ignore_errors = true
 

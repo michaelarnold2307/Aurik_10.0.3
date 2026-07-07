@@ -2,8 +2,8 @@
 Generates premium 128×128 px defect-type icons and star-rating icons for Aurik 9.
 
 Output directories:
-  Aurik910/resources/defect_icons/<defect>.png   — 30 defect-type icons
-  Aurik910/resources/star_icons/star_{full,half,empty}.png — 3 star icons
+  Aurik10/resources/defect_icons/<defect>.png   — 30 defect-type icons
+  Aurik10/resources/star_icons/star_{full,half,empty}.png — 3 star icons
 
 Design: Muted dark-slate rounded-rect backgrounds with vivid colour-coded
 symbols.  Each defect gets an intuitive visual metaphor (waveform shapes,
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-_BASE = Path(__file__).parent.parent / "Aurik910" / "resources"
+_BASE = Path(__file__).parent.parent / "Aurik10" / "resources"
 OUT_DEFECT = _BASE / "defect_icons"
 OUT_STAR = _BASE / "star_icons"
 OUT_DEFECT.mkdir(parents=True, exist_ok=True)

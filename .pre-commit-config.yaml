@@ -231,7 +231,7 @@ repos:
         entry: .venv_aurik/bin/python scripts/compliance_check.py --errors-only
         language: system
         pass_filenames: false
-        files: ^(backend|core|dsp|plugins|denker|Aurik910)/.*\.py$
+        files: ^(backend|core|dsp|plugins|denker|Aurik10)/.*\.py$
 
       - id: aurik-verboten-linter
         name: "🔍 Aurik AST VERBOTEN-Linter (V01–V33)"
@@ -256,14 +256,14 @@ repos:
 
       - id: aurik-type-ignore-order
         name: "🧭 mypy type-ignore Reihenfolge (ignore vor Inline-Kommentar)"
-        entry: .venv_aurik/bin/python scripts/check_type_ignore_order.py backend plugins Aurik910 cli scripts
+        entry: .venv_aurik/bin/python scripts/check_type_ignore_order.py backend plugins Aurik10 cli scripts
         language: system
         pass_filenames: false
-        files: ^(backend|plugins|Aurik910|cli|scripts)/.*\.py$
+        files: ^(backend|plugins|Aurik10|cli|scripts)/.*\.py$
 
       - id: aurik-mypy-real-bug-gate
         name: "🧪 Aurik mypy Real-Bug-Gate (alle Layer, var-annotated Sprint 4 toleriert)"
         entry: .venv_aurik/bin/python scripts/check_mypy_real_bugs.py
         language: system
         pass_filenames: false
-        files: ^(backend|plugins|Aurik910|cli)/.*\.py$
+        files: ^(backend|plugins|Aurik10|cli)/.*\.py$

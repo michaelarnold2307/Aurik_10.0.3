@@ -2224,6 +2224,18 @@ class GrooveMetric:
                 )
                 return self.measure(audio, sr, reference=None)
             if _dtw_score < 0.05:
+                # §2.14 Onset-Preservation-Guard (v9.20.3): Wenn ≥90% der Onsets
+                # erhalten sind, ist der DTW-Score von 0.000 ein Messartefakt.
+                # Onset-Erhalt ≥90% → Score ≥0.85.
+                _onset_preservation = result.n_onsets_restored / max(result.n_onsets_original, 1)
+                if _onset_preservation >= 0.90:
+                    _onset_score = float(np.clip(0.85 + 0.15 * (_onset_preservation - 0.90) / 0.10, 0.85, 1.0))
+                    logger.info(
+                        "GrooveMetric Onset-Guard: %d/%d onsets (%.0f%%) → score %.3f→%.3f",
+                        result.n_onsets_restored, result.n_onsets_original,
+                        _onset_preservation * 100, _dtw_score, _onset_score,
+                    )
+                    return _onset_score
                 # Katastrophaler DTW-Score: kein echter Groove-Verlust fällt unter 0.05.
                 # Score < 0.05 ist immer durch Rausch-/Artefakt-Onsets getrieben,
                 # nicht durch echten Rhythmus-Verlust → IOI-Proxy.

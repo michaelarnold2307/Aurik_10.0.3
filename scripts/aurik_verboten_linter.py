@@ -77,7 +77,7 @@ RULES = {
     "V06": Rule("V06", "map_location='cuda' ohne ml_device_manager.get_torch_device()"),
     "V07": Rule("V07", "scipy.signal.wiener() direkt statt OMLSA/DeepFilterNet"),
     "V08": Rule("V08", "np.correlate(x, x, mode='full') O(n²) → scipy FFT-basiert"),
-    "V09": Rule("V09", "from Aurik910... import in backend/ (Architektur-Verletzung)"),
+    "V09": Rule("V09", "from Aurik10... import in backend/ (Architektur-Verletzung)"),
     "V10": Rule("V10", "load_audio_file() ohne do_carrier_analysis=False in Thread/UI-Kontext"),
     "V11": Rule(
         "V11", "sosfilt(sos, audio) Ergebnis zu Audio addiert → sosfiltfilt verwenden (Zeitversatz → Pegelexplosion)"
@@ -508,8 +508,8 @@ class VerbotenlLinter(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        """V09: from Aurik910... import in backend/."""
-        if node.module and node.module.startswith("Aurik910"):
+        """V09: from Aurik10... import in backend/."""
+        if node.module and node.module.startswith("Aurik10"):
             parts = self.filepath.parts
             if "backend" in parts:
                 self._add(node, "V09", f"from {node.module} import ... in backend/")

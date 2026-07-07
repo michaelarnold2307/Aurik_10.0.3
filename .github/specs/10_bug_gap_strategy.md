@@ -12,7 +12,7 @@ Jede Bug-Erkennungs-Session MUSS alle 5 Ebenen systematisch durchlaufen:
 
 | Ebene | Scope | Primäre Scan-Tools |
 | --- | --- | --- |
-| **L1 Frontend** | `Aurik910/ui/`, `Aurik910/__init__.py` | Version-Konsistenz-Check, `grep -rn "fallback\|hardcoded"` |
+| **L1 Frontend** | `Aurik10/ui/`, `Aurik10/__init__.py` | Version-Konsistenz-Check, `grep -rn "fallback\|hardcoded"` |
 | **L2 Bridge/CLI** | `backend/api/bridge.py`, `cli/aurik_cli.py` | Contract-Vollständigkeit: `get_load_audio_fn`, `run_pre_analysis`, `export_guard` |
 | **L3 Denker** | `denker/*.py` | `inapplicable_goals`-Propagation, `reference`-Parameter in `messe_ziele()`, `goal_applicability` in Dataclasses |
 | **L4 UV3-Pipeline** | `backend/core/unified_restorer_v3.py` | SSIP-Zonen-Übergabe, AdaptivePhaseRescheduler, RestorationMemory, HPG-Update |
@@ -132,7 +132,7 @@ Schicht-überblick:
 
 | Layer | Gesamt-Fehler | Boilerplate | Echte Bugs | Priorität |
 | --- | --- | --- | --- | --- |
-| `Aurik910/` (Frontend) | **0** | 0 | 0 | ✅ |
+| `Aurik10/` (Frontend) | **0** | 0 | 0 | ✅ |
 | `backend/api/bridge.py` + `cli/` | 19 | 19 | 0 | P3 Boilerplate |
 | `backend/core/dsp/` | 105 | ~80 | ~25 | P2 |
 | `plugins/` | 175 | ~140 | ~35 | P2 |
@@ -311,7 +311,7 @@ Nach Ausführung: `mypy --follow-imports=skip` muss 0 `no-any-return` zeigen.
 ### §10.9d Sprint 4 — var-annotated Cleanup (P3) — ERLEDIGT
 
 **Ziel**: ~192 `var-annotated` Fehler durch minimale Typ-Annotationen beheben. **Erreicht 2026-06-26**
-fuer die Release-Layer `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/`.
+fuer die Release-Layer `backend/core/`, `backend/api/`, `plugins/`, `Aurik10/`, `cli/`.
 
 **Methode**: `mypy backend/core/ --follow-imports=skip 2>&1 | grep "var-annotated"` →
 pro Zeile minimale Annotation ergänzen (z.B. `energy: float = 0.0` statt `energy = 0.0`).
@@ -321,7 +321,7 @@ Skriptbar wenn Pattern homogen.
 
 ```bash
 # Vollständiger Release-Layer-Scan nach jeder Session:
-.venv_aurik/bin/python -m mypy backend/core/ backend/api/ plugins/ Aurik910/ cli/ --follow-imports=skip --no-error-summary --show-error-codes 2>&1 | grep "error:"
+.venv_aurik/bin/python -m mypy backend/core/ backend/api/ plugins/ Aurik10/ cli/ --follow-imports=skip --no-error-summary --show-error-codes 2>&1 | grep "error:"
 # Ziel: keine Ausgabe
 
 # Boilerplate-Zähler:
@@ -347,7 +347,7 @@ Neue lokale Pflicht-Hooks:
 | Hook | Zweck | Toleranz |
 | --- | --- | --- |
 | `aurik-type-ignore-order` | Verhindert ungültige Reihenfolge `code # kommentar # type: ignore[...]` | Keine |
-| `aurik-mypy-real-bug-gate` | Vollscan über `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` | Keine |
+| `aurik-mypy-real-bug-gate` | Vollscan über `backend/core/`, `backend/api/`, `plugins/`, `Aurik10/`, `cli/` | Keine |
 
 **Release-Regel**: Jeder neue mypy-Fehlercode in den Release-Layern ist ein Regression-Bug.
 Es gibt keine tolerierte Restklasse mehr; `scripts/check_mypy_real_bugs.py::IGNORED_CODES` MUSS leer bleiben.
@@ -357,13 +357,13 @@ Es gibt keine tolerierte Restklasse mehr; `scripts/check_mypy_real_bugs.py::IGNO
 | Metrik | Startwert (2026-06-26) | Sprint-1-Ziel | Endziel |
 | --- | --- | --- | --- |
 | Echte Typ-Bugs (backend/core, kein Boilerplate) | ~424 | **0 erreicht** | 0 |
-| Echte Typ-Bugs (Release-Layer: core/api/plugins/Aurik910/cli, ohne var-annotated) | ~460+ | **0 erreicht** | 0 |
+| Echte Typ-Bugs (Release-Layer: core/api/plugins/Aurik10/cli, ohne var-annotated) | ~460+ | **0 erreicht** | 0 |
 | no-any-return Boilerplate | ~939 | **0 erreicht in core/api/plugins/cli** | 0 |
 | var-annotated | ~192 | **0 erreicht** | 0 |
 | Bridge/CLI Fehler | 19 | 0 | 0 |
 | DSP echte Bugs | ~25 | **0 erreicht** | 0 |
 | Plugins echte Bugs | ~35 | **0 erreicht** | 0 |
-| Frontend (Aurik910/) | **0** | 0 | 0 |
+| Frontend (Aurik10/) | **0** | 0 | 0 |
 
 ### §10.9h Ausführungsstand 2026-06-26
 
@@ -372,7 +372,7 @@ Erledigt:
 - Sprint 1 P0/P1: `adaptive_phase_rescheduler.py`, `real_audio_*_golden_gate.py`, `ai_framework.py`, UV3 `no-any-return`.
 - Sprint 2: echte Typ-Bugs in `artifact_detection.py`, `authenticity_metrics_extended.py`, `multi_pass_strategy.py`, `backend/core/phases/`, `backend/core/`, `plugins/`, `backend/api/`, `cli/`.
 - Sprint 3: `no-any-return` in `backend/core/phases/`, `backend/core/dsp/`, `backend/core/`, `plugins/`, `backend/api/`, `cli/`.
-- Sprint 4: `var-annotated` in `backend/core/`, `backend/api/`, `plugins/`, `Aurik910/`, `cli/` vollständig bereinigt; `IGNORED_CODES = set()`.
+- Sprint 4: `var-annotated` in `backend/core/`, `backend/api/`, `plugins/`, `Aurik10/`, `cli/` vollständig bereinigt; `IGNORED_CODES = set()`.
 - Pre-commit: `aurik-type-ignore-order` und `aurik-mypy-real-bug-gate` aktiv und grün.
 - Weltklasse-Gates: `config/worldclass_kpi_thresholds.json::real_audio_corpus` erzwingt R5-R12-Real-Audio-Coverage fuer `shellac`, `vinyl`, `tape`, `cd_digital`, `mp3_low` mit vokalem Fokus; `worldclass_kpi_dashboard.py` propagiert fehlende Materialien/Cases, `worldclass_release_gate.py` blockiert diese Luecken.
 - Canonical Contract: normative Paritaetstests sichern GUI, CLI und Batch auf denselben Bridge-/Denker-/Export-Vertrag ab.

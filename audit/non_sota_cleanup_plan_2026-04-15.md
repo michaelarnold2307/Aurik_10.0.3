@@ -19,14 +19,14 @@ Datum: 2026-04-15
   - `dsp/adaptive_deconvolution.py`: no-op Torch-Check korrigiert; unbekannte Methode faellt auf Wiener statt Raise.
   - `backend/core/quality_feedback_loop.py`: `MockPhase.process()` erzeugt nun ein gueltiges Passthrough-`PhaseResult` statt `NotImplementedError`.
   - `backend/core/ml_device_manager.py`: GPU-Unsupported-Hint von `not implemented` auf neutralen Hinweistext umgestellt.
-  - `Aurik910/i18n/__init__.py`: Legacy-Preset-Titel von `Not Implemented` auf `Nicht verfuegbar` umgestellt.
+  - `Aurik10/i18n/__init__.py`: Legacy-Preset-Titel von `Not Implemented` auf `Nicht verfuegbar` umgestellt.
   - `backend/adaptive_pipeline.py`: irrefuehrende `bypass safety checks`-/`Placeholder`-/veraltete Stub-Marker im produktiven Pfad bereinigt; Verhalten bleibt explizit caller-gesteuert.
   - `backend/adaptive_pipeline.py`: verbliebene Header-`stub`-Marker zu neutralen Fallback-/Kompatibilitaetskommentaren bereinigt.
   - `backend/ml/inference_only/vocal_separation/mdx_net_wrapper.py`: ONNX-Session-Laden und Masken-Inferenz implementiert; HPSS bleibt sauberer Fallback statt Placeholder-Pfad.
   - `backend/ml/inference_only/vocal_separation/demucs_v5_wrapper.py`: Bass/Other-Fallback nutzt jetzt echte frequenzselektive Filter statt Pseudo-Placeholder.
   - `backend/core/optimization/train_e2e_optimization.py`: Trainings-/Hyperopt-Datasets laden jetzt echte Audiodateipaare via `soundfile` statt Zufallsdaten.
   - `dsp/feedback.py`: Workaround-Marker in neutralen Guard-Kommentar ueberfuehrt.
-  - `Aurik910/ui/modern_window.py`: UI-Rationale praezisiert; Workaround-Marker entfernt.
+  - `Aurik10/ui/modern_window.py`: UI-Rationale praezisiert; Workaround-Marker entfernt.
   - `backend/core/phases/phase_42_vocal_enhancement.py`: Rueckwaertskompatibler Exportname `VocalEnhancementPhase` wiederhergestellt.
 - Validierung:
   - `tests/test_quality_recovery.py`: **11 passed**.
@@ -237,18 +237,18 @@ Block-Heuristik:
 ## Block C — Bewusst belassen (mit Review-Termin)
 
 - Marker-Verteilung: bypass=8, deprecated=5, placeholder=9, stub=3
-- Aurik910/i18n/**init**.py:807 | placeholder | "legacy.audio.preview_ready": "Preview ready (placeholder - no processing)",
-- Aurik910/ui/ml_refinement_thread.py:73 | bypass | # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
-- Aurik910/ui/modern_window.py:463 | placeholder | Always visible; shows placeholder text when not yet measured.
-- Aurik910/ui/modern_window.py:7104 | placeholder | # Draw premium placeholder
-- Aurik910/ui/modern_window.py:8753 | placeholder | """Store fmt as pinned label when it is a custom string (not a Qt placeholder)."""
-- Aurik910/ui/modern_window.py:10872 | placeholder | # Quality Meter VU bar — always visible, above radar/placeholder
-- Aurik910/ui/modern_window.py:11530 | placeholder | # Show placeholder until pre-analysis synchronization is finalized.
-- Aurik910/ui/modern_window.py:13380 | placeholder | # Carrier placeholder —_pre_analysis_bg will fill detected_medium_label
-- Aurik910/ui/modern_window.py:13950 | bypass | """Absolute fallback (180 s): never bypass defect-scan gate."""
-- Aurik910/ui/modern_window.py:15347 | deprecated | #_repair_hint: nur zeigen wenn nicht veraltet (d.h. aktuell
-- Aurik910/ui/song_prognose_widget.py:420 | placeholder | for key, placeholder in [
-- Aurik910/ui/song_prognose_widget.py:431 | placeholder | row_val = QLabel(placeholder)
+- Aurik10/i18n/**init**.py:807 | placeholder | "legacy.audio.preview_ready": "Preview ready (placeholder - no processing)",
+- Aurik10/ui/ml_refinement_thread.py:73 | bypass | # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
+- Aurik10/ui/modern_window.py:463 | placeholder | Always visible; shows placeholder text when not yet measured.
+- Aurik10/ui/modern_window.py:7104 | placeholder | # Draw premium placeholder
+- Aurik10/ui/modern_window.py:8753 | placeholder | """Store fmt as pinned label when it is a custom string (not a Qt placeholder)."""
+- Aurik10/ui/modern_window.py:10872 | placeholder | # Quality Meter VU bar — always visible, above radar/placeholder
+- Aurik10/ui/modern_window.py:11530 | placeholder | # Show placeholder until pre-analysis synchronization is finalized.
+- Aurik10/ui/modern_window.py:13380 | placeholder | # Carrier placeholder —_pre_analysis_bg will fill detected_medium_label
+- Aurik10/ui/modern_window.py:13950 | bypass | """Absolute fallback (180 s): never bypass defect-scan gate."""
+- Aurik10/ui/modern_window.py:15347 | deprecated | #_repair_hint: nur zeigen wenn nicht veraltet (d.h. aktuell
+- Aurik10/ui/song_prognose_widget.py:420 | placeholder | for key, placeholder in [
+- Aurik10/ui/song_prognose_widget.py:431 | placeholder | row_val = QLabel(placeholder)
 - backend/core/musical_goals/quality_gate.py:894 | stub | Gibt immer None zurück; Compat-Stub damit alte Aufrufer nicht brechen.
 - backend/core/musical_goals/quality_gate.py:900 | stub | Gibt immer None zurück; Compat-Stub damit alte Aufrufer nicht brechen.
 - backend/core/quality_recovery.py:173 | bypass | description="Bypass aggressive noise reduction module",

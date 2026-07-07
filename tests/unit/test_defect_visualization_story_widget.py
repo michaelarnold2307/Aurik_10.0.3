@@ -21,7 +21,7 @@ def test_defect_analysis_to_display_includes_extended_defect_types() -> None:
     """The display conversion must expose newly added defect keys and locations."""
     pytest.importorskip("PyQt5")
 
-    from Aurik910.ui.modern_window import _defect_analysis_to_display
+    from Aurik10.ui.modern_window import _defect_analysis_to_display
     from backend.core.defect_scanner import DefectType
 
     scores = {
@@ -49,7 +49,7 @@ def test_result_scores_to_display_includes_extended_defect_types() -> None:
     """Completed-result conversion must also expose the extended defect keys."""
     pytest.importorskip("PyQt5")
 
-    from Aurik910.ui.modern_window import _result_scores_to_display
+    from Aurik10.ui.modern_window import _result_scores_to_display
     from backend.core.defect_scanner import DefectType
 
     result_scores = {
@@ -68,7 +68,7 @@ def test_sibilance_locations_force_min_display_count() -> None:
     """Sibilance with temporal locations must remain visible after UI scaling."""
     pytest.importorskip("PyQt5")
 
-    from Aurik910.ui.modern_window import _defect_analysis_to_display
+    from Aurik10.ui.modern_window import _defect_analysis_to_display
     from backend.core.defect_scanner import DefectType
 
     # Very low severity that would round to 0 with int(sev*300), but locations exist.
@@ -87,7 +87,7 @@ def test_defect_story_widget_renders_layman_story_matrix() -> None:
     pytest.importorskip("PyQt5")
     from PyQt5.QtWidgets import QApplication
 
-    from Aurik910.ui.modern_window import DefectStoryWidget
+    from Aurik10.ui.modern_window import DefectStoryWidget
 
     app = QApplication.instance() or QApplication([])
     _ = app
@@ -129,7 +129,7 @@ def test_defect_story_widget_marks_completed_low_scores_as_fixed() -> None:
     pytest.importorskip("PyQt5")
     from PyQt5.QtWidgets import QApplication
 
-    from Aurik910.ui.modern_window import DefectStoryWidget
+    from Aurik10.ui.modern_window import DefectStoryWidget
 
     app = QApplication.instance() or QApplication([])
     _ = app
@@ -152,7 +152,7 @@ def test_defect_story_widget_compact_mode_for_many_active_defects() -> None:
     pytest.importorskip("PyQt5")
     from PyQt5.QtWidgets import QApplication
 
-    from Aurik910.ui.modern_window import DefectStoryWidget
+    from Aurik10.ui.modern_window import DefectStoryWidget
 
     app = QApplication.instance() or QApplication([])
     _ = app

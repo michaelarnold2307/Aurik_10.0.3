@@ -13,7 +13,7 @@ import copy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from Aurik910.i18n import t
+from Aurik10.i18n import t
 
 if TYPE_CHECKING:
     # isort: skip

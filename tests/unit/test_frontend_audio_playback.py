@@ -9,7 +9,7 @@ pytestmark = pytest.mark.gui
 
 pytest.importorskip("PyQt5")
 
-from Aurik910.ui import modern_window
+from Aurik10.ui import modern_window
 
 
 class _DummyButton:

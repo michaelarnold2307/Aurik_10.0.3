@@ -300,7 +300,7 @@ class TestWaveformWidgetLiveUpdate:
     def test_update_audio_live_preserves_view(self):
         """update_audio_live must NOT reset _view_start / _view_end."""
         try:
-            from Aurik910.ui.modern_window import WaveformWidget
+            from Aurik10.ui.modern_window import WaveformWidget
         except ImportError:
             pytest.skip("WaveformWidget not importable (Qt not available)")
 
@@ -330,7 +330,7 @@ class TestWaveformWidgetLiveUpdate:
     def test_update_waveform_resets_view(self):
         """update_waveform (initial load) MUST reset _view_start / _view_end."""
         try:
-            from Aurik910.ui.modern_window import WaveformWidget
+            from Aurik10.ui.modern_window import WaveformWidget
         except ImportError:
             pytest.skip("WaveformWidget not importable (Qt not available)")
 
@@ -357,7 +357,7 @@ class TestWaveformWidgetLiveUpdate:
     def test_set_defects_does_not_mark_detected_low_score_as_resolved(self):
         """Low rounded scores in detected state must not move active locations to resolved."""
         try:
-            from Aurik910.ui.modern_window import WaveformWidget
+            from Aurik10.ui.modern_window import WaveformWidget
         except ImportError:
             pytest.skip("WaveformWidget not importable (Qt not available)")
 
@@ -390,7 +390,7 @@ class TestWaveformWidgetLiveUpdate:
     def test_set_defects_marks_resolved_in_correcting_when_locations_gone(self):
         """During correcting/completed, vanished locations with zero score should move to resolved."""
         try:
-            from Aurik910.ui.modern_window import WaveformWidget
+            from Aurik10.ui.modern_window import WaveformWidget
         except ImportError:
             pytest.skip("WaveformWidget not importable (Qt not available)")
 
@@ -461,7 +461,7 @@ class TestBatchProcessingThreadSignal:
 
     def test_waveform_phase_update_signal_exists(self):
         try:
-            from Aurik910.ui.modern_window import BatchProcessingThread
+            from Aurik10.ui.modern_window import BatchProcessingThread
 
             assert hasattr(BatchProcessingThread, "waveform_phase_update")
         except ImportError:

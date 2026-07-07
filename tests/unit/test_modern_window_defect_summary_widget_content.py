@@ -8,7 +8,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QLabel
 
-from Aurik910.ui.modern_window import ModernMainWindow
+from Aurik10.ui.modern_window import ModernMainWindow
 
 _APP = QApplication.instance() or QApplication([])
 

@@ -14,9 +14,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 UV3_FILE = ROOT / "backend" / "core" / "unified_restorer_v3.py"
-MAIN_FILE = ROOT / "Aurik910" / "main.py"
-WINDOW_FILE = ROOT / "Aurik910" / "ui" / "modern_window.py"
-SPLASH_FILE = ROOT / "Aurik910" / "ui" / "splash_screen.py"
+MAIN_FILE = ROOT / "Aurik10" / "main.py"
+WINDOW_FILE = ROOT / "Aurik10" / "ui" / "modern_window.py"
+SPLASH_FILE = ROOT / "Aurik10" / "ui" / "splash_screen.py"
 RUN_SCRIPT = ROOT / "run_aurik.sh"
 AFG_FILE = ROOT / "backend" / "core" / "artifact_freedom_gate.py"
 PHASE_18_FILE = ROOT / "backend" / "core" / "phases" / "phase_18_noise_gate.py"
@@ -48,20 +48,20 @@ def test_release_must_frontend_version_display_invariant_is_wired_to_single_sour
     window_src = WINDOW_FILE.read_text(encoding="utf-8")
     splash_src = SPLASH_FILE.read_text(encoding="utf-8")
 
-    assert "from Aurik910 import __version__" in main_src, "Aurik910/main.py must import __version__ from Aurik910."
-    assert "setApplicationVersion(__version__)" in main_src, "Aurik910/main.py must set app version from __version__."
+    assert "from Aurik10 import __version__" in main_src, "Aurik10/main.py must import __version__ from Aurik10."
+    assert "setApplicationVersion(__version__)" in main_src, "Aurik10/main.py must set app version from __version__."
 
-    assert "from Aurik910 import __version__ as _AURIK_VERSION" in window_src, (
-        "Aurik910/ui/modern_window.py must derive title version from Aurik910.__version__."
+    assert "from Aurik10 import __version__ as _AURIK_VERSION" in window_src, (
+        "Aurik10/ui/modern_window.py must derive title version from Aurik10.__version__."
     )
     assert 'setWindowTitle(f"AURIK Professional v{_AURIK_VERSION}")' in window_src, (
-        "Aurik910/ui/modern_window.py must expose version in window title."
+        "Aurik10/ui/modern_window.py must expose version in window title."
     )
 
-    assert "from Aurik910 import __version__ as _VERSION" in splash_src, (
-        "Aurik910/ui/splash_screen.py must import __version__ for splash badge."
+    assert "from Aurik10 import __version__ as _VERSION" in splash_src, (
+        "Aurik10/ui/splash_screen.py must import __version__ for splash badge."
     )
-    assert 'vt = f"v{_VERSION}"' in splash_src, "Aurik910/ui/splash_screen.py must render visible version badge."
+    assert 'vt = f"v{_VERSION}"' in splash_src, "Aurik10/ui/splash_screen.py must render visible version badge."
 
 
 @pytest.mark.normative

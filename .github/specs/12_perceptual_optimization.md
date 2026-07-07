@@ -15,7 +15,7 @@ Jedes Pattern ist vollständig implementiert und durch Unit-Tests abgesichert.
 | §H | Genre Goal Profiles | `backend/core/genre_goal_profile.py` | 15 Musical Goals × 18 Genres mit spezifischen Gewichten |
 | §I | Multi-Segment ARE | `backend/core/autonomous_restoration_engine.py` | ARE evaluiert 3 Exzerpte (Anfang/Mitte/Ende) statt 1 |
 | §J | Goal Budget | `backend/core/goal_budget.py` | Pre-Allokation pro Goal, Abbuchung nach jeder Phase |
-| §K | Simplified Progress | `Aurik910/ui/modern_window.py` | 30 Hz-Timer, eine Formel, kein Monotonie-Guard |
+| §K | Simplified Progress | `Aurik10/ui/modern_window.py` | 30 Hz-Timer, eine Formel, kein Monotonie-Guard |
 
 ### Gruppe 2: Klangwirksame Guards (§L–§Q)
 

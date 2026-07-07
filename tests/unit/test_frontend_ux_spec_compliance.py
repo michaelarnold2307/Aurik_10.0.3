@@ -40,7 +40,7 @@ try:
     import importlib.util
 
     _spec = importlib.util.spec_from_file_location(
-        "modern_window", "/media/michael/Software 4TB/Aurik_Standalone/Aurik910/ui/modern_window.py"
+        "modern_window", "/media/michael/Software 4TB/Aurik_Standalone/Aurik10/ui/modern_window.py"
     )
     _mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
     # Only load if display available — ast-based checks done without load
@@ -58,7 +58,7 @@ except Exception:
 import pathlib
 
 _MODERN_WINDOW_SRC = pathlib.Path(
-    "/media/michael/Software 4TB/Aurik_Standalone/Aurik910/ui/modern_window.py"
+    "/media/michael/Software 4TB/Aurik_Standalone/Aurik10/ui/modern_window.py"
 ).read_text(encoding="utf-8")
 _MODERN_WINDOW_TREE = ast.parse(_MODERN_WINDOW_SRC)
 

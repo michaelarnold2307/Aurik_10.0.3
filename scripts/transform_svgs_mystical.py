@@ -17,7 +17,7 @@ Run from workspace root:
 import re
 from pathlib import Path
 
-RESOURCES = Path("/media/michael/Software 4TB/Aurik_Standalone/Aurik910/resources")
+RESOURCES = Path("/media/michael/Software 4TB/Aurik_Standalone/Aurik10/resources")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Mystical SVG fragment definitions

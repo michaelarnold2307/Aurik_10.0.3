@@ -11,7 +11,7 @@ Abgedeckte Regeln (ERROR-Level):
     V06 map_location='cuda' ohne ml_device_manager
     V07 scipy.signal.wiener() direkt
     V08 np.correlate O(n²)
-    V09 from Aurik910 in backend/
+    V09 from Aurik10 in backend/
     V10 load_audio_file ohne do_carrier_analysis=False
     V12 CAUSE_TO_PHASES/CAUSES Bidirektional-Sync (§2.59)
 """

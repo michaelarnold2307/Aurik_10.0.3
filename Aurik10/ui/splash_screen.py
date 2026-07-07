@@ -35,7 +35,7 @@ from PyQt5.QtWidgets import QApplication, QWidget  # pylint: disable=no-name-in-
 _RES = Path(__file__).parent.parent / "resources"
 
 try:
-    from Aurik910 import __version__ as _VERSION  # type: ignore[attr-defined]
+    from Aurik10 import __version__ as _VERSION  # type: ignore[attr-defined]
 except Exception:
     _VERSION = "unknown"
     try:

@@ -1,4 +1,39 @@
-# Changelog — Aurik 10.0.0
+# Changelog — Aurik 10.0.1
+
+## 10.0.1 (2026-07-07) — Chirurgische Präzision
+
+### 🎯 Zentralisierte Entscheidungsintelligenz
+- **SongCalibration Multi-Faktor**: 8-Faktor global_scalar mit Bandwidth-Loss-Guard (−25%), Detektor-Dissens-Guard (−10%), Fragile-Material-Guard (Cap 0.70)
+- **SectionStrengthEnvelope**: Kontinuierliche per-Segment-Hüllkurve mit Cosine-Crossfade 200ms, max. 1dB/100ms. Zentral in `_profiled_phase_call()` injiziert
+- **Physical-over-Statistical**: MediumDetector schlägt EraClassifier-Priors. Era-Information bleibt als Precursor für Bandbreiten-Ziele erhalten
+
+### 🎤 De-Essing Weltspitze
+- **Spectral Dynamic EQ**: Pro-FFT-Bin Soft-Knee-Kompressor mit frequenzabhängigem Threshold (Soothe2/FabFilter-Niveau)
+- **Phonem-adaptives De-Essing**: Dynamische Band-Mittenfrequenz basierend auf spektralem Schwerpunkt (/s/ schmal, /ʃ/ breit)
+- **Librosa pYIN Gender**: Voicing-Confidence-basierte F0 + Contralto-Erkennung (F0 145–195Hz + weibliche Formanten → FEMALE)
+- **Stages 2–6 aktiviert**: Breath Intelligence, Formant System, Vocal Presence, Spectral Inpainting, Vocal Dynamics vollständig geladen
+
+### ⛓️ Tonträgerkette chirurgisch
+- **Effective Chain**: `reel_tape → vinyl → cassette → mp3_low` aus physikalischer + statistischer Evidenz
+- **Bayesian-Physical-Fusion**: Bayesian unknown > 0.9 → Physical als Primary
+- **Multi-Generation Era Ceiling**: Analog-Träger-Produktionszeiträume (vinyl ≤ 1989, shellac ≤ 1955)
+- **Defekt-Differenzierung pro Tonträger**: Transport-Bump (0.15/0.95), Print-Through (0.40/0.10), Tape-Head-Level-Dip (0.15/0.65)
+
+### 👂 Fürs menschliche Ohr
+- **GrooveMetric Onset-Guard**: ≥90% Onsets → Score ≥0.85 trotz DTW-Fehlschlag
+- **Quality-Gate→Action**: PQS-MOS < 2.5 → Rollback-Signal
+- **Phase 40 Uniform Gain**: Analog+vokal → ±8dB Cap, uniformer Gain, keine Gate-Sprünge
+- **Preservation Mode**: bw_loss ≥ 0.90 ∧ SNR < 16dB → transparente Grenzakzeptanz
+
+### 🏗️ Infrastruktur
+- **Vocal Analysis Shared Memory**: VFA → restoration_context, von Phase 19 + SVM gelesen
+- **SingerVoiceModel VFA-Integration**: Vibrato und Formanten aus VFA statt Eigenberechnung
+- **4-Kern-Optimierung**: harter Default, keine 8-Kern-Überlastung
+
+### 📋 Spezifikation
+- **Spec 11**: Entscheidungsintelligenz — 10 INV + 7 ROADMAP
+- **Spec 13**: Klangqualität fürs menschliche Ohr — 5 ROADMAP
+- **Spec 14**: Vollständigkeit & Perfektion — Export, Fehlertoleranz, Deterministik, Metadaten
 
 ## 10.0.0 (2026-07-04) — Weltklasse-Intelligenz
 

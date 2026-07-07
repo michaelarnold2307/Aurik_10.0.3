@@ -1214,6 +1214,26 @@ def _microphone_type_decade(bark_energies: np.ndarray) -> tuple[int, float]:
 # ---------------------------------------------------------------------------
 
 
+# §2.13 Multi-Generation Era Ceiling (v9.20.3): Analog-Träger haben
+# Produktionszeiträume. Wenn die Kette einen analogen Ursprungsträger
+# enthält (z. B. vinyl→cassette→mp3), darf die erkannte Ära NICHT
+# jünger sein als das Ende der kommerziellen Produktion dieses Trägers.
+# Dies verhindert, dass der letzte Codec in der Kette (mp3=1990er)
+# den ursprünglichen Aufnahmezeitpunkt überschreibt.
+_ANALOG_ERA_CEILING: dict[str, int] = {
+    "shellac": 1955,        # Schellack: letzte kommerzielle Pressungen ~1955
+    "wax_cylinder": 1930,   # Wachswalze: Ende ~1929
+    "vinyl": 1989,          # Vinyl: CD verdrängt Vinyl ~1989 (Nischenproduktion danach)
+    "lacquer_disc": 1970,   # Lacquer-Disc (Acetat): Ende ~1970
+    "wire_recording": 1950, # Drahtaufnahme: Ende ~1950
+    "cassette": 2005,       # Kassette: letzte große Produktionen ~2005
+    "tape": 1995,           # Tonband: Ende ~1995 (Nischen bis heute)
+    "reel_tape": 1995,      # Tonband (Spule): Ende ~1995
+    "8track": 1985,         # 8-Track: Ende ~1985
+    "dat": 2005,            # DAT: Ende ~2005
+    "minidisc": 2005,       # MiniDisc: Ende ~2005
+}
+
 class EraClassifier:
     """Erkennt Aufnahme-Ära (1890–2025) und leitet epochenspezifische Priors ab.
 
@@ -1247,7 +1267,7 @@ class EraClassifier:
     # Öffentliche API
     # ------------------------------------------------------------------
 
-    def classify(self, audio: np.ndarray, sr: int) -> EraResult:
+    def classify(self, audio: np.ndarray, sr: int, transfer_chain: list[str] | None = None) -> EraResult:
         """Erkennt Aufnahme-Ära (Cascaded Tier-1 → Tier-2 → Tier-3).
 
         Args:
@@ -1312,22 +1332,44 @@ class EraClassifier:
         #    originate from a pre-1958 decade regardless of CLAP confidence.
         #  • Significant high-band energy above 8 kHz is incompatible with a decade
         #    that nominally had ≤ 8 kHz recording bandwidth (pre-1940s equipment).
-        # When either constraint is violated, Tier-1 is discarded and Tier-2 DSP
+        #  • §2.13 Analog-Era-Plausibilität: Wenn die Chain analoge Medien enthält
+        #    (vinyl, cassette, shellac), kann die Aufnahme nicht NACH dem Ende der
+        #    Analog-Ära entstanden sein. CLAP > 1989 + analog chain → Tier-2.
+        # When any constraint is violated, Tier-1 is discarded and Tier-2 DSP
         # (which implements these guards natively) is used instead.
         if result is not None and result.tier_used == 1:
             _clap_decade = result.decade
             _stereo_violation = is_stereo and _clap_decade < 1960
             _hf_violation = (highband_presence > 0.20) and (_clap_decade < 1940)
-            if _stereo_violation or _hf_violation:
+            _analog_era_violation = (
+                transfer_chain is not None
+                and any(m in ("vinyl", "cassette", "shellac", "lacquer_disc", "wax_cylinder",
+                              "tape", "reel_tape", "wire_recording", "8track")
+                        for m in (str(t).lower().replace(" ", "_").replace("-", "_")
+                                  for t in transfer_chain))
+                and _clap_decade > 1989
+            )
+            if _stereo_violation or _hf_violation or _analog_era_violation:
+                _violations = []
+                if _stereo_violation: _violations.append("stereo")
+                if _hf_violation: _violations.append("hf_presence")
+                if _analog_era_violation: _violations.append("analog_chain")
                 logger.info(
                     "EraClassifier: Tier-1 Plausibilitätsverletzung ("
-                    "CLAP-Jahrzehnt=%d, stereo=%s, hf_presence=%.2f"
-                    ") → Tier-2 DSP-Override (Eargle 2004)",
-                    _clap_decade,
-                    is_stereo,
-                    highband_presence,
+                    "CLAP-Jahrzehnt=%d, violations=%s) → Tier-2 DSP-Override",
+                    _clap_decade, ",".join(_violations),
                 )
                 result = None  # force Tier-2
+
+        # §2.13 CLAP-Confidence-Gate: CLAP ist ein general-purpose Audio-Modell,
+        # kein Era-Spezialist. Bei confidence < 0.50 ist die Vorhersage nicht
+        # besser als Raten → Tier-1 verwerfen, Tier-2 DSP direkt nutzen.
+        if result is not None and result.tier_used == 1 and result.confidence < 0.50:
+            logger.info(
+                "EraClassifier: CLAP confidence %.2f < 0.50 — Tier-1 verworfen, Tier-2 DSP",
+                result.confidence,
+            )
+            result = None
 
         # Tier-2: DSP-Fingerprint (multi-factor)
         if result is None or result.confidence < 0.40:
@@ -1343,6 +1385,39 @@ class EraClassifier:
                 lf_presence=lf_presence,
                 highband_presence=highband_presence,
             )
+
+        # §2.13 Multi-Generation Era Ceiling: Wenn die Kette einen analogen
+        # Ursprungsträger enthält, darf die erkannte Ära nicht jünger sein
+        # als das Produktionsende dieses Trägers.
+        # Beispiel: vinyl→cassette→mp3 → vinyl ceiling=1989. Auch wenn CLAP/DSP
+        # 1990er erkennen (wegen mp3-Artefakten), wird auf 1989 geklemmt.
+        if transfer_chain and result is not None:
+            _ceiling = 9999
+            _ceiling_source = None
+            for _mat in transfer_chain:
+                _mat_lower = str(_mat).lower().replace(" ", "_").replace("-", "_")
+                _c = _ANALOG_ERA_CEILING.get(_mat_lower)
+                if _c is not None and _c < _ceiling:
+                    _ceiling = _c
+                    _ceiling_source = _mat_lower
+            if _ceiling < 9999 and result.decade > _ceiling:
+                _original_decade = result.decade
+                result = EraResult(
+                    decade=_ceiling,
+                    confidence=result.confidence * 0.85,  # leichte Unsicherheit
+                    material_prior=result.material_prior,
+                    noise_profile=result.noise_profile,
+                    tier_used=result.tier_used,
+                    tier1_used=result.tier1_used,
+                    regression_snr=result.regression_snr,
+                    regression_mos=result.regression_mos,
+                )
+                logger.info(
+                    "🕰️ §2.13 Era-Ceiling: chain=%s → %s ceiling=%d → "
+                    "decade %d→%d (CLAP/DSP said %d, corrected for analog source)",
+                    transfer_chain, _ceiling_source, _ceiling,
+                    _original_decade, result.decade, _original_decade,
+                )
 
         # Tier-3: Mikrofon-Heuristik (letzter Fallback)
         if result.confidence < 0.30:
@@ -1671,7 +1746,7 @@ def _apply_codec_bw_plausibility_gate(
     return era_result
 
 
-def classify_era(audio: np.ndarray, sr: int) -> EraResult:
+def classify_era(audio: np.ndarray, sr: int, transfer_chain: list[str] | None = None) -> EraResult:
     """Convenience-Funktion: Erkennt Aufnahme-Ära ohne explizite Instanz.
 
     Args:

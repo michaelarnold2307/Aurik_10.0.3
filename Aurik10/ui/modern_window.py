@@ -34,7 +34,7 @@ import numpy as np
 import soundfile as sf
 from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 
-from Aurik910.i18n import get_language, set_language, t
+from Aurik10.i18n import get_language, set_language, t
 
 # scipy.signal and numba must be imported at module level — lazy imports inside threads
 # cause circular import errors in the ROCm venv (partially initialized modules).
@@ -84,13 +84,13 @@ except Exception:
     _bridge_warmup_rocm = None  # type: ignore[assignment]
 
 try:
-    from Aurik910.core.settings_manager import get_settings_manager as _get_settings_manager
+    from Aurik10.core.settings_manager import get_settings_manager as _get_settings_manager
 except Exception:
     _get_settings_manager = None  # type: ignore[assignment]
 
 try:
-    from Aurik910.ui.ml_refinement_thread import DeferredRefinementJob as _DeferredRefinementJob
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread as _MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import DeferredRefinementJob as _DeferredRefinementJob
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread as _MLRefinementThread
 except Exception:
     _DeferredRefinementJob = None  # type: ignore[assignment]
     _MLRefinementThread = None  # type: ignore[assignment]
@@ -538,13 +538,13 @@ QSvgRenderer = QtSvg.QSvgRenderer
 # pylint: enable=c-extension-no-member
 
 try:
-    from Aurik910 import __version__ as _AURIK_VERSION
+    from Aurik10 import __version__ as _AURIK_VERSION
 except Exception:
     _AURIK_VERSION = "unknown"  # Fallback: Import-Fehler — wird beim nächsten Release-Bump automatisch korrekt
 
 # SVG-Phasen-Icons (2.5D mystisch-profi)
 try:
-    from Aurik910.core.aurik_icons import get_icon as _get_stage_icon
+    from Aurik10.core.aurik_icons import get_icon as _get_stage_icon
 
     _SVG_ICONS_AVAILABLE = True
 except ImportError:
@@ -562,7 +562,7 @@ except Exception:
 
 # Unterbrechungsfreier Streaming-Player (callback-basiert, gapless A/B switch)
 try:
-    from Aurik910.ui.audio_player import StreamingAudioPlayer, get_streaming_player
+    from Aurik10.ui.audio_player import StreamingAudioPlayer, get_streaming_player
 
     _STREAMING_PLAYER_AVAILABLE = True
 except Exception:
@@ -570,7 +570,7 @@ except Exception:
 
 # Musical Goals Radar Chart (pure PyQt5, kein Matplotlib)
 try:
-    from Aurik910.ui.musical_goals_radar import MusicalGoalsRadarWidget
+    from Aurik10.ui.musical_goals_radar import MusicalGoalsRadarWidget
 except ImportError:
     try:
         from musical_goals_radar import MusicalGoalsRadarWidget
@@ -579,7 +579,7 @@ except ImportError:
 
 # Song-Prognose-Widget (pre-flight deep analysis tab)
 try:
-    from Aurik910.ui.song_prognose_widget import SongPrognoseWidget
+    from Aurik10.ui.song_prognose_widget import SongPrognoseWidget
 except ImportError:
     try:
         from song_prognose_widget import SongPrognoseWidget  # type: ignore[no-redef]

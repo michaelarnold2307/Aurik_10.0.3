@@ -559,9 +559,9 @@ tail -f logs/aurik_staging.log
 
 | File | Validation | Evidence Line |
 |------|-----------|---------------|
-| `Aurik910/ui/modern_window.py` | R1, S1 (mode announcement) | ~L670–680 |
-| `Aurik910/ui/modern_window.py` | R3 (dual progress bars) | ~L500–510 |
-| `Aurik910/ui/modern_window.py` | G2 (KMV batch audio source) | ~L9530 |
+| `Aurik10/ui/modern_window.py` | R1, S1 (mode announcement) | ~L670–680 |
+| `Aurik10/ui/modern_window.py` | R3 (dual progress bars) | ~L500–510 |
+| `Aurik10/ui/modern_window.py` | G2 (KMV batch audio source) | ~L9530 |
 | `backend/core/ml_refinement_thread.py` | G3 (refinement cancel signal) | Signal definition |
 | `backend/core/unified_restorer_v3.py` | G5 (PMGG no rollback) | Best-effort only |
 | `backend/core/hybrid_release_mode.py` | G7 (release mode cascade) | States: primary/fallback/blocked |

@@ -5,7 +5,7 @@ Scope:
 - backend/api/
 - backend/lyrics_guided/
 - denker/
-- Aurik910/
+- Aurik10/
 
 Rationale:
 Production runtime must remain offline and out-of-the-box without Docker.
@@ -23,7 +23,7 @@ PRODUCTION_DIRS: tuple[str, ...] = (
     "backend/api",
     "backend/lyrics_guided",
     "denker",
-    "Aurik910",
+    "Aurik10",
 )
 EXCLUDE_CONTAINS: tuple[str, ...] = ("__pycache__", "tests/")
 

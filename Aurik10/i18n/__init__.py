@@ -1,11 +1,11 @@
 """
-Aurik910/i18n/__init__.py — Internationalisierungs-Framework für Aurik 9 (§3.5).
+Aurik10/i18n/__init__.py — Internationalisierungs-Framework für Aurik 9 (§3.5).
 
 Aurik 9 zeigt alle UI-Texte standardmäßig auf Deutsch.
 Umschaltung auf Englisch via Einstellungen → Sprache (zur Laufzeit).
 
 Verwendung:
-    from Aurik910.i18n import t, set_language
+    from Aurik10.i18n import t, set_language
     set_language("de")
     print(t("restoration.started"))  # → "Restaurierung gestartet…"
 """

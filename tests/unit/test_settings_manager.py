@@ -1,4 +1,4 @@
-"""Tests for Aurik910/core/settings_manager.py — persistent app settings."""
+"""Tests for Aurik10/core/settings_manager.py — persistent app settings."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ pytestmark = pytest.mark.gui
 @pytest.fixture(autouse=True)
 def _reset_singleton():
     """Reset global singleton before each test."""
-    import Aurik910.core.settings_manager as sm
+    import Aurik10.core.settings_manager as sm
 
     sm._instance = None
     yield
@@ -20,7 +20,7 @@ def _reset_singleton():
 @pytest.fixture
 def settings(tmp_path):
     """Create a SettingsManager backed by a temporary QSettings file."""
-    from Aurik910.core.settings_manager import SettingsManager
+    from Aurik10.core.settings_manager import SettingsManager
 
     s = SettingsManager.__new__(SettingsManager)
     # Use QSettings with a custom file path
@@ -34,7 +34,7 @@ def settings(tmp_path):
 
 
 def test_singleton_returns_same_instance():
-    from Aurik910.core.settings_manager import get_settings_manager
+    from Aurik10.core.settings_manager import get_settings_manager
 
     a = get_settings_manager()
     b = get_settings_manager()
@@ -44,7 +44,7 @@ def test_singleton_returns_same_instance():
 def test_singleton_thread_safe():
     import threading
 
-    from Aurik910.core.settings_manager import get_settings_manager
+    from Aurik10.core.settings_manager import get_settings_manager
 
     instances = []
 
@@ -203,7 +203,7 @@ def test_last_export_dir_roundtrip(settings, tmp_path):
 
 def test_i18n_keys_exist():
     """Verify that the new i18n keys for recent files, help, and tray are present."""
-    from Aurik910.i18n import set_language, t
+    from Aurik10.i18n import set_language, t
 
     set_language("de")
     expected_keys = [
@@ -233,7 +233,7 @@ def test_i18n_keys_exist():
 
 
 def test_i18n_tray_batch_ok_format():
-    from Aurik910.i18n import set_language, t
+    from Aurik10.i18n import set_language, t
 
     set_language("de")
     result = t("tray.batch_ok", count=5)
@@ -241,7 +241,7 @@ def test_i18n_tray_batch_ok_format():
 
 
 def test_i18n_tray_batch_mixed_format():
-    from Aurik910.i18n import set_language, t
+    from Aurik10.i18n import set_language, t
 
     set_language("de")
     result = t("tray.batch_mixed", ok=3, failed=2)

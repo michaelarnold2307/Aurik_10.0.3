@@ -1,5 +1,5 @@
 """
-SongPrognoseWidget — Pre-flight deep analysis tab for Aurik 9.
+SongPrognoseWidget — Pre-flight deep analysis tab for Aurik 10.
 
 Displays material, era/genre, restorability score, detected defects,
 phase prognosis and an overall 'Chancen-Score' before restoration starts.
@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (  # pylint: disable=no-name-in-module
     QWidget,
 )
 
-from Aurik910.i18n import t
+from Aurik10.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -926,7 +926,7 @@ def _print_prognose_terminal(
     lines = [
         "",
         f"{_ANSI_BOLD}{_ANSI_BLUE}╔══════════════════════════════════════════════════════╗{_ANSI_RESET}",
-        f"{_ANSI_BOLD}{_ANSI_BLUE}║        Aurik 9 — Song-Prognose (Pre-Flight)          ║{_ANSI_RESET}",
+        f"{_ANSI_BOLD}{_ANSI_BLUE}║        Aurik 10 — Song-Prognose (Pre-Flight)          ║{_ANSI_RESET}",
         f"{_ANSI_BOLD}{_ANSI_BLUE}╚══════════════════════════════════════════════════════╝{_ANSI_RESET}",
         f"  {_ANSI_DIM}Trägermedium{_ANSI_RESET}    : {mat_name}",
         f"  {_ANSI_DIM}Aufnahme-Ära{_ANSI_RESET}    : {f'{decade}er' if decade else '—'}",

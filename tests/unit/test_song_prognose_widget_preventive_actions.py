@@ -6,7 +6,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from Aurik910.ui.song_prognose_widget import SongPrognoseWidget
+from Aurik10.ui.song_prognose_widget import SongPrognoseWidget
 
 
 @pytest.mark.unit

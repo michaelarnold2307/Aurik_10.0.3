@@ -56,7 +56,7 @@ class SimpleRestorationMonitor:
         """Find an already running Aurik GUI process."""
         try:
             result = subprocess.run(
-                ["pgrep", "-f", "Aurik910/main.py"],
+                ["pgrep", "-f", "Aurik10/main.py"],
                 check=False,
                 capture_output=True,
                 text=True,

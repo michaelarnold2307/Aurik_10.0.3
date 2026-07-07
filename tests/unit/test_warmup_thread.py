@@ -1,6 +1,6 @@
 """test_warmup_thread.py — §9.7.4 Modell-Warmup im Hintergrund.
 
-Pflicht-Tests (≥ 8) für _warmup_models_background() aus Aurik910/main.py.
+Pflicht-Tests (≥ 8) für _warmup_models_background() aus Aurik10/main.py.
 Alle Tests laufen ohne echte ML-Modelle (Stubs/Mocks).
 """
 
@@ -167,9 +167,9 @@ class TestWarmupThread:
         assert len(results) == 5
         assert all(r == 0 for r in results)
 
-    # 8. _warmup_models_background ist in Aurik910/main.py importierbar
+    # 8. _warmup_models_background ist in Aurik10/main.py importierbar
     def test_08_warmup_function_importable(self):
-        """_warmup_models_background muss aus Aurik910.main importierbar sein
+        """_warmup_models_background muss aus Aurik10.main importierbar sein
         (ohne Qt oder echte ONNX-Modelle)."""
         import sys
 
@@ -209,14 +209,14 @@ class TestWarmupThread:
             import pathlib
 
             spec = importlib.util.spec_from_file_location(
-                "Aurik910_main_stub",
-                pathlib.Path("Aurik910/main.py"),
+                "Aurik10_main_stub",
+                pathlib.Path("Aurik10/main.py"),
             )
             assert spec is not None
             importlib.util.module_from_spec(spec)
             # __spec__ setzen aber exec NICHT aufrufen → nur Definitionen laden
             # Wir prüfen nur ob die Funktion im Source vorhanden ist
-            src = pathlib.Path("Aurik910/main.py").read_text()
+            src = pathlib.Path("Aurik10/main.py").read_text()
             assert "_warmup_models_background" in src, "_warmup_models_background fehlt"
             assert "daemon=True" in src, "Warmup-Thread muss daemon=True sein"
             assert "AurikWarmup" in src, "Thread-Name AurikWarmup fehlt"

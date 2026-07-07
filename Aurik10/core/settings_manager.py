@@ -1,4 +1,4 @@
-"""Aurik910/core/settings_manager.py — Persistent app settings via QSettings.
+"""Aurik10/core/settings_manager.py — Persistent app settings via QSettings.
 
 Singleton access: ``get_settings_manager()``
 

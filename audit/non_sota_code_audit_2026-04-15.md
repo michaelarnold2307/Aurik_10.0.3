@@ -29,20 +29,20 @@ Hinweis: Tests und ausgeschlossene Drittanbieter-/Artefaktpfade wurden nicht ges
 
 ## Hohe Relevanz
 
-- Aurik910/i18n/**init**.py:807 | placeholder | "legacy.audio.preview_ready": "Preview ready (placeholder - no processing)",
-- Aurik910/i18n/**init**.py:843 | not_implemented | "legacy.preset.not_implemented_title": "Not Implemented",
-- Aurik910/ui/ml_refinement_thread.py:73 | bypass | # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
-- Aurik910/ui/modern_window.py:463 | placeholder | Always visible; shows placeholder text when not yet measured.
-- Aurik910/ui/modern_window.py:7104 | placeholder | # Draw premium placeholder
-- Aurik910/ui/modern_window.py:8753 | placeholder | """Store fmt as pinned label when it is a custom string (not a Qt placeholder)."""
-- Aurik910/ui/modern_window.py:10872 | placeholder | # Quality Meter VU bar — always visible, above radar/placeholder
-- Aurik910/ui/modern_window.py:11530 | placeholder | # Show placeholder until pre-analysis synchronization is finalized.
-- Aurik910/ui/modern_window.py:11650 | workaround | # setFixedSize ersetzt den_AspectContainer-Workaround (heightForWidth-Propagation
-- Aurik910/ui/modern_window.py:13380 | placeholder | # Carrier placeholder —_pre_analysis_bg will fill detected_medium_label
-- Aurik910/ui/modern_window.py:13950 | bypass | """Absolute fallback (180 s): never bypass defect-scan gate."""
-- Aurik910/ui/modern_window.py:15347 | deprecated | #_repair_hint: nur zeigen wenn nicht veraltet (d.h. aktuell
-- Aurik910/ui/song_prognose_widget.py:420 | placeholder | for key, placeholder in [
-- Aurik910/ui/song_prognose_widget.py:431 | placeholder | row_val = QLabel(placeholder)
+- Aurik10/i18n/**init**.py:807 | placeholder | "legacy.audio.preview_ready": "Preview ready (placeholder - no processing)",
+- Aurik10/i18n/**init**.py:843 | not_implemented | "legacy.preset.not_implemented_title": "Not Implemented",
+- Aurik10/ui/ml_refinement_thread.py:73 | bypass | # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
+- Aurik10/ui/modern_window.py:463 | placeholder | Always visible; shows placeholder text when not yet measured.
+- Aurik10/ui/modern_window.py:7104 | placeholder | # Draw premium placeholder
+- Aurik10/ui/modern_window.py:8753 | placeholder | """Store fmt as pinned label when it is a custom string (not a Qt placeholder)."""
+- Aurik10/ui/modern_window.py:10872 | placeholder | # Quality Meter VU bar — always visible, above radar/placeholder
+- Aurik10/ui/modern_window.py:11530 | placeholder | # Show placeholder until pre-analysis synchronization is finalized.
+- Aurik10/ui/modern_window.py:11650 | workaround | # setFixedSize ersetzt den_AspectContainer-Workaround (heightForWidth-Propagation
+- Aurik10/ui/modern_window.py:13380 | placeholder | # Carrier placeholder —_pre_analysis_bg will fill detected_medium_label
+- Aurik10/ui/modern_window.py:13950 | bypass | """Absolute fallback (180 s): never bypass defect-scan gate."""
+- Aurik10/ui/modern_window.py:15347 | deprecated | #_repair_hint: nur zeigen wenn nicht veraltet (d.h. aktuell
+- Aurik10/ui/song_prognose_widget.py:420 | placeholder | for key, placeholder in [
+- Aurik10/ui/song_prognose_widget.py:431 | placeholder | row_val = QLabel(placeholder)
 - _aurik_run_excellence.py:8 | bypass | Nutzt kanonischen Einstieg AurikDenker.denke() — kein UV3-Bypass.
 - backend/adaptive_pipeline.py:25 | stub | # Fallback-Stub auf Modulebene
 - backend/adaptive_pipeline.py:27 | stub | """Basis-Fallback-Stub für nicht ladbare Plugins."""
@@ -277,79 +277,79 @@ Hinweis: Tests und ausgeschlossene Drittanbieter-/Artefaktpfade wurden nicht ges
 
 ## Alle Fundstellen
 
-- Aurik910/core/preset_manager.py:107 | pass | pass
-- Aurik910/hooks/runtime_hook_threading.py:34 | pass | pass  # torch optional at hook time (not yet imported)
-- Aurik910/i18n/**init**.py:807 | placeholder | "legacy.audio.preview_ready": "Preview ready (placeholder - no processing)",
-- Aurik910/i18n/**init**.py:843 | not_implemented | "legacy.preset.not_implemented_title": "Not Implemented",
-- Aurik910/main.py:34 | pass | pass
-- Aurik910/main.py:142 | pass | pass
-- Aurik910/ui/audio_player.py:250 | pass | pass
-- Aurik910/ui/audio_player.py:333 | pass | pass
-- Aurik910/ui/audio_player.py:394 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:49 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:57 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:60 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:73 | bypass | # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
-- Aurik910/ui/ml_refinement_thread.py:121 | pass | pass  # psutil not available → proceed without check
-- Aurik910/ui/ml_refinement_thread.py:137 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:141 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:256 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:265 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:296 | pass | pass
-- Aurik910/ui/ml_refinement_thread.py:346 | pass | pass
-- Aurik910/ui/modern_window.py:463 | placeholder | Always visible; shows placeholder text when not yet measured.
-- Aurik910/ui/modern_window.py:1154 | pass | pass  # best-effort in signal handler — no logging
-- Aurik910/ui/modern_window.py:2078 | pass | pass
-- Aurik910/ui/modern_window.py:2795 | pass | pass
-- Aurik910/ui/modern_window.py:2802 | pass | pass
-- Aurik910/ui/modern_window.py:2809 | pass | pass
-- Aurik910/ui/modern_window.py:3694 | pass | pass
-- Aurik910/ui/modern_window.py:4735 | pass | pass
-- Aurik910/ui/modern_window.py:4939 | pass | pass
-- Aurik910/ui/modern_window.py:7104 | placeholder | # Draw premium placeholder
-- Aurik910/ui/modern_window.py:8753 | placeholder | """Store fmt as pinned label when it is a custom string (not a Qt placeholder)."""
-- Aurik910/ui/modern_window.py:9254 | pass | pass
-- Aurik910/ui/modern_window.py:9266 | pass | pass
-- Aurik910/ui/modern_window.py:9292 | pass | pass
-- Aurik910/ui/modern_window.py:9955 | pass | pass
-- Aurik910/ui/modern_window.py:10002 | pass | pass
-- Aurik910/ui/modern_window.py:10098 | pass | pass
-- Aurik910/ui/modern_window.py:10217 | pass | pass
-- Aurik910/ui/modern_window.py:10487 | pass | pass
-- Aurik910/ui/modern_window.py:10872 | placeholder | # Quality Meter VU bar — always visible, above radar/placeholder
-- Aurik910/ui/modern_window.py:11530 | placeholder | # Show placeholder until pre-analysis synchronization is finalized.
-- Aurik910/ui/modern_window.py:11650 | workaround | # setFixedSize ersetzt den_AspectContainer-Workaround (heightForWidth-Propagation
-- Aurik910/ui/modern_window.py:12795 | pass | pass
-- Aurik910/ui/modern_window.py:12905 | temp | # Temp-store native audio for_pre_analysis_bg (started in _continue_file_loaded).
-- Aurik910/ui/modern_window.py:13215 | pass | pass
-- Aurik910/ui/modern_window.py:13368 | pass | pass
-- Aurik910/ui/modern_window.py:13380 | placeholder | # Carrier placeholder —_pre_analysis_bg will fill detected_medium_label
-- Aurik910/ui/modern_window.py:13442 | temp | # Clear temporary native audio reference immediately to avoid keeping
-- Aurik910/ui/modern_window.py:13888 | pass | pass
-- Aurik910/ui/modern_window.py:13950 | bypass | """Absolute fallback (180 s): never bypass defect-scan gate."""
-- Aurik910/ui/modern_window.py:14054 | pass | pass
-- Aurik910/ui/modern_window.py:14060 | pass | pass
-- Aurik910/ui/modern_window.py:14246 | pass | pass
-- Aurik910/ui/modern_window.py:14249 | pass | pass
-- Aurik910/ui/modern_window.py:14502 | pass | pass
-- Aurik910/ui/modern_window.py:14532 | pass | pass
-- Aurik910/ui/modern_window.py:14580 | pass | pass
-- Aurik910/ui/modern_window.py:14908 | pass | pass
-- Aurik910/ui/modern_window.py:15141 | pass | pass  # psutil nicht verfügbar → kein Check, weiterfahren
-- Aurik910/ui/modern_window.py:15261 | pass | pass
-- Aurik910/ui/modern_window.py:15347 | deprecated | #_repair_hint: nur zeigen wenn nicht veraltet (d.h. aktuell
-- Aurik910/ui/modern_window.py:15614 | pass | pass
-- Aurik910/ui/modern_window.py:16261 | pass | pass
-- Aurik910/ui/modern_window.py:17002 | pass | pass
-- Aurik910/ui/modern_window.py:17517 | pass | pass  # preview is optional — never block the pipeline
-- Aurik910/ui/modern_window.py:18126 | pass | pass
-- Aurik910/ui/modern_window.py:18405 | pass | pass
-- Aurik910/ui/modern_window.py:18413 | pass | pass
-- Aurik910/ui/modern_window.py:18421 | pass | pass
-- Aurik910/ui/modern_window.py:18459 | pass | pass
-- Aurik910/ui/modern_window.py:18467 | pass | pass
-- Aurik910/ui/song_prognose_widget.py:420 | placeholder | for key, placeholder in [
-- Aurik910/ui/song_prognose_widget.py:431 | placeholder | row_val = QLabel(placeholder)
+- Aurik10/core/preset_manager.py:107 | pass | pass
+- Aurik10/hooks/runtime_hook_threading.py:34 | pass | pass  # torch optional at hook time (not yet imported)
+- Aurik10/i18n/**init**.py:807 | placeholder | "legacy.audio.preview_ready": "Preview ready (placeholder - no processing)",
+- Aurik10/i18n/**init**.py:843 | not_implemented | "legacy.preset.not_implemented_title": "Not Implemented",
+- Aurik10/main.py:34 | pass | pass
+- Aurik10/main.py:142 | pass | pass
+- Aurik10/ui/audio_player.py:250 | pass | pass
+- Aurik10/ui/audio_player.py:333 | pass | pass
+- Aurik10/ui/audio_player.py:394 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:49 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:57 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:60 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:73 | bypass | # Bridge unavailable — MLRefinementThread remains non-functional (no direct core bypass).
+- Aurik10/ui/ml_refinement_thread.py:121 | pass | pass  # psutil not available → proceed without check
+- Aurik10/ui/ml_refinement_thread.py:137 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:141 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:256 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:265 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:296 | pass | pass
+- Aurik10/ui/ml_refinement_thread.py:346 | pass | pass
+- Aurik10/ui/modern_window.py:463 | placeholder | Always visible; shows placeholder text when not yet measured.
+- Aurik10/ui/modern_window.py:1154 | pass | pass  # best-effort in signal handler — no logging
+- Aurik10/ui/modern_window.py:2078 | pass | pass
+- Aurik10/ui/modern_window.py:2795 | pass | pass
+- Aurik10/ui/modern_window.py:2802 | pass | pass
+- Aurik10/ui/modern_window.py:2809 | pass | pass
+- Aurik10/ui/modern_window.py:3694 | pass | pass
+- Aurik10/ui/modern_window.py:4735 | pass | pass
+- Aurik10/ui/modern_window.py:4939 | pass | pass
+- Aurik10/ui/modern_window.py:7104 | placeholder | # Draw premium placeholder
+- Aurik10/ui/modern_window.py:8753 | placeholder | """Store fmt as pinned label when it is a custom string (not a Qt placeholder)."""
+- Aurik10/ui/modern_window.py:9254 | pass | pass
+- Aurik10/ui/modern_window.py:9266 | pass | pass
+- Aurik10/ui/modern_window.py:9292 | pass | pass
+- Aurik10/ui/modern_window.py:9955 | pass | pass
+- Aurik10/ui/modern_window.py:10002 | pass | pass
+- Aurik10/ui/modern_window.py:10098 | pass | pass
+- Aurik10/ui/modern_window.py:10217 | pass | pass
+- Aurik10/ui/modern_window.py:10487 | pass | pass
+- Aurik10/ui/modern_window.py:10872 | placeholder | # Quality Meter VU bar — always visible, above radar/placeholder
+- Aurik10/ui/modern_window.py:11530 | placeholder | # Show placeholder until pre-analysis synchronization is finalized.
+- Aurik10/ui/modern_window.py:11650 | workaround | # setFixedSize ersetzt den_AspectContainer-Workaround (heightForWidth-Propagation
+- Aurik10/ui/modern_window.py:12795 | pass | pass
+- Aurik10/ui/modern_window.py:12905 | temp | # Temp-store native audio for_pre_analysis_bg (started in _continue_file_loaded).
+- Aurik10/ui/modern_window.py:13215 | pass | pass
+- Aurik10/ui/modern_window.py:13368 | pass | pass
+- Aurik10/ui/modern_window.py:13380 | placeholder | # Carrier placeholder —_pre_analysis_bg will fill detected_medium_label
+- Aurik10/ui/modern_window.py:13442 | temp | # Clear temporary native audio reference immediately to avoid keeping
+- Aurik10/ui/modern_window.py:13888 | pass | pass
+- Aurik10/ui/modern_window.py:13950 | bypass | """Absolute fallback (180 s): never bypass defect-scan gate."""
+- Aurik10/ui/modern_window.py:14054 | pass | pass
+- Aurik10/ui/modern_window.py:14060 | pass | pass
+- Aurik10/ui/modern_window.py:14246 | pass | pass
+- Aurik10/ui/modern_window.py:14249 | pass | pass
+- Aurik10/ui/modern_window.py:14502 | pass | pass
+- Aurik10/ui/modern_window.py:14532 | pass | pass
+- Aurik10/ui/modern_window.py:14580 | pass | pass
+- Aurik10/ui/modern_window.py:14908 | pass | pass
+- Aurik10/ui/modern_window.py:15141 | pass | pass  # psutil nicht verfügbar → kein Check, weiterfahren
+- Aurik10/ui/modern_window.py:15261 | pass | pass
+- Aurik10/ui/modern_window.py:15347 | deprecated | #_repair_hint: nur zeigen wenn nicht veraltet (d.h. aktuell
+- Aurik10/ui/modern_window.py:15614 | pass | pass
+- Aurik10/ui/modern_window.py:16261 | pass | pass
+- Aurik10/ui/modern_window.py:17002 | pass | pass
+- Aurik10/ui/modern_window.py:17517 | pass | pass  # preview is optional — never block the pipeline
+- Aurik10/ui/modern_window.py:18126 | pass | pass
+- Aurik10/ui/modern_window.py:18405 | pass | pass
+- Aurik10/ui/modern_window.py:18413 | pass | pass
+- Aurik10/ui/modern_window.py:18421 | pass | pass
+- Aurik10/ui/modern_window.py:18459 | pass | pass
+- Aurik10/ui/modern_window.py:18467 | pass | pass
+- Aurik10/ui/song_prognose_widget.py:420 | placeholder | for key, placeholder in [
+- Aurik10/ui/song_prognose_widget.py:431 | placeholder | row_val = QLabel(placeholder)
 - _aurik_run_excellence.py:8 | bypass | Nutzt kanonischen Einstieg AurikDenker.denke() — kein UV3-Bypass.
 - _aurik_run_excellence.py:91 | pass | pass
 - backend/adaptive_pipeline.py:25 | stub | # Fallback-Stub auf Modulebene

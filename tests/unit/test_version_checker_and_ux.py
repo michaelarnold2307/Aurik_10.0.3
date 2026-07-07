@@ -1,10 +1,10 @@
-"""Tests for Aurik910/core/version_checker.py — update check logic."""
+"""Tests for Aurik10/core/version_checker.py — update check logic."""
 
 import json
 import threading
 from unittest.mock import MagicMock, patch
 
-from Aurik910.core.version_checker import (
+from Aurik10.core.version_checker import (
     _CURRENT_VERSION,
     VersionCheckResult,
     _parse_version,
@@ -55,7 +55,7 @@ def test_result_defaults():
 
 
 def test_default_current_version_uses_package_version():
-    from Aurik910 import __version__
+    from Aurik10 import __version__
 
     assert __version__ == _CURRENT_VERSION
 
@@ -79,7 +79,7 @@ def _mock_release(tag: str, assets=None, body="Release notes"):
     return json.dumps(data).encode("utf-8")
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_check_newer_available(mock_urlopen):
     resp = MagicMock()
     resp.read.return_value = _mock_release("v99.0.0")
@@ -93,7 +93,7 @@ def test_check_newer_available(mock_urlopen):
     assert result.error == ""
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_check_up_to_date(mock_urlopen):
     resp = MagicMock()
     resp.read.return_value = _mock_release("v9.10.77")
@@ -106,7 +106,7 @@ def test_check_up_to_date(mock_urlopen):
     assert result.error == ""
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_check_older_than_current(mock_urlopen):
     resp = MagicMock()
     resp.read.return_value = _mock_release("v9.10.70")
@@ -118,7 +118,7 @@ def test_check_older_than_current(mock_urlopen):
     assert result.available is False
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_check_with_appimage_asset(mock_urlopen):
     assets = [{"name": "aurik-9.11.0.AppImage", "browser_download_url": "https://dl.example.com/aurik.AppImage"}]
     resp = MagicMock()
@@ -132,7 +132,7 @@ def test_check_with_appimage_asset(mock_urlopen):
     assert "AppImage" in result.download_url
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_check_network_error(mock_urlopen):
     from urllib.error import URLError
 
@@ -143,7 +143,7 @@ def test_check_network_error(mock_urlopen):
     assert "offline" in result.error
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_check_no_tag(mock_urlopen):
     resp = MagicMock()
     resp.read.return_value = json.dumps({"body": "no tag"}).encode()
@@ -159,7 +159,7 @@ def test_check_no_tag(mock_urlopen):
 # ── check_for_update_async ─────────────────────────────────────────────────
 
 
-@patch("Aurik910.core.version_checker.urlopen")
+@patch("Aurik10.core.version_checker.urlopen")
 def test_async_check_calls_callback(mock_urlopen):
     resp = MagicMock()
     resp.read.return_value = _mock_release("v99.0.0")
@@ -212,7 +212,7 @@ def test_simple_batch_item_retry_reset():
 
 def test_i18n_keys_exist():
     """All new i18n keys resolve to non-empty strings."""
-    from Aurik910.i18n import set_language, t
+    from Aurik10.i18n import set_language, t
 
     keys = [
         "batch.retry_tooltip",

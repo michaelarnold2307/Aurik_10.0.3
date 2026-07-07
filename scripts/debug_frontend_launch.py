@@ -3,7 +3,7 @@
 AURIK Debug-Launcher — vollständige Ereignis-Instrumentierung aller §11.4-Features.
 
 Startet das Frontend mit erweitertem Debug-Logging auf DEBUG-Level für alle
-aurik/backend/Aurik910-Namespaces. Loggt in:
+aurik/backend/Aurik10-Namespaces. Loggt in:
   logs/aurik_backend.log  (Standard)
   logs/aurik_debug_session.log  (vollständiges DEBUG-Log dieser Session)
 
@@ -18,7 +18,7 @@ from pathlib import Path
 # ── Workspace root ──────────────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE
-if not (_ROOT / "Aurik910").exists():
+if not (_ROOT / "Aurik10").exists():
     _ROOT = _HERE.parent
 sys.path.insert(0, str(_ROOT))
 
@@ -268,7 +268,7 @@ def _instrument_window(win, win_logger: logging.Logger) -> None:
 
 
 # ── Monkey-Patch: ModernMainWindow.__init__ nachlagern ──────────────────────
-import Aurik910.ui.modern_window as _mw_module
+import Aurik10.ui.modern_window as _mw_module
 
 _OrigModernMainWindow = _mw_module.ModernMainWindow
 
@@ -295,12 +295,12 @@ _mw_module.ModernMainWindow = _InstrumentedModernMainWindow
 
 # ── Start ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    _logger.info("Debug-Launcher: Übergibt an Aurik910.main.main()")
+    _logger.info("Debug-Launcher: Übergibt an Aurik10.main.main()")
     _logger.info("Session-Log wird geschrieben nach: %s", _session_log)
     print(f"\n[AURIK Debug-Launcher] Session-Log: {_session_log}\n")
 
     # Ersetze sys.modules-Eintrag damit main.py die instrumentierte Klasse findet
 
-    from Aurik910.main import main  # type: ignore[import]
+    from Aurik10.main import main  # type: ignore[import]
 
     main()

@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from Aurik910.ui.modern_window import ModernMainWindow
+from Aurik10.ui.modern_window import ModernMainWindow
 
 
 def _mock_window():

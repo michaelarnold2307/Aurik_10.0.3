@@ -48,7 +48,7 @@ def _get_aurik_version() -> str:
 
     Priority:
     1. importlib.metadata (works when installed as editable package via pip install -e .)
-    2. Aurik910.__version__ (works for desktop runtime without package install)
+    2. Aurik10.__version__ (works for desktop runtime without package install)
     3. regex parse of pyproject.toml  (always present in repository root)
     4. "unknown" as last-resort fallback
     """

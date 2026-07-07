@@ -97,29 +97,29 @@ class TestS02SigtermHandler:
     """§3.9.2: main.py must register a SIGTERM handler."""
 
     def test_sigterm_handler_defined_in_main(self):
-        """_sigterm_handler must be defined in Aurik910.main."""
+        """_sigterm_handler must be defined in Aurik10.main."""
         import importlib
 
-        mod = importlib.import_module("Aurik910.main")
+        mod = importlib.import_module("Aurik10.main")
         assert hasattr(mod, "_sigterm_handler"), (
-            "_sigterm_handler() not found in Aurik910.main — §3.9.2 implementation missing"
+            "_sigterm_handler() not found in Aurik10.main — §3.9.2 implementation missing"
         )
 
     def test_sigterm_handler_is_callable(self):
         """_sigterm_handler must be callable with (signum, frame) signature."""
         import importlib
 
-        mod = importlib.import_module("Aurik910.main")
+        mod = importlib.import_module("Aurik10.main")
         fn = mod._sigterm_handler
         assert callable(fn)
         sig = inspect.signature(fn)
         assert len(sig.parameters) == 2
 
     def test_emergency_checkpoint_if_running_defined(self):
-        """_emergency_checkpoint_if_running must be defined in Aurik910.main."""
+        """_emergency_checkpoint_if_running must be defined in Aurik10.main."""
         import importlib
 
-        mod = importlib.import_module("Aurik910.main")
+        mod = importlib.import_module("Aurik10.main")
         assert hasattr(mod, "_emergency_checkpoint_if_running"), (
             "_emergency_checkpoint_if_running() not found — §3.9.2 incomplete"
         )
@@ -128,7 +128,7 @@ class TestS02SigtermHandler:
         """_emergency_checkpoint_if_running must not raise when no Qt app is running."""
         import importlib
 
-        mod = importlib.import_module("Aurik910.main")
+        mod = importlib.import_module("Aurik10.main")
         # Should silently succeed even with no QApplication instance
         mod._emergency_checkpoint_if_running()
 
@@ -136,7 +136,7 @@ class TestS02SigtermHandler:
         """_sigterm_handler must not raise when called with no QApplication."""
         import importlib
 
-        mod = importlib.import_module("Aurik910.main")
+        mod = importlib.import_module("Aurik10.main")
         # Simulate SIGTERM call; no QApplication present in test env
         mod._sigterm_handler(15, None)
 
@@ -569,7 +569,7 @@ class TestS09KmvBufferRelease:
 
     def test_ml_refinement_thread_finally_uses_release_buffer(self):
         """MLRefinementThread.run() finally block must call job.release_buffer()."""
-        from Aurik910.ui import ml_refinement_thread as mrt_mod
+        from Aurik10.ui import ml_refinement_thread as mrt_mod
 
         src = inspect.getsource(mrt_mod.MLRefinementThread.run)
         assert "release_buffer" in src, "MLRefinementThread.run() finally block must call job.release_buffer() — §3.9.9"

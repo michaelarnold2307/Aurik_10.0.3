@@ -95,10 +95,10 @@ hiddenimports = [
     # Startup-Check (§13 Out-of-the-Box)
     'backend.core.startup_model_check',
     # i18n / Frontend
-    'Aurik910',
-    'Aurik910.i18n',
-    'Aurik910.ui',
-    'Aurik910.core',
+    'Aurik10',
+    'Aurik10.i18n',
+    'Aurik10.ui',
+    'Aurik10.core',
 ]
 
 # Data files to include (models, configs, resources)
@@ -116,7 +116,7 @@ def _model_glob(src_pattern: str, dst_dir: str):
 
 datas = [
     # UI resources (icons, QSS stylesheets)
-    ('Aurik910/resources/*', 'resources'),
+    ('Aurik10/resources/*', 'resources'),
     # Model manifest — required for startup integrity check (§13 Out-of-the-Box)
     ('models/manifest.json', 'models'),
     # ── Core ML models (< 200 MB each, DSP-critical, always bundled) ────────────
@@ -150,7 +150,7 @@ datas = [
 ]
 
 a = Analysis(
-    ['Aurik910/main.py'],
+    ['Aurik10/main.py'],
     pathex=['.'],
     binaries=[],
     datas=datas,
@@ -158,7 +158,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     # Sets OMP/BLAS/MKL thread limits + disables CUDA probing before ML init.
-    runtime_hooks=['Aurik910/hooks/runtime_hook_threading.py'],
+    runtime_hooks=['Aurik10/hooks/runtime_hook_threading.py'],
     excludes=[
         'tkinter',
         'test',
@@ -189,7 +189,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='Aurik910/resources/icon.ico' if os.path.exists('Aurik910/resources/icon.ico') else None,
+    icon='Aurik10/resources/icon.ico' if os.path.exists('Aurik10/resources/icon.ico') else None,
 )
 
 coll = COLLECT(

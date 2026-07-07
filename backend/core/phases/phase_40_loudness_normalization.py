@@ -377,12 +377,33 @@ class LoudnessNormalizationPhase(PhaseInterface):
         integrated_lufs, lra, momentary_max, short_term_max = self._measure_loudness_full(audio, sample_rate)
 
         # Calculate gain adjustment
+        # §v9.20.3 Genre-adaptive LUFS: Schlager/Klassik brauchen unterschiedliche Targets
+        _genre_lufs = str(kwargs.get("genre_label", "")).strip().lower()
+        _genre_targets = {
+            "klassik": -23.0, "oper": -23.0,      # EBU R128
+            "jazz": -18.0,                          # Dynamisch
+            "schlager": -14.0, "pop": -14.0,        # Streaming-Standard
+            "rock": -12.0, "metal": -11.0,          # Lauter
+        }
+        _genre_target = _genre_targets.get(_genre_lufs)
+        if _genre_target is not None:
+            target_lufs = _genre_target
+            logger.debug("Phase 40: genre=%s → LUFS target=%.0f", _genre_lufs, target_lufs)
         gain_db = (target_lufs - integrated_lufs) * _effective_strength
 
         # §v9.10.113: §8.2 Restoration/balanced — LUFS-Δ ≤ 1 LU (archive material retains original loudness)
-        # QualityMode.QUALITY.value == "quality" is the Restoration mode in UV3 (§performance_guard.py)
+        # §FIX v9.20.3: Analoges Material + Vocals braucht mehr Gain-Headroom. Die Einschränkung
+        # auf ±1 dB führt zu -9 dBFS Peaks. Für analoges Vokalmaterial: ±8 dB erlauben,
+        # aber uniformen Gain ohne Gate-Envelope anwenden (verhindert Jump-Artefakte).
+        _is_analog_vocal = (
+            quality_mode in ("restoration", "balanced", "quality")
+            and str(kwargs.get("vocal_register", "")).strip() != ""
+        )
         if quality_mode in ("restoration", "balanced", "quality"):
-            gain_db = float(np.clip(gain_db, -1.0, 1.0))
+            if _is_analog_vocal:
+                gain_db = float(np.clip(gain_db, -8.0, 8.0))
+            else:
+                gain_db = float(np.clip(gain_db, -1.0, 1.0))
 
         # Dynamic Range Preservation: Limit gain to preserve DR
         if preserve_dynamics:
@@ -417,12 +438,22 @@ class LoudnessNormalizationPhase(PhaseInterface):
         # Uniform `audio * gain_linear` amplifies "silent" sections with vinyl/shellac
         # surface noise (at -35 to -45 dBFS) by the full target-LUFS correction (+16 to
         # +31 dB in Studio 2026 mode) → Pegelexplosion in fade-out / silence sections.
+        # §FIX v9.20.3: Für analoges Vokalmaterial uniformen Gain verwenden. Die Gate-
+        # Envelope erzeugt bei hohem Rauschflor (SNR < 20 dB) Sprünge an den
+        # Gate-Grenzen, weil Rausch-Passagen fälschlich als „Stille" erkannt werden.
         if gain_linear > 1.0005:
-            # §2.45a-II v9.12.2: reference_for_gate=audio → signal-relative gate (P15+9 dB)
-            normalized = apply_musical_gain_envelope(
-                audio,
-                gain_linear,
-                gate_dbfs=-36.0,
+            if _is_analog_vocal:
+                # Uniformer Gain — keine Gate-Artefakte auf analogem Material
+                normalized = audio * gain_linear
+                logger.debug(
+                    "Phase 40: uniform gain applied (analog+vocal, no gate envelope)"
+                )
+            else:
+                # §2.45a-II v9.12.2: reference_for_gate=audio → signal-relative gate (P15+9 dB)
+                normalized = apply_musical_gain_envelope(
+                    audio,
+                    gain_linear,
+                    gate_dbfs=-36.0,
                 crossfade_ms=10.0,
                 sr=sample_rate,
                 reference_for_gate=audio,

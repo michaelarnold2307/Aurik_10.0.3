@@ -13,7 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 LEGACY_FILE = ROOT / "backend" / "media_chain_detector.py"
-SEARCH_DIRS = [ROOT / "backend", ROOT / "Aurik910", ROOT / "denker", ROOT / "plugins", ROOT / "dsp"]
+SEARCH_DIRS = [ROOT / "backend", ROOT / "Aurik10", ROOT / "denker", ROOT / "plugins", ROOT / "dsp"]
 LEGACY_PATTERNS = ("MediaChainDetector", "media_chain_detector", "detect_chain(")
 
 

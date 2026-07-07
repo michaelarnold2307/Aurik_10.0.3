@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-_MODERN_WINDOW = Path("Aurik910/ui/modern_window.py")
+_MODERN_WINDOW = Path("Aurik10/ui/modern_window.py")
 _COPILOT_INSTRUCTIONS = Path(".github/copilot-instructions.md")
 
 

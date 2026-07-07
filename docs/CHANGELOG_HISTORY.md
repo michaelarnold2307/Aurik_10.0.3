@@ -14,7 +14,7 @@
 ## v9.20.3 (2. Juli 2026) — UI-Livezaehler und Fortschrittsreserve
 
 - **Frontend-Version synchronisiert**: Paket- und sichtbare App-Version auf `9.20.3` angehoben;
-  Frontend-Titel/Splash/About beziehen diese Version weiterhin aus `Aurik910.__version__`.
+  Frontend-Titel/Splash/About beziehen diese Version weiterhin aus `Aurik10.__version__`.
 - **Tonaussetzer-Livezaehler**: Dropout-Aliase (`dropouts`, `DROPOUTS`, `gap`, `gaps`,
   `tape_dropout`) werden auf `dropout` normalisiert. Lokalisierte Dropout-Marker werden waehrend
   echter Dropout-/Inpainting-Phasen anhand des Timeline-Cursors als behoben markiert; erledigte
@@ -502,7 +502,7 @@
   - Neue interne Stufen: `_compute_non_schlager_scores()`, `_infer_genre_family()`, `_build_top_genres()`, `_is_open_set_unknown()`
   - Open-Set-Regel: zu niedriger Top-Score oder zu geringe Top1-Top2-Margin → `genre_label="Unbekannt"`
 - **Lyrics-Fusion**: DSP-Sprachscore + §2.36-Lyrics-Hinweis (max-basierter Merge) → reduziert Jazz-Fehlklassifikation bei deutschsprachigen Schlager-Aufnahmen
-- **UI** (`Aurik910/ui/modern_window.py`): Tooltip zeigt Genre-Familie, Top-k, Open-Set-Status; Genre-Badge mit Ampelpunkt (Grün ≥0.70 / Gelb 0.50–0.69 / Rot < 0.50)
+- **UI** (`Aurik10/ui/modern_window.py`): Tooltip zeigt Genre-Familie, Top-k, Open-Set-Status; Genre-Badge mit Ampelpunkt (Grün ≥0.70 / Gelb 0.50–0.69 / Rot < 0.50)
 - **Tests**: 3 neue Tests für Family/Top-k/Open-Set
 
 ## v9.10.101 (3. April 2026) — Dokumentations-Sync: Phasen 01–64 + Kausal-Mapping
@@ -795,7 +795,7 @@
 - `plugins/panns_plugin.py`: SHA256-Cache (`_tags_cache`, max. 128, FIFO, Thread-sicher)
 - `backend/core/unified_restorer_v3.py`: Parallele Eingangs-Analyse via `ThreadPoolExecutor(3)`
 - `backend/core/per_phase_musical_goals_gate.py`: `PHASE_SAMPLE_DURATIONS` für 6 triviale Phasen
-- `Aurik910/main.py`: Hintergrund-Warmup-Thread (daemon=True, 2 s Verzögerung)
+- `Aurik10/main.py`: Hintergrund-Warmup-Thread (daemon=True, 2 s Verzögerung)
 
 ---
 

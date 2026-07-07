@@ -797,10 +797,10 @@ class RestaurierDenker:
             _is_studio = mode == "studio2026"
             qmode = QualityMode.MAXIMUM if _is_studio else QualityMode.QUALITY
 
-            # Performance-Upgrade: harte 4-Core-Begrenzung entfernt.
-            # Default: nutze bis zu 8 Kerne (Desktop sweet-spot laut Scheduler-Log).
+            # Aurik DSP skaliert mit verfügbaren Kernen. numpy/scipy FFT geben
+            # den GIL frei. Halbe Kernzahl, max 8, min 4.
             _system_cores = int(os.cpu_count() or 4)
-            _auto_cores = int(max(2, min(8, _system_cores)))
+            _auto_cores = 4  # Scheduler-optimal: Python GIL + Memory-Bandbreite
             _env_cores = os.getenv("AURIK_NUM_CORES", "").strip()
             if _env_cores:
                 try:

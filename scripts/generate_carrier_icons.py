@@ -1,6 +1,6 @@
 """
 Generates premium 128×128 px photorealistic carrier-medium icons for Aurik 9.
-Output: Aurik910/resources/carrier_icons/<medium>.png
+Output: Aurik10/resources/carrier_icons/<medium>.png
 
 Design: Photorealistic 3D look with material gradients, specular highlights,
 grooves, shadows — Premium-quality matching iZotope RX / WaveLab aesthetics.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-OUT = Path(__file__).parent.parent / "Aurik910" / "resources" / "carrier_icons"
+OUT = Path(__file__).parent.parent / "Aurik10" / "resources" / "carrier_icons"
 OUT.mkdir(parents=True, exist_ok=True)
 
 SIZE = 128

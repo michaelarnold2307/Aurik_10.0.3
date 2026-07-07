@@ -2,8 +2,8 @@
 
 - Re-Audit zeigt `runtime_required_failed:4/13`, `final_ready=false`, `release_ready=false`.
 - Kritischer Laufabbruch durch `RecursionError` in UI-Update-Kette:
-  - `Aurik910/ui/modern_window.py:_update_phase` (ca. Zeile 19735)
-  - `Aurik910/ui/modern_window.py:_on_phase_step_update` (ca. Zeile 19954)
+  - `Aurik10/ui/modern_window.py:_update_phase` (ca. Zeile 19735)
+  - `Aurik10/ui/modern_window.py:_on_phase_step_update` (ca. Zeile 19954)
   - Heartbeat/Phase-Priority-Pfad involviert (`_tick_heartbeat` -> `_phase_priority_explanation` -> `_phase_priority_confidence`).
 - Folge: kein `run_completed`, kein finales AFG/HPI-Logging, dadurch harte Runtime-Gates fail.
 - Audit-Artefakte dieser Session:

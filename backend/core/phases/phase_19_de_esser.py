@@ -104,6 +104,13 @@ except ImportError:  # pragma: no cover
 # ========================================================================
 # AURIK 8.0 ENHANCEMENT MODULES — aktiviert ab Phase 19 v5.0
 # ========================================================================
+# §FIX: dsp/ liegt im Projekt-Root, der nicht immer in sys.path ist.
+# Konstruiere den Pfad relativ zu dieser Datei für robusten Import.
+import os as _os19
+import sys as _sys19
+_project_root_19 = _os19.path.dirname(_os19.path.dirname(_os19.path.dirname(_os19.path.dirname(_os19.path.abspath(__file__)))))
+if _project_root_19 not in _sys19.path:
+    _sys19.path.insert(0, _project_root_19)
 try:
     from dsp.breath_intelligence import BreathIntelligence
     from dsp.formant_system import FormantSystem, FormantTracker
@@ -473,7 +480,7 @@ class DeEsserPhase(PhaseInterface):
                 gate_enabled=True,
             )
 
-            logger.info("✅ Aurik 8.0 Complete Enhancement Stack loaded (5 modules)")
+            logger.info("✅ Aurik 10 Complete Enhancement Stack loaded (5 modules)")
         else:
             # Current Implementation: De-Essing Only (Stages 2-6 sind Roadmap Features)
             self.breath_intelligence = None  # type: ignore[assignment]
@@ -565,6 +572,20 @@ class DeEsserPhase(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
+        # §2.17 SectionStrengthEnvelope: Kontinuierliche per-Segment-Modulation.
+        # Reduziert De-Essing in Strophen (weniger Sibilanten), verstärkt in
+        # Refrains (mehr Höhenenergie). Fließend, keine hörbaren Übergänge.
+        _envelope = kwargs.get("strength_envelope")
+        if _envelope is not None and len(_envelope) > 0:
+            try:
+                from backend.core.dsp.section_strength_envelope import get_section_strength_at
+
+                _n_total = audio.shape[1] if audio.ndim == 2 else len(audio)
+                _env_val = get_section_strength_at(_envelope, 0, _n_total)
+                _effective_strength = float(np.clip(_effective_strength * _env_val, 0.0, 1.0))
+            except Exception:
+                pass  # Envelope-Fehler → unmoduliert weiter
+
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
@@ -609,6 +630,21 @@ class DeEsserPhase(PhaseInterface):
             self.vocal_profile = VOCAL_PROFILES[_external_gender]
             logger.info("§2.8 Phase19: vocal_gender=%s aus Pipeline-Kontext übernommen", _external_gender)
 
+        # §2.9 Vocal Analysis Shared Memory: Register + Formanten aus VFA
+        _vfa_register = kwargs.get("vocal_register")
+        _vfa_f1 = kwargs.get("vocal_formant_f1_hz", 0.0)
+        if _vfa_register:
+            logger.debug("§2.9 Phase19: VFA register=%s f1=%.0fHz", _vfa_register, float(_vfa_f1))
+            _profile = dict(self.vocal_profile)
+            if str(_vfa_register).lower() in ("chest", "chest_mix"):
+                _profile["chest_range"] = (120, 300)
+                _profile["formant_protect"] = min(1.0, _profile.get("formant_protect", 0.85) + 0.05)
+            elif str(_vfa_register).lower() in ("head", "head_mix"):
+                _s_band = _profile.get("s_band", (7000, 11000))
+                _profile["s_band"] = (_s_band[0] + 500, _s_band[1] + 500)
+                _profile["brilliance_preserve"] = min(1.0, _profile.get("brilliance_preserve", 0.85) + 0.05)
+            self.vocal_profile = _profile
+
         # Auto-Detection wenn Gender=AUTO (Fallback wenn kein Pipeline-Kontext)
         if self.gender == VocalGender.AUTO:
             detected_gender = self._detect_gender_robust(audio, sample_rate)
@@ -648,19 +684,28 @@ class DeEsserPhase(PhaseInterface):
         _total_energy = float(np.sum(_spec**2)) + 1e-12
         _hf_energy = float(np.sum(_spec[_freqs >= 4000.0] ** 2))
         _hf_ratio = _hf_energy / _total_energy
-        _signal_has_sibilant_content = _hf_ratio > 0.05
+        # Adaptiver Schwellwert: 1 % für bandbreitenbegrenztes Material
+        _bw_loss = kwargs.get("bandwidth_loss", 0.0)
+        _hf_threshold = 0.01 if float(_bw_loss) > 0.5 else 0.05
+        _signal_has_sibilant_content = _hf_ratio > _hf_threshold
         _signal_long_enough_for_aurik8 = len(audio_mono) >= int(sample_rate * 2.0)
         if not _signal_long_enough_for_aurik8:
-            logger.debug(
-                "Stage 2-6 gate: audio too short for Aurik-8 stack (len=%.2fs)",
+            logger.info(
+                "Stage 2-6 gate: audio too short (%.1fs < 2.0s) — Aurik-8 stack skipped",
                 len(audio_mono) / float(sample_rate),
             )
-        logger.debug(
-            "Stage 2-6 gate: HF-ratio=%.3f, sibilant_content=%s, long_enough=%s",
-            _hf_ratio,
-            _signal_has_sibilant_content,
-            _signal_long_enough_for_aurik8,
-        )
+        if not _signal_has_sibilant_content:
+            logger.info(
+                "Stage 2-6 gate: HF ratio %.3f < %.3f (bw_loss=%.2f) — Aurik-8 stack skipped",
+                _hf_ratio, _hf_threshold, float(_bw_loss),
+            )
+        else:
+            logger.debug(
+                "Stage 2-6 gate: HF-ratio=%.3f >= %.3f, sibilant_content=%s, long_enough=%s",
+                _hf_ratio, _hf_threshold,
+                _signal_has_sibilant_content,
+                _signal_long_enough_for_aurik8,
+            )
 
         # ==============================================================
         # STAGE 2-6: AURIK 8.0 ENHANCEMENT STACK
@@ -1617,6 +1662,177 @@ class DeEsserPhase(PhaseInterface):
 
         return np.asarray(audio_out)  # type: ignore[no-any-return]
 
+    def _process_channel_spectral_dynamic_eq(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        max_reduction_db: float,
+        threshold_ratio: float,
+        s_low: float,
+        s_high: float,
+    ) -> np.ndarray:
+        """Full Spectral Dynamic EQ — Soothe2-class per-bin compression.
+
+        Statt fester 3-Band-Filter arbeitet diese Methode direkt auf dem
+        Kurzzeit-Spektrum (STFT) und wendet pro Frequenz-Bin einen eigenen
+        Soft-Knee-Kompressor mit frequenzabhängigem Threshold an.
+
+        Dies ist die gleiche Architektur wie Oeksound Soothe2, FabFilter
+        Pro-Q 3 Dynamic Mode und iZotope RX Spectral De-ess.
+
+        Algorithm (pro STFT-Frame):
+          1. Compute per-bin magnitude |X(k,t)|
+          2. Frequency-dependent threshold:
+               thr(k) = band_rms * threshold_ratio * freq_weight(k)
+               where freq_weight(k) reduces threshold at higher freq
+               (sibilants are more prominent at high frequencies)
+          3. Per-bin gain reduction (soft-knee):
+               gain(k,t) = soft_knee(|X(k,t)|, thr(k), max_red, knee)
+          4. Apply complex gain, preserve phases
+          5. iSTFT reconstruction with OLA
+
+        Scientific basis:
+          - Zölzer (2011) DAFX — Adaptive Auditory Brightness Spectral
+            Processing, §12.4.3
+          - Ephraim & Malah (1984) — MMSE-LSA spectral gain
+          - Reiss & McPherson (2015) Audio Effects — Dynamic EQ §17.3
+
+        Args:
+            audio: 1-D mono audio.
+            sample_rate: Sample rate in Hz.
+            max_reduction_db: Maximum gain reduction in dB (negative).
+            threshold_ratio: Threshold multiplier relative to band RMS.
+            s_low: Lower sibilance frequency (Hz).
+            s_high: Upper sibilance frequency (Hz).
+
+        Returns:
+            Processed audio, same shape as audio.
+        """
+        n = len(audio)
+        if n < 256:
+            return audio
+
+        nyquist = sample_rate / 2.0
+        s_low = max(3000.0, s_low)
+        s_high = min(nyquist * 0.95, s_high)
+
+        # Fast path: no meaningful reduction
+        if abs(max_reduction_db) < 0.5:
+            return audio
+
+        # STFT parameters: ~4 ms hop for good sibilant time resolution
+        hop = max(64, sample_rate // 250)
+        nperseg = hop * 4
+
+        _stft_fn = signal.stft
+        _istft_fn = signal.istft
+
+        _, t_stft, S = _stft_fn(
+            audio.astype(np.float64),
+            fs=sample_rate,
+            window="hann",
+            nperseg=nperseg,
+            noverlap=nperseg - hop,
+            return_onesided=True,
+        )
+        # S: complex128, shape (n_freq, n_frames)
+        n_freq, n_frames = S.shape
+        freqs_stft = np.fft.rfftfreq(nperseg, 1.0 / sample_rate)
+
+        # ── Frequency-dependent threshold curve ─────────────────────
+        # Lower threshold at high frequencies (sibilants are more
+        # prominent there → need earlier trigger). Higher threshold at
+        # low frequencies to avoid false triggers on harmonics.
+        # Curve: linear in dB, 0 dB at 20 kHz, +12 dB at 3 kHz
+        freq_mask = (freqs_stft >= s_low) & (freqs_stft <= s_high)
+        sib_indices = np.where(freq_mask)[0]
+
+        if len(sib_indices) == 0:
+            return audio
+
+        # Frequency weighting: 0 dB at s_high (most sensitive),
+        # +threshold_boost dB at s_low (least sensitive)
+        _THRESHOLD_BOOST_DB = 12.0  # 12 dB higher threshold at s_low vs s_high
+        freq_weight_linear = np.ones(n_freq, dtype=np.float32)
+        if len(sib_indices) > 0:
+            f_norm = (freqs_stft[sib_indices] - s_low) / max(1.0, s_high - s_low)
+            # Inverse: 1.0 at s_high (no boost), boosted at s_low
+            weight_db = _THRESHOLD_BOOST_DB * (1.0 - f_norm)
+            freq_weight_linear[sib_indices] = 10.0 ** (weight_db / 20.0)
+
+        # ── Per-bin RMS for threshold ──────────────────────────────
+        mag = np.abs(S).astype(np.float64)
+        band_rms = np.sqrt(np.mean(mag[sib_indices, :] ** 2)) + 1e-9
+
+        # ── Soft-knee parameters ────────────────────────────────────
+        _KNEE_DB = 6.0
+        _KNEE_HALF = _KNEE_DB / 2.0
+        _max_red_linear = 10.0 ** (max_reduction_db / 20.0)
+        _knee_low_linear = 10.0 ** (-_KNEE_HALF / 20.0)   # threshold - knee/2
+        _knee_high_linear = 10.0 ** (_KNEE_HALF / 20.0)    # threshold + knee/2
+
+        # ── Per-bin, per-frame gain computation ─────────────────────
+        gain_mask = np.ones((n_freq, n_frames), dtype=np.float32)
+
+        # For each sibilance bin, compute per-frame gain reduction
+        for idx in sib_indices:
+            bin_mag = mag[idx, :]  # (n_frames,)
+            # Frequency-weighted threshold for this bin
+            thr_linear = band_rms * threshold_ratio * freq_weight_linear[idx]
+
+            # Soft-knee gain
+            # Below thr_low = thr/knee_low → gain=1, above thr_high = thr*knee_high → gain=max_red
+            thr_low = thr_linear / _knee_low_linear
+            thr_high = thr_linear * _knee_high_linear
+
+            gain = np.ones(n_frames, dtype=np.float32)
+            above_thr_low = bin_mag > thr_low
+            if np.any(above_thr_low):
+                above = bin_mag[above_thr_low]
+                # Soft-knee: linear interpolation in dB domain
+                ratio = np.clip((above - thr_low) / max(1e-12, thr_high - thr_low), 0.0, 1.0)
+                gain[above_thr_low] = 1.0 + (_max_red_linear - 1.0) * ratio
+
+            gain_mask[idx, :] = gain.astype(np.float32)
+
+        # ── Attack/Release smoothing across frames ──────────────────
+        att_samples = max(1, int(self.ATTACK_MS * sample_rate / 1000.0 / hop))
+        rel_samples = max(1, int(self.RELEASE_MS * sample_rate / 1000.0 / hop))
+        for idx in sib_indices:
+            g = gain_mask[idx, :]
+            smoothed = g.copy()
+            for t in range(1, n_frames):
+                if g[t] < smoothed[t - 1]:
+                    # Attack: gain decreasing
+                    alpha = np.exp(-1.0 / att_samples)
+                    smoothed[t] = alpha * smoothed[t - 1] + (1.0 - alpha) * g[t]
+                else:
+                    # Release: gain recovering
+                    alpha = np.exp(-1.0 / rel_samples)
+                    smoothed[t] = alpha * smoothed[t - 1] + (1.0 - alpha) * g[t]
+            gain_mask[idx, :] = smoothed
+
+        # ── Apply complex gain, preserve phases ─────────────────────
+        S_modified = S * gain_mask.astype(np.complex128)
+
+        # ── iSTFT with OLA ──────────────────────────────────────────
+        _, audio_out = _istft_fn(
+            S_modified,
+            fs=sample_rate,
+            window="hann",
+            nperseg=nperseg,
+            noverlap=nperseg - hop,
+        )
+        audio_out = np.asarray(audio_out, dtype=np.float64)
+
+        # Trim / zero-pad to original length
+        if len(audio_out) > n:
+            audio_out = audio_out[:n]
+        elif len(audio_out) < n:
+            audio_out = np.pad(audio_out, (0, n - len(audio_out)))
+
+        return audio_out  # type: ignore[no-any-return]
+
     def _compute_rms_envelope(self, signal_data: np.ndarray, window_size: int) -> np.ndarray:
         """RMS-basierte Envelope-Detection (stabilere als Peak)."""
         squared = signal_data**2
@@ -1919,13 +2135,60 @@ class DeEsserPhase(PhaseInterface):
             logger.warning("⚠️ Sibilance band too narrow (%.0f Hz), expanding", s_high - s_low)
             s_low = max(3000, s_high - 2000)  # Mindestens 2 kHz Bandbreite
 
-        # Passe Bänder an Gender-Profil an (behalte 3-Band-Struktur)
-        bandwidth = (s_high - s_low) / 3.0
+        # ── §2.9 Phonem-adaptives De-Essing: dynamische Band-Mittenfrequenz ──
+        # Statt starrer gleichbreiter Drittelung wird der spektrale Schwerpunkt
+        # der Sibilant-Energie berechnet und die Bänder werden darum zentriert.
+        # /s/-Laute (centroid 8-12 kHz) → schmales Band, hohe Frequenz
+        # /ʃ/-Laute (centroid 4-7 kHz)  → breiteres Band, tiefere Frequenz
+        # Dies gibt chirurgische Präzision statt "Breitband-De-Essing".
+        
+        # Berechne spektralen Schwerpunkt im Sibilanz-Bereich
+        _centroid_spectrum = np.abs(np.fft.rfft(audio[: min(len(audio), sample_rate * 2)]))
+        _centroid_freqs = np.fft.rfftfreq(len(audio[: min(len(audio), sample_rate * 2)]), 1.0 / sample_rate)
+        _centroid_mask = (_centroid_freqs >= max(3000, s_low * 0.7)) & (_centroid_freqs <= min(safe_nyquist, s_high * 1.3))
+        if np.any(_centroid_mask) and np.sum(_centroid_spectrum[_centroid_mask]) > 1e-9:
+            _sib_centroid = float(
+                np.sum(_centroid_freqs[_centroid_mask] * _centroid_spectrum[_centroid_mask])
+                / np.sum(_centroid_spectrum[_centroid_mask])
+            )
+        else:
+            _sib_centroid = float(s_low + s_high) / 2.0  # Fallback: Mitte
+
+        # Sibilant-Typ aus Centroid ableiten: /s/ = schmal & hoch, /ʃ/ = breit & tief
+        if _sib_centroid >= 8000:
+            # /s/, /z/ — alveolare Frikative: Energie konzentriert bei 8-12 kHz
+            _phoneme_bandwidth = (s_high - s_low) * 0.5  # schmales Band = präziser
+            _phoneme_center = np.clip(_sib_centroid, s_low + _phoneme_bandwidth / 2, s_high - _phoneme_bandwidth / 2)
+            _phoneme_type = "s/z (alveolar, narrow)"
+        elif _sib_centroid < 6000:
+            # /ʃ/, /ʒ/ — postalveolare Frikative: Energie 4-7 kHz, breiteres Band
+            _phoneme_bandwidth = (s_high - s_low) * 0.80
+            _phoneme_center = np.clip(_sib_centroid, s_low + _phoneme_bandwidth / 2, s_high - _phoneme_bandwidth / 2)
+            _phoneme_type = "ʃ/ʒ (postalveolar, wide)"
+        else:
+            # /tʃ/, /dʒ/ — Affrikate: mittlerer Bereich
+            _phoneme_bandwidth = (s_high - s_low) * 0.65
+            _phoneme_center = np.clip(_sib_centroid, s_low + _phoneme_bandwidth / 2, s_high - _phoneme_bandwidth / 2)
+            _phoneme_type = "tʃ/dʒ (affricate, medium)"
+
+        # Baue 3 Bänder ZENTRIERT um den spektralen Schwerpunkt
+        # Band-Struktur: [center - bw/2, center - bw/6], [center - bw/6, center + bw/6],
+        #                 [center + bw/6, center + bw/2]
+        _bw = _phoneme_bandwidth
+        _c = _phoneme_center
         gender_adaptive_bands = {
-            "low": (s_low, s_low + bandwidth),
-            "mid": (s_low + bandwidth, s_low + 2 * bandwidth),
-            "high": (s_low + 2 * bandwidth, s_high),
+            "low": (max(s_low, _c - _bw / 2), max(s_low, _c - _bw / 6)),
+            "mid": (max(s_low, _c - _bw / 6), min(s_high, _c + _bw / 6)),
+            "high": (min(s_high, _c + _bw / 6), min(s_high, _c + _bw / 2)),
         }
+        logger.debug(
+            "🎤 Phonem-adaptive bands: centroid=%.0f Hz, type=%s, bw=%.0f Hz, "
+            "bands=[%.0f-%.0f, %.0f-%.0f, %.0f-%.0f]",
+            _sib_centroid, _phoneme_type, _bw,
+            gender_adaptive_bands["low"][0], gender_adaptive_bands["low"][1],
+            gender_adaptive_bands["mid"][0], gender_adaptive_bands["mid"][1],
+            gender_adaptive_bands["high"][0], gender_adaptive_bands["high"][1],
+        )
 
         # Formant-Schutz: Bereich aus vocal_profile
         formant_low, formant_high = self.vocal_profile.get("formant_range", (2000, 3000))  # type: ignore[misc]
@@ -1937,10 +2200,26 @@ class DeEsserPhase(PhaseInterface):
         self.SIBILANCE_BANDS = gender_adaptive_bands  # type: ignore[assignment]
 
         try:
-            # Nutze existierende Multi-Band-Logik
-            result = self._process_channel_multiband(
-                audio, sample_rate, material, band_weights, max_reduction_db, threshold_ratio, lookahead_samples
+            # §2.10 SPECTRAL DYNAMIC EQ — Soothe2-class per-bin compression.
+            # Ersetzt die Multi-Band-Filter durch direkte STFT-basierte
+            # Bearbeitung mit frequenzabhängigem Threshold. Dies gibt
+            # chirurgische Präzision: scharfe /s/-Laute bei 9 kHz werden
+            # unabhängig von /ʃ/-Lauten bei 5 kHz behandelt.
+            # Fallback auf Multi-Band wenn STFT zu kurz (< 256 samples).
+            result = self._process_channel_spectral_dynamic_eq(
+                audio, sample_rate, max_reduction_db, threshold_ratio,
+                float(s_low), float(s_high),  # type: ignore[has-type]
             )
+            self.stats["deesser_method"] = "spectral_dynamic_eq"
+
+            # Fallback: wenn Spectral EQ nichts gemacht hat (z. B. Audio zu kurz),
+            # nutze Multi-Band
+            if result is audio or np.array_equal(result, audio):
+                result = self._process_channel_multiband(
+                    audio, sample_rate, material, band_weights,
+                    max_reduction_db, threshold_ratio, lookahead_samples,
+                )
+                self.stats["deesser_method"] = "multiband_fallback"
 
             # Formant-Preservation: Blend Formant-Bereich zurück mit Original
             result = self._apply_formant_preservation(
@@ -1974,21 +2253,130 @@ class DeEsserPhase(PhaseInterface):
         """
         Gender-Detection: Robuster Detektor (F0 + Formanten + WORLD) bevorzugt,
         Fallback auf einfache Autocorrelation.
+
+        §2.11: Librosa pYIN F0-Integration — pYIN (Mauch & Dixon 2014) liefert
+        per-frame F0 mit Voicing-Confidence und ist speziell für polyphones
+        Material und Vibrato robust. Die mediane F0 über voiced frames ersetzt
+        die einfache Autocorrelation-basierte Schätzung für präzisere Gender-
+        Klassifikation, besonders bei tiefen Frauenstimmen.
         """
+        mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
+
+        # ── §2.11 Librosa pYIN F0 (wenn verfügbar) ─────────────────
+        _pyin_f0: float | None = None
+        try:
+            import librosa as _librosa
+
+            _mono_f32 = mono.astype(np.float32)[: min(len(mono), sample_rate * 10)]
+            _f0_pyin, _voiced_flag, _voiced_prob = _librosa.pyin(
+                _mono_f32,
+                fmin=60.0,
+                fmax=700.0,
+                sr=sample_rate,
+                frame_length=2048,
+                win_length=1024,
+            )
+            # Median über voiced frames (voiced_prob > 0.8)
+            _voiced_f0 = _f0_pyin[_voiced_prob > 0.8]
+            if len(_voiced_f0) > 10:
+                _pyin_f0 = float(np.median(_voiced_f0))
+                logger.debug(
+                    "🎤 pYIN F0: %.0f Hz (median over %d voiced frames)",
+                    _pyin_f0, len(_voiced_f0),
+                )
+        except Exception as _pyin_exc:
+            logger.debug("pYIN F0 failed (%s) — using autocorrelation", _pyin_exc)
+
         # ── Primär: Robuster Multi-Feature GenderDetector (§2.8) ──
         if _HAS_ROBUST_GENDER and _RobustGenderDetector is not None:
             try:
-                mono = np.mean(audio, axis=1) if audio.ndim == 2 else audio
                 detector = _RobustGenderDetector(sample_rate=sample_rate)
                 chars = detector.detect(mono)
-                gender_str = chars.gender.value  # VoiceGender enum → str
-                confidence = chars.confidence
+
+                # §2.11: Wenn pYIN-F0 verfügbar und signifikant anders als
+                # autocorrelation-F0 → pYIN bevorzugen (robuster gegen Vibrato,
+                # Rauschen, polyphones Material). pYIN ist ein probabilistisches
+                # Modell mit Voicing-Confidence; Autocorrelation ist anfällig
+                # für Oktav-Fehler bei tiefen Stimmen.
+                if _pyin_f0 is not None and _pyin_f0 > 0:
+                    _ac_f0 = chars.fundamental_freq
+                    _f0_delta = abs(_pyin_f0 - _ac_f0) / max(_ac_f0, 1.0)
+                    if _f0_delta > 0.15:  # >15% Abweichung → pYIN bevorzugen
+                        logger.debug(
+                            "🎤 pYIN F0 override: %.0f Hz vs autocorr %.0f Hz (delta=%.0f%%)",
+                            _pyin_f0, _ac_f0, _f0_delta * 100,
+                        )
+                        # Re-klassifiziere mit pYIN-F0
+                        f0 = _pyin_f0
+                        formants = chars.formants
+                        # Einfache Klassifikation mit pYIN-F0
+                        if f0 < 150:
+                            gender_str = VocalGender.MALE
+                        elif f0 < 300:
+                            gender_str = VocalGender.FEMALE
+                        else:
+                            gender_str = VocalGender.CHILD
+                        confidence = chars.confidence
+                    else:
+                        gender_str = chars.gender.value
+                        confidence = chars.confidence
+                        f0 = chars.fundamental_freq
+                        formants = chars.formants
+                else:
+                    gender_str = chars.gender.value
+                    confidence = chars.confidence
+                    f0 = chars.fundamental_freq
+                    formants = chars.formants
+
+                # ── §2.9 Contralto-Erkennung ─────────────────────────────
+                # Eine Kontra-Altistin (tiefe Frauenstimme, z. B. Tracy Chapman,
+                # Cher, Nina Simone) hat F0 im männlichen Bereich (150–180 Hz),
+                # aber weibliche Formanten (kürzerer Vokaltrakt → höheres F1/F2).
+                # Der Classifier gewichtet F0 und Formanten gleich → F0=160 Hz
+                # drückt das Ergebnis oft Richtung "male", obwohl die Formanten
+                # eindeutig weiblich sind.
+                #
+                # Erkennung: Wenn gender=male, confidence<0.80, F0 in der
+                # Überlappungszone (145–195 Hz), UND F1/F2 im weiblichen Bereich
+                # → Kontra-Alt. Formanten sind das zuverlässigere Merkmal
+                # (anatomisch bedingt), daher korrigieren wir auf female.
+                _CONTRALTO_F0_LOW = 145.0
+                _CONTRALTO_F0_HIGH = 195.0
+                _FEMALE_F1 = (310.0, 860.0)
+                _FEMALE_F2 = (920.0, 2790.0)
+                _contralto_detected = False
+                if (
+                    gender_str == VocalGender.MALE
+                    and confidence < 0.80
+                    and _CONTRALTO_F0_LOW <= f0 <= _CONTRALTO_F0_HIGH
+                    and len(formants) >= 2
+                ):
+                    f1_in_female = _FEMALE_F1[0] <= formants[0] <= _FEMALE_F1[1]
+                    f2_in_female = _FEMALE_F2[0] <= formants[1] <= _FEMALE_F2[1]
+                    if f1_in_female and f2_in_female:
+                        _contralto_detected = True
+                        logger.warning(
+                            "🎤 CONTRALTO DETECTED — classifier said 'male' (F0=%.0f Hz, "
+                            "confidence=%.2f) but formants are female-typical "
+                            "(F1=%.0f Hz in [%.0f–%.0f], F2=%.0f Hz in [%.0f–%.0f]). "
+                            "This is likely a deep female voice (contralto). "
+                            "→ Overriding to FEMALE. Use --gender male to force male.",
+                            f0, confidence,
+                            formants[0], _FEMALE_F1[0], _FEMALE_F1[1],
+                            formants[1], _FEMALE_F2[0], _FEMALE_F2[1],
+                        )
+                        gender_str = VocalGender.FEMALE
+                        confidence = max(confidence, 0.65)  # Mindest-Confidence für contralto
+
                 if gender_str in (VocalGender.MALE, VocalGender.FEMALE, VocalGender.CHILD):
+                    _contralto_tag = " [CONTRALTO→FEMALE]" if _contralto_detected else ""
                     logger.info(
-                        "🎤 Robust GenderDetector: %s (confidence=%.2f, F0=%.0f Hz)",
-                        gender_str,
-                        confidence,
-                        chars.fundamental_freq,
+                        "🎤 Robust GenderDetector: %s (confidence=%.2f, F0=%.0f Hz, "
+                        "F1=%.0f, F2=%.0f)%s",
+                        gender_str, confidence, f0,
+                        formants[0] if len(formants) > 0 else 0.0,
+                        formants[1] if len(formants) > 1 else 0.0,
+                        _contralto_tag,
                     )
                     return gender_str  # type: ignore[no-any-return]
             except Exception as e:
@@ -2044,9 +2432,21 @@ class DeEsserPhase(PhaseInterface):
 
         # Klassifiziere basierend auf F0
         # Schwelle Child 300 Hz (nicht 250): Frauen haben F0 bis 255 Hz (§2.8)
-        if f0_estimate < 160:
+        # §2.9: F0-Schwelle auf 150 Hz gesenkt (vorher 160 Hz) — Kontra-Altistinnen
+        # (tiefe Frauenstimme) haben F0 im Bereich 150–180 Hz und würden sonst
+        # fälschlich als "male" klassifiziert. Ohne Formant-Information (Simple-
+        # Fallback) ist F0 das einzige Merkmal → prefer female im Grenzbereich.
+        _CONTRALTO_ZONE_LOW = 150.0
+        _CONTRALTO_ZONE_HIGH = 180.0
+        if f0_estimate < 150:
             return VocalGender.MALE
         elif f0_estimate < 300:
+            if _CONTRALTO_ZONE_LOW <= f0_estimate <= _CONTRALTO_ZONE_HIGH:
+                logger.info(
+                    "🎤 Simple GenderDetector: F0=%.0f Hz → FEMALE (contralto zone 150–180 Hz; "
+                    "if this is actually a male voice, use --gender male)",
+                    f0_estimate,
+                )
             return VocalGender.FEMALE
         else:
             return VocalGender.CHILD

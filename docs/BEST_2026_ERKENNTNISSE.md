@@ -59,7 +59,7 @@ Stand: 2026-04-14
 - audit/daily_real_audio_gate_status.md
 - backend/core/unified_restorer_v3.py
 - backend/api/bridge.py
-- Aurik910/ui/modern_window.py
+- Aurik10/ui/modern_window.py
 - tests/normative/test_spec_performance_budget_sync.py
 - tests/unit/test_runtime_spec_check.py
 - tests/unit/test_release_runtime_consistency.py

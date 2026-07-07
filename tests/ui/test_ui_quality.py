@@ -1,8 +1,8 @@
 from pathlib import Path
 
-GUI_FILE = Path("Aurik910/ui/modern_window.py")
-I18N_FILE = Path("Aurik910/i18n/__init__.py")
-PROGNOSE_FILE = Path("Aurik910/ui/song_prognose_widget.py")
+GUI_FILE = Path("Aurik10/ui/modern_window.py")
+I18N_FILE = Path("Aurik10/i18n/__init__.py")
+PROGNOSE_FILE = Path("Aurik10/ui/song_prognose_widget.py")
 DEFECT_SCANNER_FILE = Path("backend/core/defect_scanner.py")
 
 
@@ -158,7 +158,7 @@ def test_result_banner_starts_with_clear_professional_verdict() -> None:
 def test_song_prognose_primary_visible_texts_are_i18n_controlled() -> None:
     src = PROGNOSE_FILE.read_text(encoding="utf-8")
     i18n = I18N_FILE.read_text(encoding="utf-8")
-    assert "from Aurik910.i18n import t" in src
+    assert "from Aurik10.i18n import t" in src
     for key in (
         "prognose.header",
         "prognose.section.score",

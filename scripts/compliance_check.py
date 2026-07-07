@@ -29,7 +29,7 @@ DEFAULT_SRC_DIRS = [
     "dsp",
     "plugins",
     "denker",
-    "Aurik910",
+    "Aurik10",
 ]
 
 EXCLUDE_DIRS = {
@@ -147,12 +147,12 @@ RULES: list[Rule] = [
         pattern=re.compile(r"\bplm\.try_allocate\s*\("),
         severity="error",
     ),
-    # R11 — Backend importiert Aurik910 (Architektur-Verletzung)
+    # R11 — Backend importiert Aurik10 (Architektur-Verletzung)
     Rule(
         id="R11",
-        description="Backend darf nicht aus Aurik910 importieren (Architektur-Trennung)",
-        pattern=re.compile(r"from\s+Aurik910[.\s]|import\s+Aurik910"),
-        allow_in=["Aurik910/", "tests/", "scripts/"],
+        description="Backend darf nicht aus Aurik10 importieren (Architektur-Trennung)",
+        pattern=re.compile(r"from\s+Aurik10[.\s]|import\s+Aurik10"),
+        allow_in=["Aurik10/", "tests/", "scripts/"],
         severity="error",
     ),
     # R12 — griffinlim als letzter Rekonstruktions-Schritt

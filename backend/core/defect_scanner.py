@@ -508,7 +508,7 @@ class DefectScanner:
             DefectType.BANDWIDTH_LOSS: 0.3,
             DefectType.PITCH_DRIFT: 0.2,
             DefectType.REVERB_EXCESS: 0.4,
-            DefectType.PRINT_THROUGH: 0.2,
+            DefectType.PRINT_THROUGH: 0.40,  # §v9.20.3: Dünnes Band → weniger Print-Through als Spulentonband
             DefectType.QUANTIZATION_NOISE: 0.9,
             DefectType.JITTER_ARTIFACTS: 1.0,
             DefectType.DYNAMIC_COMPRESSION_EXCESS: 0.8,
@@ -521,10 +521,10 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 0.3,
             DefectType.AZIMUTH_ERROR: 0.30,
             DefectType.SIBILANCE: 0.5,
-            DefectType.TRANSPORT_BUMP: 0.3,
+            DefectType.TRANSPORT_BUMP: 0.15,  # §v9.20.3: Pinch-Roller-Bumps sind Kassetten-spezifisch (35/min)
             DefectType.VOCAL_HARSHNESS: 0.4,
             DefectType.DOLBY_NR_MISMATCH: 0.25,
-            DefectType.TAPE_HEAD_LEVEL_DIP: 0.20,
+            DefectType.TAPE_HEAD_LEVEL_DIP: 0.15,  # §v9.20.3: Kleine Köpfe → schneller Pegelabfall
             DefectType.MODULATION_NOISE: 0.15,
             DefectType.INNER_GROOVE_DISTORTION: 1.0,
             DefectType.GROOVE_ECHO: 1.0,
@@ -607,7 +607,7 @@ class DefectScanner:
             DefectType.BANDWIDTH_LOSS: 0.4,  # Reel-Tape: HF besser als Kassette, aber begrenzt
             DefectType.PITCH_DRIFT: 0.4,  # Professionelles Tape: besser aber nicht perfekt
             DefectType.REVERB_EXCESS: 0.3,  # Reel-Tape: Live-Raumakustik sehr häufig!
-            DefectType.PRINT_THROUGH: 0.15,  # Reel-Tape: Print-Through klassisches Problem!
+            DefectType.PRINT_THROUGH: 0.10,  # §v9.20.3: Studioband lagert gewickelt → Vorecho sehr häufig
             DefectType.QUANTIZATION_NOISE: 0.9,  # N/A: Reel-Tape ist analog
             DefectType.JITTER_ARTIFACTS: 1.0,  # N/A: Reel-Tape ist analog
             DefectType.DYNAMIC_COMPRESSION_EXCESS: 0.8,  # Professionelles Reel-Tape: Kompression selten exzessiv
@@ -620,10 +620,10 @@ class DefectScanner:
             DefectType.BIAS_ERROR: 0.3,  # Häufig: gemischte Bandsorten → falscher Bias-Strom beim Schnitt
             DefectType.AZIMUTH_ERROR: 0.25,  # Sehr häufig: Profi-Bandmaschinen mit verschiedenen Schnittköpfen
             DefectType.SIBILANCE: 0.4,  # Profi-Spulenband: HF-Sättigung → Zischlaut-Überbetonung
-            DefectType.TRANSPORT_BUMP: 0.2,  # Profi-Bandmaschine: Transport stabiler als Kassette
+            DefectType.TRANSPORT_BUMP: 0.95,  # §v9.20.3: Profi-Capstan ohne Pinch-Roller → keine Transport-Bumps
             DefectType.VOCAL_HARSHNESS: 0.4,  # Profi-Bandsättigung → Vokal-Härte bei hohem Bandfluss
             DefectType.DOLBY_NR_MISMATCH: 0.6,  # Möglich: Dolby A/SR — Broadcast-Dekoder fehlt oft
-            DefectType.TAPE_HEAD_LEVEL_DIP: 0.40,  # Möglich: Kopfverschleiß/Alignmentfehler möglich
+            DefectType.TAPE_HEAD_LEVEL_DIP: 0.65,  # §v9.20.3: Große Studio-Köpfe → allmählicher breitbandiger Pegelverlust  # Möglich: Kopfverschleiß/Alignmentfehler möglich
             # v9.10.98: 12 neue SOTA-DefectTypes
             DefectType.MODULATION_NOISE: 0.12,  # EXTREM HÄUFIG: Signal-abhängig bei hohem Bandfluss
             DefectType.INNER_GROOVE_DISTORTION: 1.0,  # N/A: Tape hat keine Rillen

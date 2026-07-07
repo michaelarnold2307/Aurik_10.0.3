@@ -64,7 +64,7 @@ class _FakeSounddevice:
 @pytest.fixture(autouse=True)
 def _patch_sd(monkeypatch):
     """Patch sounddevice globally for all tests in this module."""
-    import Aurik910.ui.audio_player as ap
+    import Aurik10.ui.audio_player as ap
 
     fake_sd = _FakeSounddevice()
     monkeypatch.setattr(ap, "sd", fake_sd)
@@ -75,7 +75,7 @@ def _patch_sd(monkeypatch):
 
 
 def _make_player():
-    from Aurik910.ui.audio_player import StreamingAudioPlayer
+    from Aurik10.ui.audio_player import StreamingAudioPlayer
 
     return StreamingAudioPlayer()
 
@@ -390,14 +390,14 @@ class TestShutdown:
 
 class TestSingleton:
     def test_get_streaming_player_returns_same(self):
-        from Aurik910.ui.audio_player import get_streaming_player
+        from Aurik10.ui.audio_player import get_streaming_player
 
         p1 = get_streaming_player()
         p2 = get_streaming_player()
         assert p1 is p2
 
     def test_available_property(self):
-        from Aurik910.ui.audio_player import get_streaming_player
+        from Aurik10.ui.audio_player import get_streaming_player
 
         p = get_streaming_player()
         assert p.available is True

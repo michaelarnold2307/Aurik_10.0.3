@@ -21,7 +21,7 @@ TERMINFO_DIRS ?= /usr/share/terminfo:/lib/terminfo:/etc/terminfo
 export TERM TERMINFO TERMINFO_DIRS
 
 # Verzeichnisse für Code-Qualität
-SRC_DIRS := dsp plugins backend denker Aurik910 cli/aurik_cli.py
+SRC_DIRS := dsp plugins backend denker Aurik10 cli/aurik_cli.py
 EXCLUDE_DIRS := models .venv_aurik build dist output_audio sessions logs __pycache__
 
 # Farben für Terminal-Ausgabe

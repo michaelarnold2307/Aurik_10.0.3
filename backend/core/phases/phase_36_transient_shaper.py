@@ -148,6 +148,21 @@ class TransientShaper(PhaseInterface):
 
     # pylint: disable-next=arguments-renamed
     def process(  # type: ignore[override]
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        material: MaterialType | None = None,
+        **kwargs: Any,
+    ) -> PhaseResult:
+        # §v9.20.3 Fragile-Guard: Kein Transient Shaping auf bandbreiten-begrenztem Material.
+        # bw_loss > 0.8 → keine nutzbaren Transienten im HF-Bereich → skip.
+        _bw = float(kwargs.get("bandwidth_loss", 0.0))
+        if _bw > 0.80:
+            logger.info("Phase 36: skipped — bandwidth_loss=%.2f > 0.80 (fragile material)", _bw)
+            return PhaseResult(success=True, audio=audio, metadata={"skipped": "fragile"})
+        return self._process_impl(audio, sample_rate, material, **kwargs)
+
+    def _process_impl(  # type: ignore[override]
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
         """

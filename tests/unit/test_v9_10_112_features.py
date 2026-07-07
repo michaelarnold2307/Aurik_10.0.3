@@ -128,7 +128,7 @@ class TestQueueManagerReorder:
     """QueueManager.reorder_items ordnet die interne _items-Dict korrekt um."""
 
     def _make_manager_with_items(self, n: int = 3):
-        from Aurik910.core.queue_manager import QueueManager
+        from Aurik10.core.queue_manager import QueueManager
 
         mgr = QueueManager()
         ids = []

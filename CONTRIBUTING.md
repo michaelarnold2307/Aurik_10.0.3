@@ -68,7 +68,7 @@ Aurik_Standalone/
 ├── backend/                 # API and backend utilities
 ├── tests/                   # Test suite (~11598 unit tests)
 ├── docs/                    # Documentation
-├── Aurik910/                # GUI (PyQt5-based, frameless dark-theme)
+├── Aurik10/                # GUI (PyQt5-based, frameless dark-theme)
 ├── models/                  # ML model weights (not tracked in Git)
 └── README.md
 ```

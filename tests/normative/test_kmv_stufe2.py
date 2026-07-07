@@ -113,7 +113,7 @@ def test_should_start_no_deferred_phases(tmp_path):
         stufe1_quality=0.60,
         input_path="",
     )
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
 
     assert MLRefinementThread.should_start(job) is False
 
@@ -122,7 +122,7 @@ def test_should_start_insufficient_ram(minimal_job):
     """should_start must return False when <4 GB RAM free."""
     import psutil
 
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
 
     mock_vm = MagicMock()
     mock_vm.available = int(3.9 * 1024**3)  # 3.9 GB < 4 GB required
@@ -135,7 +135,7 @@ def test_should_start_sufficient_ram(minimal_job):
     """should_start must return True when ≥4 GB RAM free and phases present."""
     import psutil
 
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
 
     mock_vm = MagicMock()
     mock_vm.available = int(8.0 * 1024**3)  # 8 GB — sufficient
@@ -151,7 +151,7 @@ def test_quality_invariant_logic_present():
     """run() source must contain quality gate: stufe2 < stufe1 → emit cancelled."""
     import inspect
 
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
 
     src = inspect.getsource(MLRefinementThread.run)
     assert "stufe1_quality" in src, "Quality-Gate fehlt in run()"
@@ -161,7 +161,7 @@ def test_quality_invariant_logic_present():
 def test_quality_invariant_no_overwrite(tmp_path, minimal_job):
     """_write_audio writes to the given path (quality gate is upstream in run())."""
 
-    from Aurik910.ui.ml_refinement_thread import _write_audio
+    from Aurik10.ui.ml_refinement_thread import _write_audio
 
     audio = np.zeros(480, dtype=np.float32) + 0.1
     tmp_path_str = str(tmp_path / "quality_guard.wav")
@@ -173,7 +173,7 @@ def test_quality_invariant_overwrite_when_better(tmp_path):
     """_write_audio successfully creates a valid WAV file."""
     import soundfile as sf
 
-    from Aurik910.ui.ml_refinement_thread import _write_audio
+    from Aurik10.ui.ml_refinement_thread import _write_audio
 
     audio_new = np.zeros(480, dtype=np.float32) + 0.5
     output_path = str(tmp_path / "write_test.wav")
@@ -192,7 +192,7 @@ def test_atomic_write_pattern_in_run_source():
     """run() must use os.replace for atomic overwrite (not shutil.copy or direct open)."""
     import inspect
 
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
 
     src = inspect.getsource(MLRefinementThread.run)
     assert "os.replace" in src, "Atomarer os.replace-Schritt muss in run() vorhanden sein"
@@ -203,7 +203,7 @@ def test_write_audio_creates_wavfile(tmp_path):
     """_write_audio must create a readable WAV file at the given path."""
     import soundfile as sf
 
-    from Aurik910.ui.ml_refinement_thread import _write_audio
+    from Aurik10.ui.ml_refinement_thread import _write_audio
 
     audio = np.zeros(480, dtype=np.float32) + 0.2
     output_path = str(tmp_path / "atomic_test.wav")
@@ -217,7 +217,7 @@ def test_write_audio_creates_wavfile(tmp_path):
 
 def test_build_atomic_temp_path_preserves_target_suffix() -> None:
     """KMV-Tempdatei muss die finale Dateiendung behalten, damit das Format stabil bleibt."""
-    from Aurik910.ui.ml_refinement_thread import _build_atomic_temp_path
+    from Aurik10.ui.ml_refinement_thread import _build_atomic_temp_path
 
     assert _build_atomic_temp_path("/tmp/song.wav") == "/tmp/song.kmv_tmp.wav"
     assert _build_atomic_temp_path("/tmp/song.flac") == "/tmp/song.kmv_tmp.flac"
@@ -229,7 +229,7 @@ def test_build_atomic_temp_path_preserves_target_suffix() -> None:
 
 def test_ml_refinement_thread_signals_exist():
     """All 5 §2.38 mandatory signals must exist on MLRefinementThread."""
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
 
     required_signals = [
         "refinement_started",
@@ -299,7 +299,7 @@ def test_deferred_job_sr_is_48000(minimal_job):
 def test_interruption_early_exit(tmp_path):
     """run() must emit refinement_cancelled if interrupted before denke()."""
 
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
     from backend.core.deferred_refinement_job import DeferredRefinementJob
 
     audio = np.zeros(48000, dtype=np.float32)
@@ -328,7 +328,7 @@ def test_interruption_early_exit(tmp_path):
 
 def test_budget_allocation_failure_cancels(tmp_path):
     """run() must emit refinement_cancelled if ml_memory_budget.try_allocate fails."""
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
     from backend.core.deferred_refinement_job import DeferredRefinementJob
 
     audio = np.zeros(48000, dtype=np.float32)
@@ -361,7 +361,7 @@ def test_budget_allocation_failure_cancels(tmp_path):
 
 def test_quality_gate_blocks_inferior_stufe2(tmp_path):
     """Stufe-2 result with lower quality than Stufe-1 must NOT overwrite."""
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
     from backend.core.deferred_refinement_job import DeferredRefinementJob
 
     audio = np.random.default_rng(42).standard_normal(48000).astype(np.float32) * 0.1
@@ -409,7 +409,7 @@ def test_quality_gate_blocks_inferior_stufe2(tmp_path):
 
 def test_cache_passthrough_to_denker(tmp_path):
     """Stufe-1 cached results (defect/era/medium) must be forwarded to denke()."""
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
     from backend.core.deferred_refinement_job import DeferredRefinementJob
 
     audio = np.zeros(48000, dtype=np.float32)
@@ -467,7 +467,7 @@ def test_write_audio_stereo(tmp_path):
     """_write_audio must handle stereo (2D) arrays."""
     import soundfile as sf
 
-    from Aurik910.ui.ml_refinement_thread import _write_audio
+    from Aurik10.ui.ml_refinement_thread import _write_audio
 
     rng = np.random.default_rng(123)
     # _write_audio expects (samples, channels) shape for stereo via soundfile
@@ -481,7 +481,7 @@ def test_write_audio_stereo(tmp_path):
 
 def test_extract_quality_from_restoration_result():
     """_extract_quality must read quality_estimate from standard result objects."""
-    from Aurik910.ui.ml_refinement_thread import _extract_quality
+    from Aurik10.ui.ml_refinement_thread import _extract_quality
 
     mock_result = MagicMock()
     mock_result.quality_estimate = 0.72
@@ -492,7 +492,7 @@ def test_extract_quality_from_restoration_result():
 
 def test_extract_audio_from_result():
     """_extract_audio must extract audio ndarray from result."""
-    from Aurik910.ui.ml_refinement_thread import _extract_audio
+    from Aurik10.ui.ml_refinement_thread import _extract_audio
 
     mock_result = MagicMock()
     expected = np.zeros(480, dtype=np.float32)
@@ -504,7 +504,7 @@ def test_extract_audio_from_result():
 
 def test_should_start_single_instance_guard():
     """Concurrent MLRefinementThread instances must be prevented by should_start."""
-    from Aurik910.ui.ml_refinement_thread import MLRefinementThread
+    from Aurik10.ui.ml_refinement_thread import MLRefinementThread
     from backend.core.deferred_refinement_job import DeferredRefinementJob
 
     audio = np.zeros(48000, dtype=np.float32)

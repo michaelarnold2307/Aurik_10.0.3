@@ -12,7 +12,7 @@ root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 
 # Guard: only register the FileHandler if no other handler for the same file is
-# already active on the root logger (Aurik910/main.py registers one first).
+# already active on the root logger (Aurik10/main.py registers one first).
 _log_file_abs = os.path.abspath(LOG_FILE)
 _already_registered = any(
     isinstance(h, RotatingFileHandler) and os.path.abspath(getattr(h, "baseFilename", "")) == _log_file_abs

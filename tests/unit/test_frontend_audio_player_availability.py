@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import Aurik910.ui.audio_player as audio_player_mod
-from Aurik910.ui.audio_player import StreamingAudioPlayer
+import Aurik10.ui.audio_player as audio_player_mod
+from Aurik10.ui.audio_player import StreamingAudioPlayer
 
 
 def test_streaming_player_unavailable_when_sounddevice_missing(monkeypatch) -> None:

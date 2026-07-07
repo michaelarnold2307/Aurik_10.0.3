@@ -514,15 +514,44 @@ class SingerVoiceModel:
         spectral_envelope = np.mean(mel_spec[:, valid_idx], axis=1)
         spectral_envelope = np.nan_to_num(spectral_envelope, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
 
-        # Step 6: LPC formant estimation on concatenated clean frames (capped at 200)
-        clean_audio = np.concatenate(
-            [mono[i * _HOP_LENGTH : (i + 1) * _HOP_LENGTH] for i in valid_idx[: min(len(valid_idx), 200)]]
-        )
-        formant_targets = _estimate_formants_lpc(clean_audio, sr)
+        # Step 6: Formants — VFA-Daten bevorzugen falls verfügbar
+        _vfa_f1 = _vfa_result.get("formant_f1_mean", 0.0) if _vfa_result else 0.0
+        _vfa_f2 = _vfa_result.get("formant_f2_mean", 0.0) if _vfa_result else 0.0
+        if _vfa_f1 > 0 and _vfa_f2 > 0:
+            # VFA hat Formanten aus dem Gesamtsignal — zuverlässiger als
+            # LPC auf den kurzen Clean-Segmenten (die oft zu kurz/leise sind)
+            formant_targets = {
+                "F1": float(_vfa_f1),
+                "F2": float(_vfa_f2),
+                "F3": float(_vfa_result.get("formant_f3_mean", 0.0) if _vfa_result else 0.0),
+                "F4": 0.0,
+            }
+        else:
+            clean_audio = np.concatenate(
+                [mono[i * _HOP_LENGTH : (i + 1) * _HOP_LENGTH] for i in valid_idx[: min(len(valid_idx), 200)]]
+            )
+            formant_targets = _estimate_formants_lpc(clean_audio, sr)
 
-        # Step 7: Vibrato via pYIN F0 trajectory
-        f0_arr = _estimate_f0_dsp(mono, sr)
-        vibrato_rate_hz, vibrato_depth_cents = _estimate_vibrato(f0_arr, sr)
+        # Step 7: Vibrato — VFA-Daten bevorzugen, sonst selbst schätzen
+        # §FIX v9.20.3: VocalFocusAnalyzer hat bereits Vibrato aus dem
+        # Gesamtsignal analysiert (robuster gegen Bandbreitenbegrenzung).
+        # Nur wenn VFA keine Daten liefert, DSP-Eigenberechnung nutzen.
+        vibrato_rate_hz = 0.0
+        vibrato_depth_cents = 0.0
+        _vfa_vibrato_zones = _vfa_result.get("vibrato_zones", []) if _vfa_result else []
+        _vfa_vibrato_count = _vfa_result.get("vibrato_zones_count", len(_vfa_vibrato_zones)) if _vfa_result else 0
+        if _vfa_vibrato_zones and _vfa_vibrato_count >= 3:
+            # VFA hat Vibrato gefunden → typische Rate 4-7 Hz, Tiefe 50-200 cents
+            vibrato_rate_hz = 5.0  # Mittelwert für ausgebildete Sänger
+            vibrato_depth_cents = 150.0
+            # Versuche genauere Werte aus VocalStyle zu extrahieren
+            _vs = _vfa_result.get("vocal_style", {}) if _vfa_result else {}
+            if isinstance(_vs, dict):
+                vibrato_rate_hz = float(_vs.get("vibrato_rate_hz", 5.0))
+                vibrato_depth_cents = float(_vs.get("vibrato_depth_cents", 150.0))
+        else:
+            f0_arr = _estimate_f0_dsp(mono, sr)
+            vibrato_rate_hz, vibrato_depth_cents = _estimate_vibrato(f0_arr, sr)
 
         # Step 8: Spectral tilt
         spectral_tilt = _compute_spectral_tilt(spectral_envelope)

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from Aurik910.i18n import get_language, set_language, t
+from Aurik10.i18n import get_language, set_language, t
 
 
 class TestSetLanguage:
@@ -187,7 +187,7 @@ class TestTranslationCompleteness:
     def test_all_de_keys_have_en_equivalent(self) -> None:
         """Jeder Schlüssel in Deutsch muss auch in Englisch vorhanden sein."""
         # Zugriff auf interne Translation-Dicts via Modulimport
-        import Aurik910.i18n as i18n_module
+        import Aurik10.i18n as i18n_module
 
         translations = getattr(i18n_module, "_TRANSLATIONS", {})
         assert translations, "_TRANSLATIONS muss im i18n-Modul definiert sein"
@@ -200,7 +200,7 @@ class TestTranslationCompleteness:
 
     def test_no_empty_translations(self) -> None:
         """Kein Übersetzungswert darf leer sein."""
-        import Aurik910.i18n as i18n_module
+        import Aurik10.i18n as i18n_module
 
         translations = getattr(i18n_module, "_TRANSLATIONS", {})
         assert translations, "_TRANSLATIONS muss im i18n-Modul definiert sein"
