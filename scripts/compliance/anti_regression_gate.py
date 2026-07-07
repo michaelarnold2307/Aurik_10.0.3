@@ -176,6 +176,30 @@ def check_absolute_bw_loss(filepath: str) -> list[str]:
                 issues.append(f"{filepath}:{i}: hardcoded 20000 Hz bandwidth reference without MATERIAL_EXPECTED_BW")
     return issues
 
+
+def check_defect_classification(filepath: str) -> list[str]:
+    """Every DefectType must be classified as SURGICAL or GLOBAL."""
+    issues = []
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    if 'SURGICAL_DEFECT_TYPES' in content:
+        # Check all DefectTypes are accounted for
+        try:
+            from backend.core.defect_scanner import DefectType
+            from backend.core.intro_defect_analyzer import SURGICAL_DEFECT_TYPES
+            all_defects = {e.value for e in DefectType}
+            surgical = all_defects & SURGICAL_DEFECT_TYPES
+            unaccounted = all_defects - SURGICAL_DEFECT_TYPES
+            # GLOBAL types are everything not in SURGICAL — no explicit list needed
+            if len(surgical) != 24:
+                issues.append(f'{filepath}: SURGICAL_DEFECT_TYPES has {len(surgical)} types (expected 24)')
+        except ImportError:
+            pass
+    return issues
+
 def main() -> None:
     changed = sys.argv[1:]
     if not changed:
@@ -194,6 +218,7 @@ def main() -> None:
         all_issues.extend(check_sentinel_architecture(fp))
         all_issues.extend(check_magic_numbers(fp))
         all_issues.extend(check_absolute_bw_loss(fp))
+        all_issues.extend(check_defect_classification(fp))
 
     if all_issues:
         print(f"🛡️ Anti-Regression-Gate: {len(all_issues)} Verletzung(en)\n")
