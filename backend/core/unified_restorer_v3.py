@@ -23165,6 +23165,9 @@ class UnifiedRestorerV3:
                 _chain_stages_for_tape_guard = [str(s).lower() for s in _raw_chain if s]
         _has_tape_like_chain = any(s in {"tape", "reel_tape", "cassette"} for s in _chain_stages_for_tape_guard)
 
+        # §Chain-Aware: transfer_chain aus chain_info für Disc-Material-Check
+        transfer_chain: list[str] = _chain_stages_for_tape_guard
+
         # ════════════════════════════════════
         # TIER 0 — Basiskorrekturen (immer aktiv, < 1 ms Overhead)
         # ════════════════════════════════════
