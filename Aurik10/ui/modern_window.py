@@ -11612,6 +11612,7 @@ class ModernMainWindow(QMainWindow):
         self._ab_row_layout = None
         self.btn_play_original = None
         self.btn_play_restored = None
+        self.btn_delta = None
         self.btn_ab_sync = None
         self._ab_source_label = None
         self._ab_loop_source: str = ""
@@ -12241,7 +12242,7 @@ class ModernMainWindow(QMainWindow):
 
     def set_buttons_enabled(self, enabled: bool) -> None:
         """Aktiviert/deaktiviert Play/Stop-Buttons während der Verarbeitung."""
-        for btn_name in ("play_original_btn", "play_restored_btn", "compare_btn", "stop_btn"):
+        for btn_name in ("play_original_btn", "play_restored_btn", "compare_btn", "stop_btn", "delta_btn"):
             btn = getattr(self, btn_name, None)
             if btn is not None:
                 btn.setEnabled(enabled)
@@ -13121,6 +13122,18 @@ class ModernMainWindow(QMainWindow):
         self.btn_play_restored.setStyleSheet(_ab_style_rest)
         self.btn_play_restored.clicked.connect(self._play_restored_or_preview)
         ab_row_layout.addWidget(self.btn_play_restored)
+
+        # §14.9 Delta-Mode: Differenzsignal abhören
+        self.btn_delta = ModernButton(f"Δ  {t('action.listen_delta', 'Differenz')}")
+        self.btn_delta.setAccessibleName("Differenzsignal abhören (Restauriert − Original)")
+        self.btn_delta.setAccessibleDescription(
+            "Hört nur die Änderungen: was Aurik hinzugefügt oder entfernt hat."
+        )
+        self.btn_delta.setEnabled(False)
+        self.btn_delta.setFixedHeight(self._sp(38))
+        self.btn_delta.setStyleSheet(_ab_style_sync)
+        self.btn_delta.clicked.connect(self._play_delta)
+        ab_row_layout.addWidget(self.btn_delta)
 
         # ── A/B Sync-Loop: gleiche Position, nahtloser Quellwechsel (v9.10.111) ──
         _ab_style_sync = (
