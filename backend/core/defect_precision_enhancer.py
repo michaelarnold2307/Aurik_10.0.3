@@ -65,6 +65,45 @@ class DefectPrecisionEnhancer:
         self._masking_model = _SimpleMaskingModel()
         self._dynamics = RepairDynamicsGuard()
 
+    def analyze_defects(
+        self,
+        audio: np.ndarray,
+        sr: int,
+        defect_types: list[str],
+    ) -> dict[str, list[dict[str, float]]]:
+        """Analyzes defect types and returns per-defect precision hints.
+
+        Lightweight variant of analyze_instances() that works without
+        per-instance location data. Uses defect type name + severity
+        from the caller's defect_hint dict to compute optimal strengths.
+
+        Args:
+            audio: Input audio (float32)
+            sr: Sample rate in Hz
+            defect_types: List of DefectType.value strings, e.g. ["wow", "clicks"]
+
+        Returns:
+            Dict mapping defect_type → [{"strength": X, "audible": True/False}, ...]
+        """
+        hints: dict[str, list[dict[str, float]]] = {}
+
+        for defect_type in defect_types:
+            # Without per-instance location data, we can't use the psychoacoustic
+            # masking model. Assume audible: if the defect_type was passed, the
+            # caller (UV3) already confirmed its presence via DefectScanner.
+            is_audible = True
+
+            severity = 0.5
+            optimal = self._compute_optimal_strength(defect_type, severity, is_audible)
+
+            hints[defect_type] = [{
+                "strength": float(optimal),
+                "audible": float(is_audible),
+                "severity_default": severity,
+            }]
+
+        return hints
+
     def analyze_instances(
         self,
         audio: np.ndarray,
@@ -149,15 +188,16 @@ class DefectPrecisionEnhancer:
         - Clicks: always gentle to avoid transient loss
         - Hum: proportional to severity
         """
+        # §2.59 Fix (2026-07-09): Defekt-Namen auf DefectType.values() abgestimmt.
         if not is_audible:
             return 0.0
 
-        if defect_type in ("click", "pop", "crackle"):
+        if defect_type in ("clicks", "crackle"):
             # Transient defects: gentle repair
             return float(np.clip(severity * 1.2, 0.2, 0.8))
-        elif defect_type in ("hum", "buzz", "rumble"):
+        elif defect_type in ("hum", "motor_interference", "low_freq_rumble"):
             return float(np.clip(severity * 1.5, 0.3, 1.0))
-        elif defect_type in ("hiss", "noise", "surface_noise"):
+        elif defect_type in ("high_freq_noise", "modulation_noise", "quantization_noise"):
             return float(np.clip(severity * 1.3, 0.3, 1.0))
         else:
             return float(np.clip(severity * 1.0, 0.2, 1.0))

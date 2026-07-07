@@ -65,7 +65,7 @@ def batch_worker(batch_id: str, input_files: list[str]):
                 audio = _np.asarray(_loaded["audio"], dtype=_np.float32)
                 sr = int(_loaded["sr"])
 
-                denker_result: Any = denker.denke(audio, sr, mode="restoration")
+                denker_result: Any = denker.denke(audio, sr, mode="restoration", input_path=str(in_path))
                 result_sr = int(getattr(denker_result, "sample_rate", sr) or sr)
                 result_audio = _np.asarray(denker_result.audio, dtype=_np.float32)
                 result_quality = float(getattr(denker_result, "quality_estimate", 0.0) or 0.0)

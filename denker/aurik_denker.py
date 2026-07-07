@@ -1262,6 +1262,16 @@ class AurikDenker:
         else:
             _emit(2, "Tonträger wird erkannt …")
             try:
+                # §2.59 Guard: input_path ohne Dateiendung → MediumDetector bekommt keinen Digital-Prior.
+                # Bei .mp3/.aac/.ogg etc. würde der ×0.25 Analog-Penalty fehlen → falsche Klassifikation möglich.
+                _input_ext = os.path.splitext(input_path)[1] if input_path else ""
+                if input_path and not _input_ext:
+                    logger.warning(
+                        "AurikDenker: input_path=%s hat keine Dateiendung — "
+                        "MediumDetector läuft ohne Digital-Prior (kein ×0.25 Analog-Penalty). "
+                        "Bei .mp3/.aac/.ogg fehlt dann die korrekte Material-Erkennung.",
+                        input_path,
+                    )
                 toni = get_tontraeger_denker().erkenne(aktuelles_audio, sr, file_path=input_path)
                 material = toni.material_type
                 stage_notes["tontraeger"] = f"{material} (Konfidenz: {toni.confidence:.2f})"

@@ -768,6 +768,7 @@ def _rank_goal_recovery_candidate(
                 critical_hard_drops += 1
                 critical_gap += _spa_drop * 2.0
     except Exception:
+        logger.debug("__post_init__: silent except suppressed", exc_info=True)
         pass
 
     excellence = sum(float(value) for value in scores.values()) / max(len(scores), 1)
@@ -1525,6 +1526,7 @@ class UnifiedRestorerV3:
                 _sev = float(np.clip(float(getattr(_ds, "severity", 0.0)), 0.0, 1.0))
                 _conf = float(np.clip(float(getattr(_ds, "confidence", 0.0)), 0.0, 1.0))
             except Exception:
+                logger.debug("_extract_defect_focus_scores: silent except suppressed", exc_info=True)
                 continue
             if _sev <= 0.0:
                 continue
@@ -2181,6 +2183,7 @@ class UnifiedRestorerV3:
 
         return float(np.clip(confidence, 0.0, 1.0))
     def _build_song_calibration_profile(
+        self,
         *,
         material_type: MaterialType | None,
         mode: QualityMode,
@@ -3714,6 +3717,7 @@ class UnifiedRestorerV3:
                     _dyn_reason_w *= 1.0 + 0.25 * _deficit
                     _severity_fp["artifact_deficit"] = round(float(_deficit), 4)
                 except Exception:
+                    logger.debug("_register_phase_goal_conflict_event: silent except suppressed", exc_info=True)
                     pass
             elif reason == "vocal_no_harm_rollback":
                 try:
@@ -3722,6 +3726,7 @@ class UnifiedRestorerV3:
                         _dyn_reason_w *= 1.15
                         _severity_fp["singer_identity_violation"] = True
                 except Exception:
+                    logger.debug("_register_phase_goal_conflict_event: silent except suppressed", exc_info=True)
                     pass
             elif reason == "pmgg_best_effort":
                 _action = str(_details.get("action", "") or "")
@@ -3763,6 +3768,7 @@ class UnifiedRestorerV3:
                 _severity_fp["fatigue_rebound_applied"] = bool(_rebound_applied)
                 _severity_fp["prior_soft_conflict_streak"] = int(_rebound_soft_streak)
             except Exception:
+                logger.debug("_register_phase_goal_conflict_event: silent except suppressed", exc_info=True)
                 pass
 
             # Disagreement-Guard: Bei hoher Reason-Diversität im jüngsten Verlauf
@@ -3807,6 +3813,7 @@ class UnifiedRestorerV3:
                 _severity_fp["disagreement_threshold"] = int(_dg_threshold)
                 _severity_fp["disagreement_brake_mul"] = round(float(_dg_brake_mul), 4)
             except Exception:
+                logger.debug("_register_phase_goal_conflict_event: silent except suppressed", exc_info=True)
                 pass
 
             # Goal-Prioritaetskopplung: Regressions auf P1/P2 muessen strenger
@@ -3836,6 +3843,7 @@ class UnifiedRestorerV3:
                         _dyn_reason_w *= _prio_peak
                         _severity_fp["goal_priority_peak"] = round(_prio_peak, 4)
             except Exception:
+                logger.debug("_register_phase_goal_conflict_event: silent except suppressed", exc_info=True)
                 pass
 
             # Vocal-Supremacy-Kopplung: bei hoher Gesangspraesenz werden
@@ -3872,6 +3880,7 @@ class UnifiedRestorerV3:
                         _dyn_reason_w *= _vocal_partial
                         _severity_fp["vocal_boost"] = round(_vocal_partial, 4)
             except Exception:
+                logger.debug("_register_phase_goal_conflict_event: silent except suppressed", exc_info=True)
                 pass
 
             _severity_fp["dynamic_weight"] = round(float(_dyn_reason_w), 4)
@@ -4455,6 +4464,7 @@ class UnifiedRestorerV3:
                 try:
                     _fatigue_risk = float(np.clip(float(fatigue_result.get("risk_score") or 0.0), 0.0, 1.0))
                 except Exception:
+                    logger.debug("_compute_joy_fatigue_runtime_index: silent except suppressed", exc_info=True)
                     pass
 
         _fatigue_from_brightness = float(np.clip(max(0.0, _bri - _warm) * 0.8, 0.0, 1.0))
@@ -7163,6 +7173,14 @@ class UnifiedRestorerV3:
         # Robuste Sample-Count-Ermittlung: (N,2) → N, (2,N) → N, (N,) → N
         _n_samples = max(audio.shape) if audio.ndim == 2 else len(audio)
         logger.info("Starting restoration: %.1fs audio @ %d Hz", _n_samples / sample_rate, sample_rate)
+        # §2.59 ContractValidator: Cross-Module-Konsistenz einmalig prüfen
+        try:
+            from backend.core.defect_contract_validator import run_contract_validation
+
+            _contract_result = run_contract_validation()
+            self._restoration_context["contract_validation"] = _contract_result
+        except Exception:
+            logger.debug("ContractValidator: non-blocking init failure", exc_info=True)
         # §2.31d Edge-Case flags — computed once, used throughout restore().
         _audio_duration_s: float = float(_n_samples) / float(sample_rate)
         _is_very_short: bool = _audio_duration_s < 10.0  # Groove/MicroDyn/EmotionalArc off
@@ -8294,6 +8312,7 @@ class UnifiedRestorerV3:
             try:
                 self._emotional_arc_preserver._measure(original_audio_for_goals, sample_rate)
             except Exception:
+                logger.debug("restore: silent except — Baseline für EmotionalArc setzen", exc_info=True)
                 pass
             logger.info(
                 "§AF-MAX Denker-Teamwork: GuardWisdom + CrossGuardCoordinator + EmotionalArcPreserver + GoalBudget initialisiert"
@@ -8319,6 +8338,7 @@ class UnifiedRestorerV3:
                     str(_rc_primary_mat_str),
                 )
             except Exception:
+                logger.debug("restore: silent except suppressed", exc_info=True)
                 pass
         except Exception as _denker_init_exc:
             logger.debug("§AF-MAX Denker-Init (non-blocking): %s", _denker_init_exc)
@@ -8329,6 +8349,7 @@ class UnifiedRestorerV3:
             self._restoration_context["_batch_intelligence"] = BatchIntelligence()
             self._restoration_context.setdefault("phase_strengths", {})
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
         # §EraVocalProfile [RELEASE_MUST]: era-adaptierte Vokalprofile für VQI-Kalibrierung —
         # historisches Material (era_decade < 1960) benötigt andere Formant-Toleranzen, sonst
@@ -9447,6 +9468,7 @@ class UnifiedRestorerV3:
             try:
                 self._restoration_context["restoration_memory_stats"] = _rm_mgr.get_stats()
             except Exception:
+                logger.debug("restore: silent except suppressed", exc_info=True)
                 pass
             if _rm_prior:
                 self._restoration_context["restoration_memory_prior"] = _rm_prior
@@ -9515,6 +9537,7 @@ class UnifiedRestorerV3:
 
                 _audiosr_avail = callable(_get_audiosr)
             except Exception:
+                logger.debug("restore: silent except suppressed", exc_info=True)
                 pass
 
             _goal_applicability = evaluate_goal_applicability(
@@ -10396,6 +10419,7 @@ class UnifiedRestorerV3:
                             if any(_n in _k_s for _n in needle_parts):
                                 _vals.append(float(_v))
                         except Exception:
+                            logger.debug("restore: silent except suppressed", exc_info=True)
                             continue
                     return float(max(_vals)) if _vals else 0.0
 
@@ -11492,6 +11516,7 @@ class UnifiedRestorerV3:
                     len(_prune_result.skipped_phases),
                 )
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         selected_phases, _invalid_selected_phases = self._validate_selected_phase_ids(
@@ -11559,6 +11584,7 @@ class UnifiedRestorerV3:
                         sum(len(v) for v in _precision_hints.values()),
                     )
             except Exception:
+                logger.debug("restore: silent except suppressed", exc_info=True)
                 pass
             # §AE: Cross-Channel Stereo Repair
             try:
@@ -11574,6 +11600,7 @@ class UnifiedRestorerV3:
                             _ccr_result["repairable_defects"],
                         )
             except Exception:
+                logger.debug("restore: silent except suppressed", exc_info=True)
                 pass
 
             restored_audio, executed_phases, skipped_phases, deferred_phases = self._execute_pipeline(
@@ -11641,6 +11668,7 @@ class UnifiedRestorerV3:
                     cross_guard_coordinator=_af_cgc,
                 )
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
         # ═══════════════════════════════════════════════════════════════════
         # POST-PROCESSING — Wissenschaftliche Restaurierungs-Reihenfolge
@@ -11669,6 +11697,7 @@ class UnifiedRestorerV3:
             _vsr = VocalScratchRepair()
             restored_audio = _vsr.repair(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §AP TapeHeadArtifactRepair — Kurzzeit-Dropouts
@@ -11678,6 +11707,7 @@ class UnifiedRestorerV3:
             _thar = TapeHeadArtifactRepair()
             restored_audio = _thar.repair(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # ── STUFE 3: RAUSCHEN (nachdem impulsive Defekte entfernt sind) ──
@@ -11691,6 +11721,7 @@ class UnifiedRestorerV3:
             _amp = AntiMufflingPass()
             restored_audio = _amp.process(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # ── STUFE 5: RÄUMLICH (Stereo, Phase, Azimuth) ──
@@ -11708,6 +11739,7 @@ class UnifiedRestorerV3:
                     _str_r.get("vocal_coverage_pct", 0),
                 )
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §AR ArtifactEchoRemoval — Echo-Artefakte
@@ -11717,6 +11749,7 @@ class UnifiedRestorerV3:
             _aer = ArtifactEchoRemoval()
             restored_audio = _aer.process(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # ── STUFE 6: DYNAMIK (nachdem Spektrum und Raum sauber sind) ──
@@ -11730,6 +11763,7 @@ class UnifiedRestorerV3:
             _sib = SibilanceMaxRepair()
             restored_audio = _sib.process(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §AH VocalClarityMax — Gesangs-Klarheit
@@ -11739,6 +11773,7 @@ class UnifiedRestorerV3:
             _vcm = VocalClarityMax()
             restored_audio = _vcm.process(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §AS SpecializedDefectRepair — letzte Analyse-optimierte Reparatur
@@ -11748,6 +11783,7 @@ class UnifiedRestorerV3:
             _sdr = SpecializedDefectRepair()
             restored_audio, _ = _sdr.analyze_and_repair(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # ── STUFE 8: AUSGABE (Humanization, ML-Hybrid, Listening-EQ, Export) ──
@@ -11757,6 +11793,7 @@ class UnifiedRestorerV3:
 
             restored_audio = HumanizationPass.apply(restored_audio, sample_rate, strength=0.15)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §AQ PerceptualExportOptimizer — ML-Hybrid
@@ -11768,6 +11805,7 @@ class UnifiedRestorerV3:
             _mat = str(getattr(self, "_restoration_context", {}).get("primary_material", "unknown"))
             restored_audio = _peo.optimize(restored_audio, sample_rate, material=_mat, listening_mode=_lm)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §DIRECT DirectDefectRepair — allerletzte chirurgische Prüfung
@@ -11777,6 +11815,7 @@ class UnifiedRestorerV3:
             _ddr = DirectDefectRepair()
             restored_audio, _ddr_report = _ddr.repair(restored_audio, sample_rate)
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
 
         # §Q: Listening-Mode EQ        # §Q: Listening-Mode EQ
@@ -11818,6 +11857,7 @@ class UnifiedRestorerV3:
             if _bi is not None and hasattr(_bi, "record"):
                 _bi.record(str(kwargs.get("input_path", "")), "", "", [], {}, None, _bi_data.get("pmgg_scores"))
         except Exception:
+            logger.debug("restore: silent except suppressed", exc_info=True)
             pass
         # (vor STCG post) — GCC-PHAT O(n log n)
         try:
@@ -13269,6 +13309,7 @@ class UnifiedRestorerV3:
                         if isinstance(_gec_cl, (list, tuple)):
                             _gec_chain = [str(s).lower() for s in _gec_cl]
                 except Exception:
+                    logger.debug("restore: silent except suppressed", exc_info=True)
                     pass
 
                 # Goals nach Lücken-Größe sortieren (größte Lücke zuerst = höchste Priorität)
@@ -16075,6 +16116,7 @@ class UnifiedRestorerV3:
                                         k: float(v) for k, v in _pp_parameters.items() if isinstance(v, (int, float))
                                     }
                         except Exception:
+                            logger.debug("restore: silent except suppressed", exc_info=True)
                             pass
                         _voice_events = getattr(self, "_restoration_context", {}).get("voice_guard_events", [])
                         _voice_outcome = UnifiedRestorerV3._build_voice_guard_outcome_payload(
@@ -16155,6 +16197,7 @@ class UnifiedRestorerV3:
                         try:
                             self._restoration_context["restoration_memory_stats"] = _rm_mgr_save.get_stats()
                         except Exception:
+                            logger.debug("restore: silent except suppressed", exc_info=True)
                             pass
                         logger.debug(
                             "§2.70 RestorationMemory: Prior gespeichert HPI=%.3f era=%d mat=%s",
@@ -18017,6 +18060,7 @@ class UnifiedRestorerV3:
                         try:
                             _goal_impacts[str(_goal)] = _goal_impacts.get(str(_goal), 0.0) + abs(float(_val))
                         except Exception:
+                            logger.debug("restore: silent except suppressed", exc_info=True)
                             continue
 
             _targets = {}
@@ -24614,6 +24658,7 @@ class UnifiedRestorerV3:
                     if any(_needle in _name for _needle in keys):
                         vals.append(float(_v))
                 except Exception:
+                    logger.debug("_optimize_phase_plan_intelligence: silent except suppressed", exc_info=True)
                     continue
             return float(max(vals)) if vals else 0.0
 
@@ -25251,6 +25296,7 @@ class UnifiedRestorerV3:
                         _s = int(max(0.0, float(_t0)) * sample_rate)
                         _e = int(max(0.0, float(_t1)) * sample_rate)
                     except Exception:
+                        logger.debug("_apply_dedicated_jitter_repair: silent except suppressed", exc_info=True)
                         continue
                     if _e <= _s:
                         continue
@@ -25379,6 +25425,7 @@ class UnifiedRestorerV3:
                         _s = int(max(0.0, float(_t0)) * sample_rate)
                         _e = int(max(0.0, float(_t1)) * sample_rate)
                     except Exception:
+                        logger.debug("_apply_dedicated_pre_echo_repair: silent except suppressed", exc_info=True)
                         continue
                     if _e > _s:
                         _loc_windows.append((max(0, _s), min(_n_samples, _e)))
@@ -25546,6 +25593,7 @@ class UnifiedRestorerV3:
                         _s = int(max(0.0, float(_t0)) * sample_rate)
                         _e = int(max(0.0, float(_t1)) * sample_rate)
                     except Exception:
+                        logger.debug("_apply_dedicated_aliasing_repair: silent except suppressed", exc_info=True)
                         continue
                     if _e <= _s:
                         continue
@@ -25670,6 +25718,7 @@ class UnifiedRestorerV3:
                         _s = int(max(0.0, float(_t0)) * sample_rate)
                         _e = int(max(0.0, float(_t1)) * sample_rate)
                     except Exception:
+                        logger.debug("_apply_dedicated_compression_artifact_repair: silent except suppressed", exc_info=True)
                         continue
                     if _e <= _s:
                         continue
@@ -25798,6 +25847,7 @@ class UnifiedRestorerV3:
                         _s = int(max(0.0, float(_t0)) * sample_rate)
                         _e = int(max(0.0, float(_t1)) * sample_rate)
                     except Exception:
+                        logger.debug("_apply_dedicated_dynamic_compression_excess_repair: silent except suppressed", exc_info=True)
                         continue
                     if _e <= _s:
                         continue
@@ -26860,6 +26910,7 @@ class UnifiedRestorerV3:
                 if isinstance(_pc_c, (int, float)):
                     _conf_candidates.append(float(_pc_c))
             except Exception:
+                logger.debug("_prepare_profiled_phase_runtime_context: silent except suppressed", exc_info=True)
                 pass
             _mat_conf = kwargs.get("material_confidence")
             if not isinstance(_mat_conf, (int, float)):
@@ -27560,6 +27611,7 @@ class UnifiedRestorerV3:
                     try:
                         _cb(float(_frac * 100.0), "", _t)
                     except Exception:
+                        logger.debug("_profiled_phase_call: silent except suppressed", exc_info=True)
                         pass
 
             _hb_thread = threading.Thread(
@@ -27609,6 +27661,7 @@ class UnifiedRestorerV3:
 
             _get_sft_pre().capture_pre_phase(audio)
         except Exception:
+            logger.debug("_profiled_phase_call: silent except suppressed", exc_info=True)
             pass
 
         # §Lücke-C HNR-Budget-Tracker: Kumulativen HNR-Verlust durch NR-Phasen begrenzen.
@@ -27753,6 +27806,7 @@ class UnifiedRestorerV3:
                         if isinstance(_r, np.ndarray):
                             return _r.astype(np.float32)  # type: ignore[no-any-return]
                     except Exception:
+                        logger.debug("_profiled_phase_call: silent except — return _r.astype(np.float32)  # type: ignore[no-any-return]", exc_info=True)
                         pass
                     return np.asarray(seg, dtype=np.float32)  # type: ignore[no-any-return]
 
@@ -27782,6 +27836,7 @@ class UnifiedRestorerV3:
                                 "best_candidate_idx": _probe_result.best_candidate_idx,
                             }
                     except Exception:
+                        logger.debug("_profiled_phase_call: silent except suppressed", exc_info=True)
                         pass
             except Exception as _probe_exc:
                 logger.debug(
@@ -28092,6 +28147,7 @@ class UnifiedRestorerV3:
 
                 _is_additive_for_tilt = any(phase_metadata.phase_id.startswith(p) for p in _ADD_PFX)
             except Exception:
+                logger.debug("_profiled_phase_call: silent except suppressed", exc_info=True)
                 pass
         if _is_additive_for_tilt and _audio_before_phase is None:
             _audio_before_phase = audio
@@ -30149,6 +30205,7 @@ class UnifiedRestorerV3:
                         _mono_last[0] = _mapped
                     _root_cb(_mapped, lbl, elapsed)
                 except Exception:
+                    logger.debug("_execute_pipeline: silent except suppressed", exc_info=True)
                     pass
 
             return _sub_progress
@@ -31669,6 +31726,7 @@ class UnifiedRestorerV3:
                     if _e > _s:
                         _acc += _e - _s
                 except Exception:
+                    logger.debug("_execute_pipeline: silent except suppressed", exc_info=True)
                     continue
             _defect_location_coverage_map[_dkey] = float(np.clip(_acc / _audio_duration_s, 0.0, 1.0))
 
@@ -32388,6 +32446,7 @@ class UnifiedRestorerV3:
 
                             _ctypes_pre.CDLL("libc.so.6").malloc_trim(0)
                         except Exception:
+                            logger.debug("_execute_pipeline: silent except suppressed", exc_info=True)
                             pass
                         _avail_pre = _ps_pre.virtual_memory().available / (1024**3)
                         _ram_pct_pre = _ps_pre.virtual_memory().percent
@@ -33358,6 +33417,7 @@ class UnifiedRestorerV3:
                                         if _d3 > 0.001:
                                             _gb3.record_delta(_g3, _d3)
                             except Exception:
+                                logger.debug("_execute_pipeline: silent except suppressed", exc_info=True)
                                 pass
                             # §9.11.1 PlateauStop: track spectral quality delta for rolling window.
                             # Only count if phase actually changed audio -- passthrough phases

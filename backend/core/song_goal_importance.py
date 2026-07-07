@@ -884,12 +884,15 @@ def estimate_goal_importance(
 
     # --- Step 6g: Defect-driven goal adjustment ---
     # Actual detected defects tell us which goals need protection
+    # §2.59 Fix (2026-07-09): Defekt-Namen auf DefectType.values() abgestimmt.
+    # Keys stammen aus DefectType.name.lower(), z.B. DefectType.CLICKS → "clicks".
     if defect_severities:
         _ds = defect_severities
         # Heavy noise → transparenz critical
         _noise_sev = max(
-            _ds.get("broadband_noise", 0.0),
-            _ds.get("hiss", 0.0),
+            _ds.get("high_freq_noise", 0.0),
+            _ds.get("modulation_noise", 0.0),
+            _ds.get("quantization_noise", 0.0),
             _ds.get("hum", 0.0),
         )
         if _noise_sev > 0.5:
@@ -899,8 +902,7 @@ def estimate_goal_importance(
         # Heavy crackle/click → groove/timing preservation critical
         _crackle_sev = max(
             _ds.get("crackle", 0.0),
-            _ds.get("click", 0.0),
-            _ds.get("pop", 0.0),
+            _ds.get("clicks", 0.0),
         )
         if _crackle_sev > 0.5:
             weights["groove"] *= 1.1
@@ -908,7 +910,10 @@ def estimate_goal_importance(
             reasons.append(f"defect_crackle({_crackle_sev:.2f})")
 
         # HF loss detected → brillanz physically limited
-        _hf_loss_sev = _ds.get("hf_loss", 0.0)
+        _hf_loss_sev = max(
+            _ds.get("bandwidth_loss", 0.0),
+            _ds.get("hf_remanence_loss", 0.0),
+        )
         if _hf_loss_sev > 0.5:
             weights["brillanz"] *= 0.85
             reasons.append(f"defect_hf_loss({_hf_loss_sev:.2f})")

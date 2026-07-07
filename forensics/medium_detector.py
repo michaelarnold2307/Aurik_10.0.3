@@ -1407,6 +1407,20 @@ class MediumDetector:
                 ", ".join(_analog_in_posteriors) if _analog_in_posteriors else "none",
                 ", ".join(_non_analog_top) if _non_analog_top else "none",
             )
+        elif not _ext_lower:
+            # §2.59 Canary: Kein file_ext → kein Digital-Prior → analoge Materialien
+            # könnten fälschlich als Primärmedium klassifiziert werden.
+            # Diese Log-Meldung hilft, fehlende input_path-Call-Sites zu identifizieren.
+            _analog_top3 = [
+                (m, s) for m, s in list(posteriors.items())[:3] if m in self._ANALOG_MATERIALS
+            ]
+            if _analog_top3:
+                logger.info(
+                    "MediumDetector: NO file_ext — Digital-Prior fehlt (kein ×0.25 Analog-Penalty). "
+                    "Top-3 analog candidates: [%s]. Bei .mp3/.aac/.ogg wäre korrekte Material-Erkennung möglich. "
+                    "→ Prüfen, ob input_path korrekt durchgereicht wird.",
+                    ", ".join(f"{m}={s:.3f}" for m, s in _analog_top3),
+                )
 
         # Flag: analog Bayesian posteriors wurden durch file_ext genullt
         _analog_zeroed: bool = _ext_lower in _DIGITAL_FILE_EXTS
