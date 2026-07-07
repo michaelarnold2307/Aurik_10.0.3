@@ -810,41 +810,39 @@ def estimate_goal_importance(
     # Low SNR → transparenz/brillanz are hard to achieve, noise removal is key
     # High SNR → transparenz is already good, focus on musical goals
     if snr_db is not None:
-        if snr_db < 15.0:
-            # Very noisy — transparenz matters (denoise must succeed),
-            # but brillanz/spatial_depth are physically limited
-            weights["transparenz"] *= 1.15
-            weights["brillanz"] *= 0.85
-            weights["spatial_depth"] *= 0.85
-            reasons.append(f"snr_low({snr_db:.0f}dB)")
-        elif snr_db > 40.0:
-            # Clean signal — focus on musical preservation, not cleaning
-            weights["natuerlichkeit"] *= 1.1
-            weights["authentizitaet"] *= 1.1
-            weights["micro_dynamics"] *= 1.1
-            reasons.append(f"snr_high({snr_db:.0f}dB)")
+        # §2.59: Kontinuierliche SNR-Messung statt hartem 15dB-Cutoff.
+        # transparenz wichtiger bei Rauschen, brillanz limitiert bei niedrigem SNR.
+        if snr_db is not None:
+            _snr_ratio = min(max(float(snr_db) / 60.0, 0.0), 1.0)  # 0 dB→0.0, 60 dB→1.0
+            if float(snr_db) < 30.0:
+                weights["transparenz"] *= 1.0 + 0.30 * (1.0 - _snr_ratio)
+                weights["brillanz"] *= 0.70 + 0.30 * _snr_ratio
+                weights["spatial_depth"] *= 0.70 + 0.30 * _snr_ratio
+                reasons.append(f"snr({snr_db:.0f}dB→transparenz×{1.0+0.30*(1.0-_snr_ratio):.2f})")
+            if float(snr_db) > 35.0:
+                weights["natuerlichkeit"] *= 0.95 + 0.25 * _snr_ratio
+                weights["authentizitaet"] *= 0.95 + 0.25 * _snr_ratio
+                weights["micro_dynamics"] *= 0.90 + 0.30 * _snr_ratio
+                reasons.append(f"snr_clean({snr_db:.0f}dB)")
 
     # --- Step 6c: Bandwidth-based adjustment ---
-    # Actual measured HF content determines how much brillanz matters
-    if effective_bandwidth_hz is not None:
-        if effective_bandwidth_hz < 6000.0:
-            # Very limited bandwidth — don't prioritise what doesn't exist
-            weights["brillanz"] *= 0.6
-            weights["waerme"] *= 1.1  # Focus on what's there
-            reasons.append(f"bw_low({effective_bandwidth_hz:.0f}Hz)")
-        elif effective_bandwidth_hz < 12000.0:
-            weights["brillanz"] *= 0.85
-            reasons.append(f"bw_mid({effective_bandwidth_hz:.0f}Hz)")
-        elif effective_bandwidth_hz > 18000.0:
-            # Full bandwidth — brillanz is achievable and valuable
-            weights["brillanz"] *= 1.1
-            reasons.append(f"bw_full({effective_bandwidth_hz:.0f}Hz)")
+    # §2.59: Kontinuierliche Messung statt Stufen. Brillanz skaliert
+    # proportional zur verfuegbaren Bandbreite (0 Hz → 0.6, 20 kHz → 1.1).
+    if effective_bandwidth_hz is not None and effective_bandwidth_hz > 0:
+        _bw_ratio = min(float(effective_bandwidth_hz) / 20000.0, 1.0)
+        _brillanz_factor = 0.6 + 0.5 * _bw_ratio
+        weights["brillanz"] *= _brillanz_factor
+        if effective_bandwidth_hz < 8000.0:
+            weights["waerme"] *= 1.0 + 0.2 * (1.0 - _bw_ratio)
+        reasons.append(f"bw({effective_bandwidth_hz:.0f}Hz→brillanz×{_brillanz_factor:.2f})")
 
     # --- Step 6d: Dynamic range adjustment ---
     # Compressed signals → don't prioritise micro_dynamics restoration
     # Wide dynamics → micro_dynamics is genuinely important
+    # §2.59: Kontinuierliche Dynamik-Messung.
     if dynamic_range_db is not None:
-        if dynamic_range_db < 20.0:
+        _dr = float(dynamic_range_db)
+        if _dr < 20.0:
             # Heavily compressed — micro_dynamics was intentional or irrecoverable
             weights["micro_dynamics"] *= 0.7
             weights["groove"] *= 1.1  # Focus on rhythmic impact instead
