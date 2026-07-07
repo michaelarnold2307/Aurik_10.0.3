@@ -1329,6 +1329,13 @@ class AurikDenker:
         defekt = None  # Guard: DefektDenker kann fehlschlagen
         _defekt_hint: dict[str, Any] | None = None
 
+        def _get_surgical_defect_types() -> frozenset[str]:
+            try:
+                from backend.core.surgical_defect_analyzer import SURGICAL_DEFECT_TYPES
+                return SURGICAL_DEFECT_TYPES
+            except ImportError:
+                return frozenset()
+
         def _defekt_scan_cb(pct: int, name: str = "") -> None:
             if name:
                 _emit(6, f"Defekte werden analysiert … {name}")
@@ -1353,6 +1360,11 @@ class AurikDenker:
                 # §2.59: Defekt-Typen und -Severities für PhasePruner/DefectManifest
                 "defect_types": list(getattr(defekt, "defect_scores", {}).keys()),
                 "defect_severities": dict(getattr(defekt, "defect_scores", {})),
+                # §2.59: Chirurgische Klassifikation für alle Denker sichtbar
+                "surgical_defect_types": [
+                    d for d in getattr(defekt, "defect_scores", {}).keys()
+                    if d in _get_surgical_defect_types()
+                ],
             }
             # Bug-17-Fix: raw DefectAnalysisResult aus DefektErgebnis extrahieren und
             # als cached_defect_result weiterreichen — verhindert zweiten internen Scan
