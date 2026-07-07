@@ -106,6 +106,55 @@ def check_bare_except_pass(filepath: str) -> list[str]:
     return issues
 
 
+
+def check_pruner_signature(filepath: str) -> list[str]:
+    """PhasePruner.prune() must accept restoration_context."""
+    issues = []
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    if 'def prune(' in content and 'restoration_context' not in content:
+        for i, line in enumerate(content.split(chr(10)), 1):
+            if 'def prune(' in line:
+                if 'restoration_context' not in line:
+                    issues.append(f"{filepath}:{i}: prune() missing restoration_context parameter")
+    return issues
+
+
+def check_sentinel_architecture(filepath: str) -> list[str]:
+    """VocalDistortionSentinel must be SENSOR only (measure, no check/strength_overrides)."""
+    issues = []
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    if 'VocalDistortionSentinel' in content:
+        if 'def check(' in content and 'def measure(' not in content:
+            issues.append(f"{filepath}: Sentinel has check() but no measure() — must be SENSOR")
+        if 'strength_overrides' in content or 'injected_phases' in content:
+            issues.append(f"{filepath}: Sentinel must not contain strength_overrides/injected_phases — WRITE to restoration_context instead")
+    return issues
+
+
+def check_magic_numbers(filepath: str) -> list[str]:
+    """No hardcoded multipliers where continuous measurement is appropriate."""
+    issues = []
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    # Pattern: *= 0.85 or *= 0.6 in goal weight context
+    for i, line in enumerate(content.split(chr(10)), 1):
+        if 'weights[' in line and '*= 0.85' in line:
+            issues.append(f"{filepath}:{i}: hardcoded *= 0.85 — use continuous function instead")
+        if 'weights[' in line and '*= 0.6' in line and 'bw_ratio' not in content:
+            issues.append(f"{filepath}:{i}: hardcoded *= 0.6 — use bw_ratio instead")
+    return issues
+
 def main() -> None:
     changed = sys.argv[1:]
     if not changed:
@@ -120,6 +169,9 @@ def main() -> None:
         all_issues.extend(check_preservation_mode_threshold(fp))
         all_issues.extend(check_wrong_field_name(fp))
         all_issues.extend(check_bare_except_pass(fp))
+        all_issues.extend(check_pruner_signature(fp))
+        all_issues.extend(check_sentinel_architecture(fp))
+        all_issues.extend(check_magic_numbers(fp))
 
     if all_issues:
         print(f"🛡️ Anti-Regression-Gate: {len(all_issues)} Verletzung(en)\n")

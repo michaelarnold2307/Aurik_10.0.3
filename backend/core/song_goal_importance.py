@@ -500,8 +500,8 @@ class SongGoalFeedbackStore:
                     for e in entries_raw[-self.MAX_ENTRIES :]:
                         try:
                             self._entries.append(UserFeedbackEntry(**e))
-                        except Exception:
-                            pass
+                        except Exception as _entry_exc:
+                            logger.debug("FeedbackStore: invalid entry skipped: %s", _entry_exc)
         except Exception as _load_exc:
             logger.debug("§C10 FeedbackStore load skipped: %s", _load_exc)
         finally:
@@ -913,7 +913,7 @@ def estimate_goal_importance(
             _ds.get("hf_remanence_loss", 0.0),
         )
         if _hf_loss_sev > 0.5:
-            weights["brillanz"] *= 0.85
+            weights["brillanz"] *= _brillanz_factor if effective_bandwidth_hz else 0.85
             reasons.append(f"defect_hf_loss({_hf_loss_sev:.2f})")
 
         # Wow/flutter → timing/groove at risk
@@ -929,7 +929,7 @@ def estimate_goal_importance(
     if spectral_tilt_db_per_oct is not None:
         if spectral_tilt_db_per_oct < -4.0:
             # Very dark → limited HF, don't demand brillanz
-            weights["brillanz"] *= 0.85
+            weights["brillanz"] *= _brillanz_factor if effective_bandwidth_hz else 0.85
             weights["waerme"] *= 1.05
             reasons.append(f"tilt_dark({spectral_tilt_db_per_oct:.1f}dB/oct)")
         elif spectral_tilt_db_per_oct > -1.0:
@@ -1006,7 +1006,7 @@ def estimate_goal_importance(
             reasons.append(f"sharp_high({sharpness:.2f})")
         elif sharpness < 0.2:
             # Perceptually dull — brillanz is genuinely absent, reduce expectations
-            weights["brillanz"] *= 0.85
+            weights["brillanz"] *= _brillanz_factor if effective_bandwidth_hz else 0.85
             weights["waerme"] *= 1.08
             reasons.append(f"sharp_low({sharpness:.2f})")
 
@@ -1058,7 +1058,7 @@ def estimate_goal_importance(
             weights["waerme"] *= 1.08
             reasons.append(f"fb_bass_heavy({_fb_bass:.2f})")
         elif _fb_bass < 0.10:
-            weights["bass_kraft"] *= 0.85
+            weights["bass_kraft"] *= 0.75 + 0.25 * (_bw_ratio if effective_bandwidth_hz else 0.5)
             reasons.append(f"fb_bass_thin({_fb_bass:.2f})")
 
         # Treble+Air-heavy → brillanz genuinely important
@@ -1066,7 +1066,7 @@ def estimate_goal_importance(
             weights["brillanz"] *= 1.12
             reasons.append(f"fb_bright({_fb_treble + _fb_air:.2f})")
         elif (_fb_treble + _fb_air) < 0.10:
-            weights["brillanz"] *= 0.85
+            weights["brillanz"] *= _brillanz_factor if effective_bandwidth_hz else 0.85
             reasons.append(f"fb_dark({_fb_treble + _fb_air:.2f})")
 
         # Mid-dominated → articulation and transparency define intelligibility
@@ -1082,7 +1082,7 @@ def estimate_goal_importance(
     if masked_components_ratio is not None and 0.01 < masked_components_ratio < 0.95:
         if masked_components_ratio > 0.5:
             # Half the spectrum is below masking threshold — limit expectations
-            weights["spatial_depth"] *= 0.85
+            weights["spatial_depth"] *= 0.70 + 0.30 * (_bw_ratio if effective_bandwidth_hz else 0.5)
             weights["separation_fidelity"] *= 0.90
             # Transparenz becomes more critical (what's audible must be clear)
             weights["transparenz"] *= 1.10
