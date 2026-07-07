@@ -2536,20 +2536,20 @@ class UnifiedRestorerV3:
         _eff_bw_hz = float(self._restoration_context.get("source_fidelity_bandwidth_target_hz", 0.0))
         _preservation_mode = (
             float(_bw_loss_sev) >= 0.97
-            and float(_input_snr_db) < 16.0 if _input_snr_db is not None else True
+            and float(input_snr_db) < 16.0 if input_snr_db is not None else True
             and (_eff_bw_hz <= 0.0 or _eff_bw_hz < 6000.0)
         )
         if _preservation_mode:
             self._restoration_context["preservation_mode"] = True
             self._restoration_context["preservation_reason"] = (
-                f"bw_loss={_bw_loss_sev:.2f} SNR={_input_snr_db:.1f}dB" if _input_snr_db is not None else f"bw_loss={_bw_loss_sev:.2f}"
+                f"bw_loss={_bw_loss_sev:.2f} SNR={input_snr_db:.1f}dB" if input_snr_db is not None else f"bw_loss={_bw_loss_sev:.2f}"
             )
             logger.warning(
                 "§2.16 PRESERVATION MODE: bw_loss=%.2f SNR=%.1fdB — "
                 "nur essentielle Cleanup-Phasen. Enhancements werden übersprungen. "
                 "Das Material ist zu degradiert für aktive Restaurierung.",
                 float(_bw_loss_sev),
-                float(_input_snr_db) if _input_snr_db is not None else 0.0,
+                float(input_snr_db) if input_snr_db is not None else 0.0,
             )
 
         # §2.13 Uncertainty-from-Disagreement: Wenn zwei Klassifikatoren
@@ -9638,7 +9638,7 @@ class UnifiedRestorerV3:
         _mp3_maximum_guard = self._should_force_mp3_maximum_guard(
             self.config.mode,
             material_type,
-            _input_snr_db,
+            input_snr_db,
             _max_defect_severity,
             _clean_digital_mode,
         )
@@ -9650,7 +9650,7 @@ class UnifiedRestorerV3:
                 "🛡️ MP3-Maximum-Guard: material=%s, mode=%s, SNR=%.1f dB, max_defect=%.3f → Schonmodus erzwungen",
                 material_type.value if hasattr(material_type, "value") else str(material_type),
                 self.config.mode.value,
-                _input_snr_db,
+                input_snr_db,
                 _max_defect_severity,
             )
         _pipeline_quality_mode_override: QualityMode | None = None
@@ -9705,7 +9705,7 @@ class UnifiedRestorerV3:
             material_type=material_type,
             mode=self.config.mode,
             restorability_score=_pmgg_restorability_score,
-            input_snr_db=_input_snr_db,
+            input_snr_db=input_snr_db,
             max_defect_severity=_max_defect_severity,
             pipeline_confidence=_pipeline_conf_val,
             era_decade=getattr(_era_result, "decade", None) if _era_result is not None else None,
@@ -10070,7 +10070,7 @@ class UnifiedRestorerV3:
                 vocal_confidence=_vocal_conf,
                 is_studio_2026=self.is_studio_mode(),
                 # Audio-derived features
-                snr_db=_input_snr_db if _input_snr_db is not None else None,
+                snr_db=input_snr_db if input_snr_db is not None else None,
                 effective_bandwidth_hz=_sgi_bw_hz,
                 dynamic_range_db=_sgi_dyn_db,
                 stereo_mono_compat=(
@@ -10319,7 +10319,7 @@ class UnifiedRestorerV3:
             logger.debug("§2.79 FeasibilityController nicht verfügbar: %s", _fc_err)
 
         if _pass_through_mode:
-            if _clean_digital_mode and not (_input_snr_db > 40.0 and _max_defect_severity < 0.15):
+            if _clean_digital_mode and not (input_snr_db > 40.0 and _max_defect_severity < 0.15):
                 logger.info(
                     "🛡️ Clean-Digital-Guard §8.2: material=%s, flatness=%.5f, bw=%.0f Hz, dyn=%.2f dB"
                     " → Schonmodus aktiv trotz konservativer SNR-Heuristik (%.1f dB)",
@@ -10327,18 +10327,18 @@ class UnifiedRestorerV3:
                     float(_clean_digital_metrics.get("flatness_median", 0.0)),
                     float(_clean_digital_metrics.get("effective_bandwidth_hz", 0.0)),
                     float(_clean_digital_metrics.get("dyn_std_db", 0.0)),
-                    _input_snr_db,
+                    input_snr_db,
                 )
             else:
                 logger.info(
                     "🛡️ Pass-Through-Guard §8.2: SNR=%.1f dB, max_defect=%.3f → Schonmodus aktiv"
                     " (PQS-MOS-Verlust ≤ 0.05, LUFS-Δ ≤ 0.3 LU)",
-                    _input_snr_db,
+                    input_snr_db,
                     _max_defect_severity,
                 )
 
         # §2.45b Hochrestorabilität-Gate — Metadata-Flag für transparentes Reporting
-        if _pmgg_restorability_score > 80 and _input_snr_db > 40.0:
+        if _pmgg_restorability_score > 80 and input_snr_db > 40.0:
             self._metadata["high_restorability_gate"] = True  # type: ignore[attr-defined]  # basierend auf Defekten
         _cb(16, "Phasenauswahl…")
         logger.info("Step 2/4: Phase Selection...")
