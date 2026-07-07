@@ -9638,7 +9638,7 @@ class UnifiedRestorerV3:
         _mp3_maximum_guard = self._should_force_mp3_maximum_guard(
             self.config.mode,
             material_type,
-            input_snr_db,
+            _input_snr_db,
             _max_defect_severity,
             _clean_digital_mode,
         )
@@ -9650,7 +9650,7 @@ class UnifiedRestorerV3:
                 "🛡️ MP3-Maximum-Guard: material=%s, mode=%s, SNR=%.1f dB, max_defect=%.3f → Schonmodus erzwungen",
                 material_type.value if hasattr(material_type, "value") else str(material_type),
                 self.config.mode.value,
-                input_snr_db,
+                _input_snr_db,
                 _max_defect_severity,
             )
         _pipeline_quality_mode_override: QualityMode | None = None
