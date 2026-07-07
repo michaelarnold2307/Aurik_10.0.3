@@ -11506,12 +11506,16 @@ class UnifiedRestorerV3:
             from backend.core.phase_pruner import IntelligentPhasePruner
 
             _pruner = IntelligentPhasePruner()
-            _defect_list = list(getattr(self, "_active_defekt_hint", {}) or {})
+            _defekt_hint = getattr(self, "_active_defekt_hint", {}) or {}
+            # §2.59: defekt_hint enthält jetzt "defect_types" und "defect_severities"
+            _defect_list = _defekt_hint.get("defect_types", []) if isinstance(_defekt_hint, dict) else []
+            _defect_sev = _defekt_hint.get("defect_severities", {}) if isinstance(_defekt_hint, dict) else {}
             _mat_key = str(getattr(material_type, "value", material_type)).lower() if material_type else "unknown"
             _prune_result = _pruner.prune(
                 phases=list(selected_phases),
                 defect_types=_defect_list,
                 material=_mat_key,
+                defect_severities=_defect_sev,
             )
             if _prune_result.kept_phases:
                 selected_phases = _prune_result.kept_phases

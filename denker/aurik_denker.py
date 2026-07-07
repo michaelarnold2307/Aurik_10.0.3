@@ -1350,6 +1350,9 @@ class AurikDenker:
             _defekt_hint = {
                 "recommended_phases": list(getattr(defekt, "recommended_phases", [])),
                 "confidence": float(getattr(defekt, "cause_confidence", 0.0)),
+                # §2.59: Defekt-Typen und -Severities für PhasePruner/DefectManifest
+                "defect_types": list(getattr(defekt, "defect_scores", {}).keys()),
+                "defect_severities": dict(getattr(defekt, "defect_scores", {})),
             }
             # Bug-17-Fix: raw DefectAnalysisResult aus DefektErgebnis extrahieren und
             # als cached_defect_result weiterreichen — verhindert zweiten internen Scan
