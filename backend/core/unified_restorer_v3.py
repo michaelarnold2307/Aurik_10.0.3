@@ -28269,23 +28269,21 @@ class UnifiedRestorerV3:
 
         # §2.62 Per-Segment-Ausführung: wenn Fahrplan non-uniforme Stärken hat,
         # Audio an Sektionsgrenzen splitten, pro Segment verarbeiten, crossfaden.
-        # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in)
         _use_per_segment = False
-        if os.environ.get("AURIK_EVOLUTION", "") == "1":
-            try:
-                _ps_fahrplan = ((self._restoration_context.get("denker_policy_input", {}) or {})
-                                .get("phase_interaction", {}) or {}).get("fahrplan")
-                if _ps_fahrplan is not None:
-                    from backend.core.per_segment_executor import get_segment_strengths_from_fahrplan
+        try:
+            _ps_fahrplan = ((self._restoration_context.get("denker_policy_input", {}) or {})
+                            .get("phase_interaction", {}) or {}).get("fahrplan")
+            if _ps_fahrplan is not None:
+                from backend.core.per_segment_executor import get_segment_strengths_from_fahrplan
 
-                    _ps_phase_id = str(getattr(phase_metadata, "phase_id", ""))
-                    _ps_base = float(kwargs.get("strength", 1.0))
-                    _ps_info = get_segment_strengths_from_fahrplan(_ps_fahrplan, _ps_phase_id, _ps_base)
-                    if _ps_info is not None:
-                        _ps_bounds, _ps_strengths = _ps_info
-                        _use_per_segment = True
-            except Exception:
-                pass
+                _ps_phase_id = str(getattr(phase_metadata, "phase_id", ""))
+                _ps_base = float(kwargs.get("strength", 1.0))
+                _ps_info = get_segment_strengths_from_fahrplan(_ps_fahrplan, _ps_phase_id, _ps_base)
+                if _ps_info is not None:
+                    _ps_bounds, _ps_strengths = _ps_info
+                    _use_per_segment = True
+        except Exception:
+            pass
 
         # §CODEC+VOCAL: effective_chain an Phase 03 weitergeben (für Codec-Guard)
         if "effective_chain" not in kwargs:
