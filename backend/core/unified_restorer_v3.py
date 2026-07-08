@@ -8411,6 +8411,23 @@ class UnifiedRestorerV3:
                     "transient_preservation_strength": _genre_profile.get("transient_preservation_strength"),
                 }
             )
+        # §2.59.15: Fallback — ClippingDetector fand soft_saturation?
+        # Dann preserve auch ohne Genre-Profil (Aufnahmecharakter bewahren).
+        _sat_sev_fb = 0.0
+        if defect_result is not None and hasattr(defect_result, "scores"):
+            for _dk, _ds in defect_result.scores.items():
+                _dk_str = _dk.value if hasattr(_dk, "value") else str(_dk)
+                if _dk_str == "soft_saturation" and hasattr(_ds, "severity"):
+                    _sat_sev_fb = float(_ds.severity)
+                    break
+        if _sat_sev_fb > 0.1 and not self._restoration_context.get("soft_saturation_preserve"):
+            self._restoration_context["soft_saturation_preserve"] = True
+            self._restoration_context["soft_saturation_severity"] = _sat_sev_fb
+            logger.info(
+                "§2.59.15 Soft-Saturation-Preserve: ClippingDetector fand "
+                "soft_saturation (sev=%.2f) → Phasen auf Erhalt geschaltet",
+                _sat_sev_fb,
+            )
         # §6.2a Transfer-Chain-Injection: Ketten-Liste für phase-locale Skip-Guards.
         # Phasen wie phase_29 überspringen bei digitalem primary_material. Wenn aber
         # die Kette analoge Stufen enthält (z.B. vinyl→tape→mp3_low), muss die Phase
