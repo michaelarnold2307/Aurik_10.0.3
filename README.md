@@ -1,6 +1,6 @@
-# 🎵 Aurik 9.12.10 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
+# 🎵 Aurik 10 — Intelligentes Musik-Restaurierungs- und Rekonstruktionssystem
 
-**Version:** 9.12.10 | **Status:** ✅ Produktionsbereit | **Stand:** 22. Mai 2026
+**Version:** 10 | **Status:** ✅ Produktionsbereit | **Stand:** 8. Juli 2026
 
 > Normativer Ist-Stand: `.github/specs/01-08`, `.github/copilot-instructions.md`, `docs/CHANGELOG_HISTORY.md` und `CHANGELOG.md`.
 
@@ -15,9 +15,9 @@
 
 ---
 
-## 🎯 Was ist Aurik 9.x.x?
+## 🎯 Was ist Aurik 10.x.x?
 
-Aurik 9.x.x ist ein **intelligentes, kontextbewusstes Musik- und
+Aurik 10.x.x ist ein **intelligentes, kontextbewusstes Musik- und
 Gesangs-Restaurations-, Reparatur- und Rekonstruktions-Denkersystem**.
 
 Es kombiniert psychoakustisch fundierte DSP, Bayesianische Kausalinferenz,
