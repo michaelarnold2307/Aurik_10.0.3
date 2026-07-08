@@ -853,7 +853,7 @@ class DenoisePhase(PhaseInterface):
         _bsrof_instrumental_stem: np.ndarray | None = None
         _bsrof_original_audio: np.ndarray | None = None
 
-        _bsrof_gate = _panns_singing >= 0.35 and not use_lightweight and (_est_snr_db is None or _est_snr_db < 20.0)
+        _bsrof_gate = _panns_singing >= 0.35 and not use_lightweight and (_est_snr_db is not None and _est_snr_db < 20.0)
         if _bsrof_gate:
             _bsrof_ram_ok = True
             try:
@@ -1365,8 +1365,8 @@ class DenoisePhase(PhaseInterface):
                 if _est_snr_db is not None:
                     _snr_for_sigma = float(_est_snr_db)
                 else:
-                    # Fallback: use material-type heuristic (original behavior)
-                    _snr_for_sigma = 5.0 if material_type in ("tape", "reel_tape", "shellac") else 15.0
+                    # SNR unbekannt → konservativ: weniger Processing
+                    _snr_for_sigma = 22.0  # Höheres SNR = weniger Diffusion
                 _sigma_from_snr = float(np.clip(0.55 + (12.0 - _snr_for_sigma) * 0.018, 0.25, 0.75))
                 _material_sigma_bonus = 0.05 if material_type == "shellac" else 0.0
                 _sgmse_sigma = float(np.clip(_sigma_from_snr + _material_sigma_bonus, 0.25, 0.75))
