@@ -352,6 +352,7 @@ class PhaseInteractionDenker:
         goal_risk_map: dict[str, float] | None = None,
         strategie_plan: Any | None = None,
         signal_signature: dict[str, float] | None = None,
+        sections: list[tuple[float, float, str]] | None = None,
     ) -> PhasePlan:
         """Erstellt einen konfliktfreien, semantisch geordneten Phasenplan.
 
@@ -395,6 +396,7 @@ class PhaseInteractionDenker:
                 goal_risk_map=goal_risk_map,
                 strategie_plan=strategie_plan,
                 signal_signature=signal_signature,
+                sections=sections,
             )
         except Exception as exc:
             logger.warning(
@@ -427,6 +429,7 @@ class PhaseInteractionDenker:
         goal_risk_map: dict[str, float] | None,
         strategie_plan: Any | None,
         signal_signature: dict[str, float] | None,
+        sections: list[tuple[float, float, str]] | None = None,
     ) -> PhasePlan:
         # 1. Phase-Selektion via UV3 (UV3 = Werkzeug, nicht Orchestrator)
         uv3_phases = self._select_via_uv3(
@@ -673,22 +676,23 @@ class PhaseInteractionDenker:
             _n_cal = sum(1 for v in _calibration.values() if v != 1.0)
             # ── §2.60.1 Fahrplan: Denker als Dirigent ────────────────────
             try:
-                from backend.core.fahrplan import Fahrplan
-                _fahrplan = Fahrplan(
-                    audio_duration_s=audio_duration_s if audio_duration_s else 225.0,
-                    material=material,
-                    era_decade=era,
+                from backend.core.fahrplan import build_fahrplan, Fahrplan
+                _goal_prios = {
+                    k: float(v) for k, v in (goal_risk_map or {}).items()
+                }
+                _fahrplan = build_fahrplan(
+                    phase_ids=list(ordered),
+                    sections=sections if sections else [],
+                    goal_priorities=_goal_prios,
+                    phase_effect_catalog=None,
+                    audio_ctx=_audio_ctx,
                 )
-                for pid in ordered:
-                    _cal_val = _calibration.get(pid, 1.0)
-                    _risk = get_phase_risk_level(pid, **_audio_ctx)
-                    _fahrplan.add_phase(pid, _cal_val, _risk)
                 policy_hints["fahrplan"] = _fahrplan
                 logger.info(
-                    "§2.60.1 Fahrplan: %d Phasen in %d Gruppen → %s",
-                    len(_fahrplan),
-                    len(_fahrplan.groups),
-                    _fahrplan.goal_priority_summary(),
+                    "§2.60.1 Fahrplan: %d Phasen, %d Sektionen → %s",
+                    len(_fahrplan.phase_order),
+                    len(_fahrplan.sections),
+                    _fahrplan.note,
                 )
             except Exception:
                 pass

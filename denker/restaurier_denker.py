@@ -375,6 +375,7 @@ class RestaurierDenker:
         precomputed_phase_plan: list[str] | None = None,
         phase_strength_oracle_rollout: str | None = None,
         denker_policy_input: dict[str, Any] | None = None,
+        use_source_separation: bool = False,
     ) -> RestaurierErgebnis:
         """Restauriert Audio vollständig mit UnifiedRestorerV3.
 
@@ -798,6 +799,29 @@ class RestaurierDenker:
                 _restore_kwargs["phase_strength_oracle_rollout"] = phase_strength_oracle_rollout
             if denker_policy_input:
                 _restore_kwargs["denker_policy_input"] = dict(denker_policy_input)
+            if precomputed_phase_plan:
+                _restore_kwargs["precomputed_phase_plan"] = list(precomputed_phase_plan)
+
+            # §3.0 Source-Aware Restoration: Demucs → Per-Stem-UV3 → Remix
+            if use_source_separation:
+                try:
+                    from backend.core.source_aware_restorer import restore_per_source
+                    raw = restore_per_source(
+                        audio,
+                        sr,
+                        restore_fn=restorer.restore,
+                        restore_kwargs=dict(_restore_kwargs),
+                        material=material or "unknown",
+                        progress_callback=progress_callback,
+                    )
+                    return self._konvertiere(raw, material=material)
+                except Exception as _sar_exc:
+                    logger.warning(
+                        "§3.0 SourceAwareRestorer fehlgeschlagen: %s — Fallback auf Standard-UV3",
+                        _sar_exc,
+                    )
+                    # Fallthrough zum Standard-UV3-Pfad
+
             raw = restorer.restore(audio, **_restore_kwargs)
         except Exception as exc:
             logger.warning("UnifiedRestorerV3.restore() fehlgeschlagen: %s — Fallback auf Original", exc)

@@ -1565,6 +1565,7 @@ class AurikDenker:
                     strategie_plan=strategie,
                     causal_plan=defekt,
                     signal_signature=_signal_signature,
+                    sections=_get_musical_sections(aktuelles_audio, sr),
                 )
                 if _pid_plan.is_valid:
                     _pid_phase_plan = cast(list[str], _pid_plan.phases or [])
@@ -1895,6 +1896,7 @@ class AurikDenker:
                                 precomputed_phase_plan=_pid_phase_plan,
                                 phase_strength_oracle_rollout=_effective_oracle_rollout,
                                 denker_policy_input=_denker_policy_input,
+                                use_source_separation=os.environ.get("AURIK_SOURCE_SEPARATION", "") == "1",
                             )
                         )
                     except Exception as _e:
@@ -2939,6 +2941,15 @@ def get_rekonstruktions_denker() -> Any:
     Lazy-Import: wird erst beim ersten Aufruf importiert.
     """
     return _load_symbol("denker.rekonstruktions_denker", "get_rekonstruktions_denker")()
+
+
+def _get_musical_sections(audio: Any, sr: int) -> list[tuple[float, float, str]]:
+    """§2.61: Musikalische Sektionen für den Fahrplan analysieren."""
+    try:
+        from backend.core.section_goal_adapter import get_sections
+        return get_sections(np.asarray(audio), int(sr))
+    except Exception:
+        return []
 
 
 def get_exzellenz_denker() -> Any:

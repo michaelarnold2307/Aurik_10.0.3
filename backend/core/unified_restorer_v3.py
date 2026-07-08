@@ -10260,6 +10260,18 @@ class UnifiedRestorerV3:
         except Exception as _ram_exc:
             logger.debug("§Gap6 ReferenceAnchorMatcher non-blocking: %s", _ram_exc)
 
+        # §2.63 Closed-Loop PID: Goal-Error-getriebene Strength-Justierung
+        try:
+            _pid_targets = getattr(self, "_song_goal_targets", None)
+            if isinstance(_pid_targets, dict) and _pid_targets:
+                from backend.core.closed_loop_pid import ClosedLoopPIDController
+                self._closed_loop_pid = ClosedLoopPIDController(_pid_targets)
+                logger.info("§2.63 Closed-Loop PID: aktiviert mit %d Goal-Targets", len(_pid_targets))
+            else:
+                self._closed_loop_pid = None
+        except Exception:
+            self._closed_loop_pid = None
+
         # §2.54 Pre-Pipeline Physical Ceiling — gecappte PMGG-Targets für per-Phase Nutzung.
         # Berechnet PhysicalCeiling auf dem Eingabe-Audio (degradiert) um die Signal-SNR-
         # und Bandbreiten-basierten Goal-Obergrenzen zu ermitteln. Combined mit SGT ergibt
@@ -27729,7 +27741,7 @@ class UnifiedRestorerV3:
         _phase_id_pp = str(getattr(phase_metadata, "phase_id", ""))
         if _phase_id_pp and "strength" in kwargs:
             try:
-                _fahrplan_ctx = self._restoration_context.get("fahrplan") if isinstance(getattr(self, "_restoration_context", None), dict) else None
+                _fahrplan_ctx = ((self._restoration_context.get("denker_policy_input", {}) or {}).get("phase_interaction", {}) or {}).get("fahrplan") if isinstance(getattr(self, "_restoration_context", None), dict) else None
                 if _fahrplan_ctx is not None and hasattr(_fahrplan_ctx, "calibration"):
                     _cal_val = _fahrplan_ctx.calibration.get(_phase_id_pp)
                     if _cal_val is not None and 0.0 < _cal_val < 1.0:
@@ -28170,8 +28182,66 @@ class UnifiedRestorerV3:
         if _env is not None and "strength_envelope" not in kwargs:
             kwargs["strength_envelope"] = _env
 
+        # §2.63 Closed-Loop PID: Strength boost/dampen basierend auf Goal-Errors
+        _pid_ctrl = getattr(self, "_closed_loop_pid", None)
+        if _pid_ctrl is not None and "strength" in kwargs:
+            try:
+                _pre_snap_pid = getattr(self, "_phase_pre_snapshot", {}) or {}
+                _pid_mult = _pid_ctrl.before_phase(
+                    str(getattr(phase_metadata, "phase_id", "")),
+                    _pre_snap_pid,
+                )
+                if _pid_mult != 1.0:
+                    _old_s_pid = float(kwargs.get("strength", 1.0))
+                    kwargs["strength"] = float(np.clip(_old_s_pid * _pid_mult, 0.15, 1.50))
+                    logger.debug(
+                        "§2.63 PID %s: mult=%.3f strength %.3f→%.3f",
+                        phase_metadata.phase_id, _pid_mult, _old_s_pid, kwargs["strength"],
+                    )
+            except Exception as _pid_exc:
+                logger.debug("§2.63 PID before_phase non-blocking: %s", _pid_exc)
+
+        # §2.62 Per-Segment-Ausführung: wenn Fahrplan non-uniforme Stärken hat,
+        # Audio an Sektionsgrenzen splitten, pro Segment verarbeiten, crossfaden.
+        _use_per_segment = False
         try:
-            result = phase.process(audio, **kwargs)
+            _ps_fahrplan = ((self._restoration_context.get("denker_policy_input", {}) or {})
+                            .get("phase_interaction", {}) or {}).get("fahrplan")
+            if _ps_fahrplan is not None:
+                from backend.core.per_segment_executor import get_segment_strengths_from_fahrplan
+
+                _ps_phase_id = str(getattr(phase_metadata, "phase_id", ""))
+                _ps_base = float(kwargs.get("strength", 1.0))
+                _ps_info = get_segment_strengths_from_fahrplan(_ps_fahrplan, _ps_phase_id, _ps_base)
+                if _ps_info is not None:
+                    _ps_bounds, _ps_strengths = _ps_info
+                    _use_per_segment = True
+        except Exception:
+            pass
+
+        try:
+            if _use_per_segment:
+                from backend.core.per_segment_executor import run_phase_per_segment
+
+                result = run_phase_per_segment(
+                    audio,
+                    int(kwargs.get("sample_rate", 48000)),
+                    phase.process,
+                    dict(kwargs),
+                    segment_bounds_s=_ps_bounds,
+                    segment_strengths=_ps_strengths,
+                    phase_id=_ps_phase_id,
+                )
+                # §2.62: Per-Segment gibt np.ndarray zurück, wickle in Result-artiges Objekt
+                # damit nachfolgender Code (getattr(result, "audio", None)) funktioniert.
+                if isinstance(result, np.ndarray):
+                    class _SegResult:
+                        pass
+                    _sr = _SegResult()
+                    _sr.audio = result
+                    result = _sr  # type: ignore[assignment]
+            else:
+                result = phase.process(audio, **kwargs)
         finally:
             _hb_stop_ev.set()
             if _hb_thread is not None:
@@ -29611,6 +29681,14 @@ class UnifiedRestorerV3:
                     _phase_meta_existing["psycho_runtime_rolling_risk"] = round(_new_roll, 4)
                     _phase_meta_existing["psycho_delta_focus"] = [f"{_k}:{_v:.4f}" for _k, _v in _delta_focus]
                     self._phase_metadata_accumulator[_phase_delta_pid] = _phase_meta_existing
+
+                    # §2.63 Closed-Loop PID: Post-Phase Delta an PID-Regler melden
+                    _pid_ctrl_post = getattr(self, "_closed_loop_pid", None)
+                    if _pid_ctrl_post is not None:
+                        try:
+                            _pid_ctrl_post.after_phase(_phase_delta_pid, _post_snap)
+                        except Exception:
+                            pass
 
                     # §2.64 K-3: HPI-Live-Proxy per Phase-Checkpoint
                     # Leichtgewichtig aus bereits berechneten _post_snap-Werten — kein
