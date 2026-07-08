@@ -11676,13 +11676,40 @@ class UnifiedRestorerV3:
                     if _zones:
                         for z in _zones:
                             _surgical_plan[z.defect_type] = _surgical_plan.get(z.defect_type, 0) + 1
+                        _surgeon = SurgicalRepair(sr=sample_rate)
+                        _instances = [
+                            DefectInstance(z.start_s, z.end_s, z.defect_type, z.severity)
+                            for z in _zones
+                        ]
+                        from backend.core.surgical_repair import _SURGICAL_REPAIR_FUNCTIONS
+                        _by_type: dict[str, list] = {}
+                        for _inst in _instances:
+                            _by_type.setdefault(_inst.defect_type, []).append(_inst)
+                        _total_planned = len(_instances)
+                        _total_repaired = 0
+                        _total_failed = 0
+                        for _defect_type, _type_instances in sorted(_by_type.items()):
+                            _fn = _SURGICAL_REPAIR_FUNCTIONS.get(_defect_type)
+                            if _fn is None:
+                                logger.debug("CHIRURGIE: Keine Funktion für %s", _defect_type)
+                                _total_failed += len(_type_instances)
+                                continue
+                            _result = _surgeon.repair(audio, _type_instances, phase_fn=_fn)
+                            audio = _result.audio
+                            _total_repaired += _result.zones_repaired
+                            _total_failed += _result.zones_skipped
+                            _surgical_done[_defect_type] = _result.zones_repaired
+                            _surgical_skip[_defect_type] = _result.zones_skipped
                         _plan_types = ", ".join(f"{t}={c}" for t, c in sorted(_surgical_plan.items()))
-                        logger.info(
-                            "🔬 CHIRURGIE-DEFERRED: %d Zonen in %d Typen erkannt → %s "
-                            "(Ausführung deaktiviert bis §2.59.14 — globale Phasen übernehmen)",
-                            len(_zones), len(_surgical_plan), _plan_types,
-                        )
-                        # §2.59.13: Keine chirurgische Ausführung — globale Phasen
+                        if _total_repaired > 0 and _total_failed == 0:
+                            logger.info("✅ CHIRURGIE-ERFOLG: %d/%d Zonen in %d Typen → %s", _total_repaired, _total_planned, len(_surgical_done), _plan_types)
+                        elif _total_repaired > 0:
+                            logger.warning("⚠️ CHIRURGIE-TEILERFOLG: %d/%d Zonen, %d failed → %s", _total_repaired, _total_planned, _total_failed, _plan_types)
+                        else:
+                            logger.warning("❌ CHIRURGIE-GESCHEITERT: 0/%d → globale Phasen übernehmen", _total_planned)
+                        self._restoration_context["surgical_repair_planned"] = dict(_surgical_plan)
+                        self._restoration_context["surgical_repair_done"] = dict(_surgical_done)
+                        self._restoration_context["surgical_repair_skipped"] = dict(_surgical_skip)
                     else:
                         logger.info("🔬 CHIRURGIE: Keine lokalisierten Zonen")
                 else:
