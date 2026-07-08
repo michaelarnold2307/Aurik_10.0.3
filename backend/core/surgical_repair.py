@@ -1001,8 +1001,8 @@ class SurgicalRepair:
             s0 = max(0, int(inst.start_s * self.sr) - _ctx)
             s1 = min(total_samples, int(inst.end_s * self.sr) + _ctx)
 
-            # Minimum: mindestens crossfade_samples für sauberes Fade
-            if s1 - s0 < self._crossfade_samples:
+            # Minimum: Fenster muss genug Samples für DSP haben
+            if s1 - s0 < 32:  # 0.7ms @ 48kHz — absolutes Minimum
                 skipped += 1
                 continue
 
