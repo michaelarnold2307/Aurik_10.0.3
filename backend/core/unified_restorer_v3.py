@@ -8414,8 +8414,8 @@ class UnifiedRestorerV3:
         # §2.59.15: Fallback — ClippingDetector fand soft_saturation?
         # Dann preserve auch ohne Genre-Profil (Aufnahmecharakter bewahren).
         _sat_sev_fb = 0.0
-        if defect_result is not None and hasattr(defect_result, "scores"):
-            for _dk, _ds in defect_result.scores.items():
+        if _cached_defect_kwarg is not None and hasattr(_cached_defect_kwarg, "scores"):
+            for _dk, _ds in _cached_defect_kwarg.scores.items():
                 _dk_str = _dk.value if hasattr(_dk, "value") else str(_dk)
                 if _dk_str == "soft_saturation" and hasattr(_ds, "severity"):
                     _sat_sev_fb = float(_ds.severity)
