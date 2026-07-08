@@ -1,7 +1,7 @@
 """
 denker/phase_interaction_denker.py — PhaseInteractionDenker
 =============================================================
-Steuernde Intelligenz für Phase-Orchestrierung in Aurik 9.
+Steuernde Intelligenz für Phase-Orchestrierung in Aurik 10.
 
 Übernimmt von UnifiedRestorerV3:
   - semantische Typ-Annotation jeder Phase

@@ -2736,7 +2736,7 @@ class AurikDenker:
         )
 
         note = (
-            f"Aurik 9 Restaurierung abgeschlossen: "
+            f"Aurik 10 Restaurierung abgeschlossen: "
             f"Material={material}, RT={rt_factor:.2f}×, "
             f"Qualität={quality_estimate:.3f}"
             + (f", VERSA MOS={_versa_mos:.2f}" if _versa_mos > 0.0 else "")
