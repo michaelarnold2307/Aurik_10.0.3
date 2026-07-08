@@ -46,6 +46,23 @@ class RepairResult:
 
 # ── Lightweight Phase Functions für Surgical Repair ──────────────────────
 
+
+def _safety_clamp(repaired: "np.ndarray", original: "np.ndarray", max_ratio: float = 2.0) -> "np.ndarray":
+    """§2.59.14: Garantiert dass repariertes Audio nie > max_ratio × Original-Amplitude."""
+    import numpy as np
+    result = repaired.copy()
+    # Per-Sample-Clamp: kein Sample darf max_ratio × Original überschreiten
+    abs_orig = np.maximum(np.abs(original), 1e-10)
+    limit = abs_orig * max_ratio
+    np.clip(result, -limit, limit, out=result)
+    # Global RMS darf nicht > 2× Original sein
+    rms_orig = np.sqrt(np.mean(original ** 2)) + 1e-10
+    rms_rep = np.sqrt(np.mean(result ** 2)) + 1e-10
+    if rms_rep > rms_orig * max_ratio:
+        result *= (rms_orig * max_ratio) / rms_rep
+    return result.astype(np.float32)
+
+
 def _repair_wow_flutter(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
     """Leichte Wow/Flutter-Korrektur via lokaler Resampling-Anpassung.
     
@@ -72,6 +89,7 @@ def _repair_wow_flutter(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch] = result[ch] * np.clip(gain, 0.5, 1.5)
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -104,6 +122,7 @@ def _repair_hiss(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch] = np.fft.irfft(spec, n=len(result[ch]))
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -179,6 +198,7 @@ def _repair_clicks(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -229,6 +249,7 @@ def _repair_crackle(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 pass  # already modified in-place via ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -296,6 +317,7 @@ def _repair_dropouts(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -346,6 +368,7 @@ def _repair_pre_echo(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -394,6 +417,7 @@ def _repair_groove_echo(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -458,6 +482,7 @@ def _repair_mpeg_frame_loss(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -513,6 +538,7 @@ def _repair_tape_head_clog(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -570,6 +596,7 @@ def _repair_sticky_shed(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -635,6 +662,7 @@ def _repair_inner_groove_distortion(audio: np.ndarray, sr: int, **kwargs) -> np.
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -682,6 +710,7 @@ def _repair_motor_interference(audio: np.ndarray, sr: int, **kwargs) -> np.ndarr
                 break  # Nur eine Netzfrequenz behandeln
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -752,6 +781,7 @@ def _repair_sibilance(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -800,6 +830,7 @@ def _repair_transient_smearing(audio: np.ndarray, sr: int, **kwargs) -> np.ndarr
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
@@ -885,6 +916,7 @@ def _repair_tape_splice(audio: np.ndarray, sr: int, **kwargs) -> np.ndarray:
                 result[ch_idx] = ch_data
     except Exception:
         pass
+    result = _safety_clamp(result, audio)
     return result.astype(np.float32)
 
 
