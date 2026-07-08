@@ -647,7 +647,7 @@ class PhaseInteractionDenker:
 
         # ── §2.60 Denker-Intelligenz: PhaseEffectCatalog → Intensitäten ────
         try:
-            from backend.core.phase_effect_catalog import get_phase_effect_catalog
+            from backend.core.phase_effect_catalog import get_phase_effect_catalog, get_phase_risk_level
             _catalog = get_phase_effect_catalog()
             _audio_ctx = {
                 "snr_db": signal_signature.get("snr_db"),
@@ -671,6 +671,27 @@ class PhaseInteractionDenker:
             _calibration = _catalog.calibrate_all(ordered, _audio_ctx)
             policy_hints["phase_calibration"] = _calibration
             _n_cal = sum(1 for v in _calibration.values() if v != 1.0)
+            # ── §2.60.1 Fahrplan: Denker als Dirigent ────────────────────
+            try:
+                from backend.core.fahrplan import Fahrplan
+                _fahrplan = Fahrplan(
+                    audio_duration_s=audio_duration_s if audio_duration_s else 225.0,
+                    material=material,
+                    era_decade=era,
+                )
+                for pid in ordered:
+                    _cal_val = _calibration.get(pid, 1.0)
+                    _risk = get_phase_risk_level(pid, **_audio_ctx)
+                    _fahrplan.add_phase(pid, _cal_val, _risk)
+                policy_hints["fahrplan"] = _fahrplan
+                logger.info(
+                    "§2.60.1 Fahrplan: %d Phasen in %d Gruppen → %s",
+                    len(_fahrplan),
+                    len(_fahrplan.groups),
+                    _fahrplan.goal_priority_summary(),
+                )
+            except Exception:
+                pass
             if _n_cal > 0:
                 logger.info(
                     "§2.60 Denker-Kalibrierung: %d/%d Phasen intensitäts-angepasst",
