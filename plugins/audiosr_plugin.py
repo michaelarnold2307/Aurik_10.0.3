@@ -343,12 +343,28 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                     Path(tmp_path).unlink(missing_ok=True)
             del zone_wav  # Freigabe vor GC
 
-            # Passthrough wenn Inferenz fehlgeschlagen (z_result_raw=None)
+            # §AUDIOSR-FALLBACK: Wenn generate_batch NaN produziert,
+            # DSP-Harmonic-Exciter als Fallback statt stummem Passthrough.
             if z_result_raw is None:
-                # Originale Zone unverändert übernehmen (bereits im z_start:z_end Slice)
-                _pass_zone = wav_data[z_start:z_end].astype(np.float32)
-                zone_results.append(np.ascontiguousarray(_pass_zone))
-                del _pass_zone
+                _fallback_zone = wav_data[z_start:z_end].astype(np.float32)
+                try:
+                    # Leichter Harmonic Exciter: sanfte Obertöne via Soft-Clipping
+                    # Simuliert Bandbreitenerweiterung ohne ML — kein NaN-Risiko
+                    _fb_drive = 0.15  # Sanft — soll nur etwas Luft hinzufügen
+                    _fb_mono = _fallback_zone.mean(axis=0) if _fallback_zone.ndim > 1 else _fallback_zone
+                    _fb_harm = np.tanh(_fb_mono * (1.0 + _fb_drive)) * 0.3
+                    _fb_hpf = _fb_harm - np.convolve(_fb_harm, np.ones(512)/512, mode='same')
+                    _fb_mix = _fb_mono + _fb_hpf * 0.15
+                    _fb_norm = _fb_mix / (np.max(np.abs(_fb_mix)) + 1e-8) * np.max(np.abs(_fb_mono))
+                    if _fallback_zone.ndim > 1:
+                        _fb_stereo = np.stack([_fb_norm, _fb_norm], axis=0)
+                        zone_results.append(np.ascontiguousarray(_fb_stereo.astype(np.float32)))
+                    else:
+                        zone_results.append(np.ascontiguousarray(_fb_norm.astype(np.float32)))
+                    logger.debug('AudioSR Zone %d: DSP-Harmonic-Fallback statt Passthrough', z_idx + 1)
+                except Exception:
+                    zone_results.append(np.ascontiguousarray(_fallback_zone))
+                del _fallback_zone
                 continue
 
             # Tensor -> numpy
