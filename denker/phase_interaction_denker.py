@@ -553,51 +553,25 @@ class PhaseInteractionDenker:
             injected_notes.append(note)
             logger.info("PhaseInteractionDenker %s", note)
 
-        # §CODEC: Bei MP3/AAC-Terminal analog-spezifische Phasen drosseln
-        # MP3-Artefakte ≠ echte analoge Defekte — Denoise/Wow/Rumble verschlimmern nur.
-        _ANALOG_ONLY_PHASES: frozenset[str] = frozenset({
-            "phase_28_surface_noise_profiling",
-            "phase_20_reverb_reduction",
-            "phase_49_advanced_dereverb",
-            "phase_60_inner_groove_distortion_repair",
-        })
-        _CODEC_DAMPED_PHASES: dict[str, float] = {
-            "phase_03_denoise": 0.30,
-            "phase_02_hum_removal": 0.40,
-            "phase_05_rumble_filter": 0.40,
-            "phase_29_tape_hiss_reduction": 0.40,
-            "phase_12_wow_flutter_fix": 0.50,  # Tape-Level-Dips MÜSSEN laufen
-        }
-        _codec_meta_raw = getattr(defect_result, "metadata", {}) or {}
-        # §BUGFIX: chain_threshold_override_applied ist true für JEDE Ketten-Override,
-        # nicht nur für Codec. Prüfe stattdessen die DefectScore-Metadaten.
-        _is_codec = False
+        # §CODEC: Extrahiere Terminal-Codec für Denker-gesteuerte Kalibrierung
+        # Keine hartcodierten Phasen-Listen — Denker entscheidet dynamisch.
+        _terminal_codec: str | None = None
+        _codec_avg_discount: float = 1.0
         _scores = getattr(defect_result, "scores", {}) or {}
+        _discounts: list[float] = []
         for _ds in (_scores.values() if isinstance(_scores, dict) else []):
-            if hasattr(_ds, "metadata") and (_ds.metadata or {}).get("chain_contamination_terminal_codec"):
-                _is_codec = True
-                break
-        if _is_codec:
-            _codec_suppressed = 0
-            _codec_damped = 0
-            for _ap in _ANALOG_ONLY_PHASES:
-                if _ap in merged_phases:
-                    merged_phases.remove(_ap)
-                    _codec_suppressed += 1
-                    note = f"§CODEC Suppression: {_ap} (analog-spezifisch, Terminal-Codec)"
-                    injected_notes.append(note)
-                    logger.info("PhaseInteractionDenker %s", note)
-            for _dp, _max_str in _CODEC_DAMPED_PHASES.items():
-                if _dp in merged_phases:
-                    _codec_damped += 1
-                    note = f"§CODEC Damping: {_dp} auf max {_max_str:.0%} (Terminal-Codec)"
-                    injected_notes.append(note)
-                    logger.info("PhaseInteractionDenker %s", note)
-            if _codec_suppressed or _codec_damped:
-                logger.info(
-                    "§CODEC PhaseInteractionDenker: %d Phasen supprimiert, %d gedämpft (Terminal-Codec)",
-                    _codec_suppressed, _codec_damped,
-                )
+            if hasattr(_ds, "metadata"):
+                _tc = (_ds.metadata or {}).get("chain_contamination_terminal_codec")
+                if _tc and not _terminal_codec:
+                    _terminal_codec = str(_tc)
+                _d = float((_ds.metadata or {}).get("chain_contamination_discount", 1.0))
+                if _d < 0.99:
+                    _discounts.append(_d)
+        if _discounts:
+            _codec_avg_discount = sum(_discounts) / len(_discounts)
+        if _terminal_codec:
+            injected_notes.append(f"§CODEC Context: terminal={_terminal_codec} discount={_codec_avg_discount:.2f}")
+            logger.info("PhaseInteractionDenker §CODEC Context: %s (avg discount=%.2f)", _terminal_codec, _codec_avg_discount)
 
         # 4. Semantische Annotation
         annotations = self._annotate(merged_phases)
