@@ -10269,19 +10269,15 @@ class UnifiedRestorerV3:
             logger.debug("§Gap6 ReferenceAnchorMatcher non-blocking: %s", _ram_exc)
 
         # §2.63 Closed-Loop PID: Goal-Error-getriebene Strength-Justierung
-        # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in)
-        if os.environ.get("AURIK_EVOLUTION", "") == "1":
-            try:
-                _pid_targets = getattr(self, "_song_goal_targets", None)
-                if isinstance(_pid_targets, dict) and _pid_targets:
-                    from backend.core.closed_loop_pid import ClosedLoopPIDController
-                    self._closed_loop_pid = ClosedLoopPIDController(_pid_targets)
-                    logger.info("§2.63 Closed-Loop PID: aktiviert mit %d Goal-Targets", len(_pid_targets))
-                else:
-                    self._closed_loop_pid = None
-            except Exception:
+        try:
+            _pid_targets = getattr(self, "_song_goal_targets", None)
+            if isinstance(_pid_targets, dict) and _pid_targets:
+                from backend.core.closed_loop_pid import ClosedLoopPIDController
+                self._closed_loop_pid = ClosedLoopPIDController(_pid_targets)
+                logger.info("§2.63 Closed-Loop PID: aktiviert mit %d Goal-Targets", len(_pid_targets))
+            else:
                 self._closed_loop_pid = None
-        else:
+        except Exception:
             self._closed_loop_pid = None
 
         # §2.70 Joint-Calibration: Goal-Gap-Optimierung aller Phasen-Stärken
@@ -10292,7 +10288,7 @@ class UnifiedRestorerV3:
             _jcal_targets = getattr(self, "_song_goal_targets", None)
             _jcal_phases = getattr(self, "_selected_phases", None) or list(getattr(
                 getattr(self, "_precomputed_phase_plan", None), "phases", []) or [])
-            if _jcal_targets and _jcal_phases and os.environ.get("AURIK_EVOLUTION", "") == "1":
+            if _jcal_targets and _jcal_phases:
                 from backend.core.joint_calibrator import joint_calibrate
                 _jcal_proxies = {k: float(v) for k, v in (getattr(self, "_phase_pre_snapshot", {}) or {}).items()}
                 _jcal_mat = str(getattr(getattr(self, "_restoration_context", {}), "get", lambda _: "vinyl")("primary_material") or "vinyl").lower()
