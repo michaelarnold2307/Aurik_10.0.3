@@ -623,6 +623,25 @@ class DenoisePhase(PhaseInterface):
                     adaptive_resource_manager.get_memory_usage(),
                 )
 
+        # §CODEC+VOCAL: MP3/AAC + Gesang → kein MIIPHER, nur Spectral-Gate
+        # BS-RoFormer+MIIPHER zerreißen Vocal-Textur bei bereits komprimiertem Material.
+        # Kassetten-Grundrauschen ist psychoakustisch vertraut — nicht entfernen.
+        _panns_singing = float(kwargs.get("panns_singing", 0.0))
+        _chain_hint = kwargs.get("chain_info") or kwargs.get("restoration_context", {}).get("effective_chain", [])
+        if isinstance(_chain_hint, dict):
+            _chain_list = _chain_hint.get("chain_str", "") or _chain_hint.get("chain", "")
+        elif isinstance(_chain_hint, (list, tuple)):
+            _chain_list = " → ".join(str(s) for s in _chain_hint)
+        else:
+            _chain_list = str(_chain_hint or "")
+        _is_codec_chain = any(t in _chain_list.lower() for t in ("mp3_low", "mp3_high", "aac", "streaming"))
+        if _is_codec_chain and _panns_singing > 0.25 and not use_lightweight:
+            use_lightweight = True
+            logger.info(
+                "§CODEC+VOCAL Phase 03: Codec-Kette (%s) + Gesang (%.2f) → Spectral-Gate statt MIIPHER (Vocal-Textur-Schutz)",
+                _chain_list[:80], _panns_singing,
+            )
+
         # §2.47 [RELEASE_MUST] SNR > 35 dB Dry-Signal Bypass
         # Terminal fallback: if the signal is essentially clean (SNR > 35 dB),
         # noise reduction is unnecessary and risks introducing artifacts.
