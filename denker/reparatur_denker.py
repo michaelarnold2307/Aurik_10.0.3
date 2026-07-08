@@ -266,16 +266,6 @@ class ReparaturDenker:
                             _codec_iqr,
                         )
                         self._CLICK_IQR_MULTIPLIER = _codec_iqr
-                        # §DENKER: Zweite Schutzstufe — >5000 Clicks auf Codec
-                        # → IQR weiter erhöhen (Stimme + MP3 = massive False Positives)
-                        _n_click_locs = len((defect_locations or {}).get("click", []))
-                        if _n_click_locs > 5000:
-                            _effective_iqr = max(_codec_iqr, 12.0)
-                            self._CLICK_IQR_MULTIPLIER = _effective_iqr
-                            logger.info(
-                                "ReparaturDenker: %d clicks + codec '%s' → click_iqr %.1f (Denker-Schutzstufe 2)",
-                                _n_click_locs, _terminal, _effective_iqr,
-                            )
 
     def repariere(
         self,
