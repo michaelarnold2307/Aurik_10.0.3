@@ -553,6 +553,49 @@ class PhaseInteractionDenker:
             injected_notes.append(note)
             logger.info("PhaseInteractionDenker %s", note)
 
+        # §CODEC: Bei MP3/AAC-Terminal analog-spezifische Phasen drosseln
+        # MP3-Artefakte ≠ echte analoge Defekte — Denoise/Wow/Rumble verschlimmern nur.
+        _ANALOG_ONLY_PHASES: frozenset[str] = frozenset({
+            "phase_12_wow_flutter_fix",
+            "phase_28_surface_noise_profiling",
+            "phase_29_tape_hiss_reduction",
+            "phase_20_reverb_reduction",
+            "phase_49_advanced_dereverb",
+            "phase_60_inner_groove_distortion_repair",
+        })
+        _CODEC_DAMPED_PHASES: dict[str, float] = {
+            "phase_03_denoise": 0.30,
+            "phase_02_hum_removal": 0.40,
+            "phase_05_rumble_filter": 0.40,
+        }
+        _codec_meta_raw = getattr(defect_result, "metadata", {}) or {}
+        if isinstance(_codec_meta_raw, dict):
+            _terminal = _codec_meta_raw.get("chain_threshold_override_applied", False)
+            _is_codec = bool(_terminal)  # simplified: if chain override active, codec is present
+        else:
+            _is_codec = False
+        if _is_codec:
+            _codec_suppressed = 0
+            _codec_damped = 0
+            for _ap in _ANALOG_ONLY_PHASES:
+                if _ap in merged_phases:
+                    merged_phases.remove(_ap)
+                    _codec_suppressed += 1
+                    note = f"§CODEC Suppression: {_ap} (analog-spezifisch, Terminal-Codec)"
+                    injected_notes.append(note)
+                    logger.info("PhaseInteractionDenker %s", note)
+            for _dp, _max_str in _CODEC_DAMPED_PHASES.items():
+                if _dp in merged_phases:
+                    _codec_damped += 1
+                    note = f"§CODEC Damping: {_dp} auf max {_max_str:.0%} (Terminal-Codec)"
+                    injected_notes.append(note)
+                    logger.info("PhaseInteractionDenker %s", note)
+            if _codec_suppressed or _codec_damped:
+                logger.info(
+                    "§CODEC PhaseInteractionDenker: %d Phasen supprimiert, %d gedämpft (Terminal-Codec)",
+                    _codec_suppressed, _codec_damped,
+                )
+
         # 4. Semantische Annotation
         annotations = self._annotate(merged_phases)
 

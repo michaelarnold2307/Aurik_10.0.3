@@ -9418,11 +9418,19 @@ class UnifiedRestorerV3:
             _defect_scores_map = {
                 s.defect_type.value: float(s.severity) for s in getattr(defect_result, "scores", {}).values()
             }
+            # §CODEC: Extrahiere Codec-Contamination-Metadata für Bayesian-Prior-Adjustment
+            _codec_meta: dict[str, float] = {}
+            for _dt, _ds in getattr(defect_result, "scores", {}).items():
+                if isinstance(_ds, object) and hasattr(_ds, "metadata"):
+                    _disc = float((_ds.metadata or {}).get("chain_contamination_discount", 1.0))
+                    if _disc < 0.99:
+                        _codec_meta[_dt.value] = _disc
             _causal_plan = reason_about_defects(
                 defect_scores=_defect_scores_map,
                 material=material_type.value,
                 audio=_analysis_audio,
                 sample_rate=sample_rate,
+                codec_contamination=_codec_meta if _codec_meta else None,
             )
             logger.info(
                 "CausalReasoner: primary=%s (confidence=%.3f) | %s",

@@ -3344,6 +3344,7 @@ class CausalDefectReasoner:
         audio: np.ndarray | None = None,
         sample_rate: int = 48000,
         sr: int | None = None,
+        codec_contamination: dict[str, float] | None = None,
     ) -> RestorationPlan:
         """
         Berechnet den Restaurierungsplan für die gegebene Aufnahme.
@@ -3371,7 +3372,7 @@ class CausalDefectReasoner:
             sf = SpectralFeatures()
 
         defect_scores_norm = _normalize_defect_scores(defect_scores)
-        return self._infer(defect_scores_norm, sf, material)
+        return self._infer(defect_scores_norm, sf, material, codec_contamination=codec_contamination)
 
     # ------------------------------------------------------------------
     # Bayes-Inferenz
@@ -3382,9 +3383,24 @@ class CausalDefectReasoner:
         defect_scores: dict[str, float],
         sf: SpectralFeatures,
         material: str,
+        codec_contamination: dict[str, float] | None = None,
     ) -> RestorationPlan:
         priors = MATERIAL_PRIORS[material]
         posteriors: dict[str, float] = {}
+
+        # §CODEC: Adjustiere Bayesian-Priors für analoge Ursachen wenn Codec-Contamination vorliegt.
+        # Ohne diesen Guard: CausalReasoner leitet VINYL_WEAR aus MP3-Artefakten ab → falsche Phasen.
+        _cc = codec_contamination or {}
+        if _cc:
+            _avg_discount = sum(_cc.values()) / max(len(_cc), 1)
+            _digital_causes = {"digital_compression", "codec_artifact", "streaming_loss"}
+            _analog_causes = {"vinyl_wear", "tape_degradation", "shellac_deterioration",
+                              "wow_flutter_damage", "surface_damage"}
+            for cause, prior_val in list(priors.items()):
+                if cause in _analog_causes and _avg_discount < 0.80:
+                    priors[cause] = prior_val * _avg_discount
+                elif cause in _digital_causes and _avg_discount < 0.80:
+                    priors[cause] = prior_val * (1.0 + (1.0 - _avg_discount) * 0.5)
 
         for cause in CAUSES:
             prior = priors.get(cause, 1.0 / len(CAUSES))
@@ -3592,9 +3608,10 @@ def reason_about_defects(
     audio: np.ndarray | None = None,
     sample_rate: int = 44100,
     sr: int | None = None,
+    codec_contamination: dict[str, float] | None = None,
 ) -> RestorationPlan:
     """Convenience-Funktion für direkten Aufruf."""
-    return get_reasoner().reason(defect_scores, material, audio, sample_rate, sr=sr)
+    return get_reasoner().reason(defect_scores, material, audio, sample_rate, sr=sr, codec_contamination=codec_contamination)
 
 
 # Spec §3.2 / §2.4: kanonischer Fabrik-Name
