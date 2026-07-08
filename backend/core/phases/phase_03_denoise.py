@@ -853,18 +853,15 @@ class DenoisePhase(PhaseInterface):
         _bsrof_instrumental_stem: np.ndarray | None = None
         _bsrof_original_audio: np.ndarray | None = None
 
-        # §CODEC+VOCAL: MP3/AAC + Gesang → kein MIIPHER/BS-RoFormer, nur Spectral-Gate
-        # transfer_chain wird von _prepare_profiled_phase_context aus _restoration_context injiziert.
-        # Einzige Quelle — keine Fallbacks, kein String-Matching.
-        _chain = kwargs.get("transfer_chain")
-        _is_codec_chain = isinstance(_chain, (list, tuple)) and any(
-            str(s).lower() in ("mp3_low", "mp3_high", "aac", "streaming") for s in _chain
-        )
-        if _is_codec_chain and _panns_singing > 0.25 and not use_lightweight:
+        # §DENKER-CONTROL: Wenn der Denker Phase 03 schwach kalibriert hat
+        # (≤ 0.20), automatisch DSP-only Pfad — kein BS-RoFormer, kein MIIPHER.
+        # Der Denker (Joint-Calibrator + PhaseEffectCatalog) entscheidet die Stärke.
+        _denker_strength = float(kwargs.get("strength", 1.0))
+        if _denker_strength <= 0.20 and not use_lightweight:
             use_lightweight = True
             logger.info(
-                "§CODEC+VOCAL Phase 03: %s + Gesang (%.2f) → Spectral-Gate statt MIIPHER",
-                " → ".join(str(s) for s in _chain), _panns_singing,
+                "§DENKER Phase 03: strength=%.2f ≤ 0.20 → DSP-only (Denker-Entscheidung)",
+                _denker_strength,
             )
 
         _bsrof_gate = _panns_singing >= 0.35 and not use_lightweight and (_est_snr_db is None or _est_snr_db < 20.0)

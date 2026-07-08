@@ -113,9 +113,9 @@ def joint_calibrate(
             # ML-Phasen: Codec + ML = doppeltes Artefakt-Risiko
             if "ml_artifact" in risks:
                 utility *= codec_avg_discount
-            # Vocal-Phasen: Codec-Pre-Echo maskiert sich als Vocal-Harshness
+            # Vocal-Phasen: Codec+Gesang → stark dämpfen (Denker-Entscheidung)
             if panns_singing > 0.25 and "vocal_distortion" in risks:
-                utility *= max(0.50, codec_avg_discount)
+                utility *= max(0.25, codec_avg_discount * 0.6)  # ×0.27 bei mp3_low
             # Transienten-Phasen: Codec-Artefakte ≠ echte Transienten
             if "transient_smearing" in risks:
                 utility *= max(0.60, codec_avg_discount)
