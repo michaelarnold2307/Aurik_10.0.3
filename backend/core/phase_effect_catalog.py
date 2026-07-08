@@ -267,3 +267,40 @@ def get_phase_risk_level(phase_id: str, **audio_state) -> str:
     elif risk_score > 0.3:
         return "medium"
     return "low"
+
+# ── §2.60 Katalog-Singleton ─────────────────────────────────────────────
+
+_catalog_instance = None
+
+def get_phase_effect_catalog():
+    """Singleton-Zugriff auf den PhaseEffectCatalog."""
+    global _catalog_instance
+    if _catalog_instance is None:
+        _catalog_instance = _CatalogHelper()
+    return _catalog_instance
+
+
+class _CatalogHelper:
+    """Hilfsklasse für calibrate_all()."""
+
+    def calibrate_all(self, phase_ids: list[str], audio_ctx: dict) -> dict[str, float]:
+        """Kalibriert alle gegebenen Phasen für einen Audio-Kontext."""
+        result = {}
+        for pid in phase_ids:
+            profile = PHASE_EFFECT_CATALOG.get(pid)
+            if profile is None:
+                result[pid] = 1.0
+                continue
+            calibrated = calibrate_phase_intensity(
+                pid,
+                profile.base_strength,
+                defect_severity=float(audio_ctx.get("defect_severity", 0)),
+                material=str(audio_ctx.get("material_type", "vinyl")),
+                panns_singing=float(audio_ctx.get("panns_singing", 0)),
+                snr_db=audio_ctx.get("snr_db"),
+                bandwidth_hz=float(audio_ctx.get("bandwidth_hz", 20000)),
+                era_decade=int(audio_ctx.get("era_decade", 1980)),
+                rt60_s=float(audio_ctx.get("rt60_s", 0.5)),
+            )
+            result[pid] = calibrated
+        return result

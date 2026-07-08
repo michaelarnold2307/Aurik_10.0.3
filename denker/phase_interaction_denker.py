@@ -645,6 +645,30 @@ class PhaseInteractionDenker:
         except Exception as _u_exc:
             logger.debug("§U Phase-Ordering nicht verfügbar: %s", _u_exc)
 
+        # ── §2.60 Denker-Intelligenz: PhaseEffectCatalog → Intensitäten ────
+        try:
+            from backend.core.phase_effect_catalog import get_phase_effect_catalog
+            _catalog = get_phase_effect_catalog()
+            _audio_ctx = {
+                "snr_db": signal_signature.get("snr_db"),
+                "panns_singing": signal_signature.get("panns_singing", 0.0),
+                "bandwidth_hz": signal_signature.get("bandwidth_hz"),
+                "era_decade": era,
+                "material_type": str(material).lower() if material else "unknown",
+                "restorability": restorability_score / 100.0 if restorability_score else 0.5,
+                "defect_severity": signal_signature.get("severity", 0.5),
+            }
+            _calibration = _catalog.calibrate_all(ordered, _audio_ctx)
+            policy_hints["phase_calibration"] = _calibration
+            _n_cal = sum(1 for v in _calibration.values() if v != 1.0)
+            if _n_cal > 0:
+                logger.info(
+                    "§2.60 Denker-Kalibrierung: %d/%d Phasen intensitäts-angepasst",
+                    _n_cal, len(ordered),
+                )
+        except Exception:
+            pass
+
         return PhasePlan(
             phases=ordered,
             suppressed=suppressed,
