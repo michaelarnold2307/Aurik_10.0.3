@@ -11710,19 +11710,46 @@ class UnifiedRestorerV3:
                             logger.debug("SurgicalPlan: %d Instruktionen für %d Phasen", len(_sp), len(_sp.by_phase()))
                         except Exception:
                             pass
-                        # §2.59.17 Chirurgie DEFERRED — Funktionen produzieren hörbare Artefakte.
-                        # Erkennung + SurgicalPlan funktionieren (5715 Zonen).
-                        # Ausführung deaktiviert bis Funktionen per Blindtest validiert sind.
-                        # Globale Phasen (phase_01, phase_09, etc.) übernehmen.
-                        _plan_types = ", ".join(f"{t}={c}" for t, c in sorted(_surgical_plan.items()))
-                        logger.info(
-                            "🔬 CHIRURGIE-DEFERRED: %d Zonen erkannt → %s "
-                            "(globale Phasen übernehmen — Funktionen in Validierung)",
-                            len(_zones), _plan_types,
-                        )
-                        self._restoration_context["surgical_repair_planned"] = dict(_surgical_plan)
-                        self._restoration_context["surgical_repair_done"] = dict(_surgical_done)
-                        self._restoration_context["surgical_repair_skipped"] = dict(_surgical_skip)
+                        # §2.61: Chirurgie mit ECHTEN Phasen via surgical_dispatch()
+                        try:
+                            from backend.core.phases.phase_interface import PhaseInterface
+                            from backend.core.surgical_plan import SURGICAL_DEFECT_TO_PHASE
+                            _total_repaired = 0
+                            _total_failed = 0
+                            # Gruppiere Zonen nach Ziel-Phase
+                            _by_phase: dict[str, list[tuple[float, float]]] = {}
+                            for z in _zones:
+                                _target_phase = SURGICAL_DEFECT_TO_PHASE.get(z.defect_type)
+                                if _target_phase:
+                                    _by_phase.setdefault(_target_phase, []).append((z.start_s, z.end_s))
+                            for _phase_id, _time_ranges in sorted(_by_phase.items()):
+                                _phase = self._get_phase(_phase_id)
+                                if _phase is None:
+                                    _total_failed += len(_time_ranges)
+                                    continue
+                                try:
+                                    audio = PhaseInterface.surgical_dispatch(
+                                        _phase, audio, sample_rate,
+                                        str(getattr(material_type, "value", material_type) or "unknown"),
+                                        _time_ranges,
+                                    )
+                                    _total_repaired += len(_time_ranges)
+                                    _surgical_done[_phase_id] = len(_time_ranges)
+                                except Exception:
+                                    _total_failed += len(_time_ranges)
+                            _plan_types = ", ".join(f"{t}={c}" for t, c in sorted(_surgical_plan.items()))
+                            if _total_repaired > 0 and _total_failed == 0:
+                                logger.info("✅ CHIRURGIE-PHASEN: %d/%d Zonen via %d Phasen → %s",
+                                          _total_repaired, _total_repaired + _total_failed,
+                                          len(_surgical_done), _plan_types)
+                            elif _total_repaired > 0:
+                                logger.warning("⚠️ CHIRURGIE-PHASEN: %d/%d Zonen, %d failed → %s",
+                                             _total_repaired, _total_repaired + _total_failed,
+                                             _total_failed, _plan_types)
+                            else:
+                                logger.info("🔬 CHIRURGIE: Keine Phasen verfügbar — globale übernehmen")
+                        except Exception:
+                            logger.debug("SurgicalPhaseDispatch: non-blocking", exc_info=True)
                     else:
                         logger.info("🔬 CHIRURGIE: Keine lokalisierten Zonen")
                 else:
