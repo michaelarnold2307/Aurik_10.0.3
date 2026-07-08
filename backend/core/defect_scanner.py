@@ -2527,14 +2527,14 @@ class DefectScanner:
 
         # Analog-Defekte die von Codec-Artefakten imitiert werden
         _ANALOG_MIMICABLE: set[DefectType] = {
-            DefectType.CRACKLE,           # MP3 pre-echo
-            DefectType.CLICKS,            # MP3 block-boundary
-            DefectType.SURFACE_NOISE,     # MP3 quantization noise
-            DefectType.WOW_FLUTTER,       # SBR gaps + natural vibrato
-            DefectType.DROPOUTS,          # MP3 bitrate drops
-            DefectType.TAPE_HISS,         # MP3 HF noise floor
-            DefectType.GROOVE_ECHO,       # MP3 temporal masking
-            DefectType.TRANSPORT_BUMP,    # MP3 frame-boundary impulse
+            DefectType.CRACKLE,             # MP3 pre-echo
+            DefectType.CLICKS,              # MP3 block-boundary
+            DefectType.HIGH_FREQ_NOISE,     # MP3 quantization noise / tape hiss
+            DefectType.WOW,                 # SBR gaps + natural vibrato
+            DefectType.FLUTTER,             # SBR spectral holes
+            DefectType.DROPOUTS,            # MP3 bitrate drops
+            DefectType.GROOVE_ECHO,         # MP3 temporal masking
+            DefectType.TRANSPORT_BUMP,      # MP3 frame-boundary impulse
         }
 
         _n_discounted = 0
