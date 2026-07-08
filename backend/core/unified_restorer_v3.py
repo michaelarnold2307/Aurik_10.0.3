@@ -27698,6 +27698,18 @@ class UnifiedRestorerV3:
             _rest_ctx,
         )
 
+        # ── §2.60.3: Fahrplan-Kalibrierung — Denker gibt Intensität vor ──
+        _phase_id_pp = str(getattr(phase_metadata, "phase_id", ""))
+        if _phase_id_pp and "strength" in kwargs:
+            try:
+                _fahrplan_ctx = self._restoration_context.get("fahrplan") if isinstance(getattr(self, "_restoration_context", None), dict) else None
+                if _fahrplan_ctx is not None and hasattr(_fahrplan_ctx, "calibration"):
+                    _cal_val = _fahrplan_ctx.calibration.get(_phase_id_pp)
+                    if _cal_val is not None and 0.0 < _cal_val < 1.0:
+                        kwargs["strength"] = float(_cal_val)
+            except Exception:
+                pass
+
         # ── §DENKER: Zentrale Guard-Modulation via PhaseInteractionDenker ──
         if "strength" in kwargs:
             try:

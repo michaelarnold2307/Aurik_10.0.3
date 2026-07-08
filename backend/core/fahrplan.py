@@ -63,36 +63,18 @@ class Fahrplan:
     total_segments: int = 0
     note: str = ""
 
-
-# ── §2.60.1 Phasen-Substitutionen ──────────────────────────────────────
-
-# Wenn der Preflight-Risk-Guard eine Phase entfernt, was läuft stattdessen?
-PHASE_SUBSTITUTIONS: dict[str, str] = {
-    "phase_07_harmonic_restoration": "phase_23_spectral_repair",
-    # ↑ Harmonik-Rekonstruktion → Spektrale Reparatur (konservativer)
-    "phase_17_mastering_polish": "phase_16_final_eq",
-    # ↑ Mastering-Polish → Final EQ (kein Enhancement, nur Korrektur)
-    "phase_50_spectral_repair": "phase_06_frequency_restoration",
-    # ↑ Spektrale Reparatur → Frequenz-Restaurierung (DSP statt ML)
-}
-
-
-# ── §2.60.1 Perceptual-Budget nach Frequenzbändern ─────────────────────
-
-# Menschliches Gehör ist am sensitivsten bei 2-5 kHz (Präsenz).
-# Dort lohnt sich mehr Processing-Budget als in unhörbaren Bereichen.
-PERCEPTUAL_BUDGET: dict[str, float] = {
-    "sub_bass": 0.05,     # <60 Hz     — kaum hörbar, nur Frequenzgang
-    "bass": 0.10,         # 60-250 Hz  — Wärme, aber nicht kritisch
-    "low_mid": 0.15,      # 250-500 Hz — Klangkörper
-    "presence": 0.35,     # 2-5 kHz    — KRITISCH für menschliches Ohr
-    "brilliance": 0.20,   # 5-10 kHz   — Luft, Artikulation
-    "air": 0.10,          # 10-15 kHz  — Räumlichkeit
-    "ultra": 0.05,        # >15 kHz    — kaum hörbar, nicht forcieren
-}
-
-
-# ── §2.60.1 Fahrplan-Generator ─────────────────────────────────────────
+    @property
+    def calibration(self) -> dict[str, float]:
+        """Flat dict: phase_id → average strength across all segments."""
+        result = {}
+        for pid in self.phase_order:
+            instrs = self.instructions.get(pid, [])
+            if instrs:
+                strengths = [i.strength_mod for i in instrs if not i.skip]
+                result[pid] = sum(strengths) / max(len(strengths), 1) if strengths else 1.0
+            else:
+                result[pid] = 1.0
+        return result
 
 def build_fahrplan(
     phase_ids: list[str],
