@@ -10261,15 +10261,19 @@ class UnifiedRestorerV3:
             logger.debug("§Gap6 ReferenceAnchorMatcher non-blocking: %s", _ram_exc)
 
         # §2.63 Closed-Loop PID: Goal-Error-getriebene Strength-Justierung
-        try:
-            _pid_targets = getattr(self, "_song_goal_targets", None)
-            if isinstance(_pid_targets, dict) and _pid_targets:
-                from backend.core.closed_loop_pid import ClosedLoopPIDController
-                self._closed_loop_pid = ClosedLoopPIDController(_pid_targets)
-                logger.info("§2.63 Closed-Loop PID: aktiviert mit %d Goal-Targets", len(_pid_targets))
-            else:
+        # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in)
+        if os.environ.get("AURIK_EVOLUTION", "") == "1":
+            try:
+                _pid_targets = getattr(self, "_song_goal_targets", None)
+                if isinstance(_pid_targets, dict) and _pid_targets:
+                    from backend.core.closed_loop_pid import ClosedLoopPIDController
+                    self._closed_loop_pid = ClosedLoopPIDController(_pid_targets)
+                    logger.info("§2.63 Closed-Loop PID: aktiviert mit %d Goal-Targets", len(_pid_targets))
+                else:
+                    self._closed_loop_pid = None
+            except Exception:
                 self._closed_loop_pid = None
-        except Exception:
+        else:
             self._closed_loop_pid = None
 
         # §2.54 Pre-Pipeline Physical Ceiling — gecappte PMGG-Targets für per-Phase Nutzung.
@@ -27738,8 +27742,9 @@ class UnifiedRestorerV3:
         )
 
         # ── §2.60.3: Fahrplan-Kalibrierung — Denker gibt Intensität vor ──
+        # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in)
         _phase_id_pp = str(getattr(phase_metadata, "phase_id", ""))
-        if _phase_id_pp and "strength" in kwargs:
+        if _phase_id_pp and "strength" in kwargs and os.environ.get("AURIK_EVOLUTION", "") == "1":
             try:
                 _fahrplan_ctx = ((self._restoration_context.get("denker_policy_input", {}) or {}).get("phase_interaction", {}) or {}).get("fahrplan") if isinstance(getattr(self, "_restoration_context", None), dict) else None
                 if _fahrplan_ctx is not None and hasattr(_fahrplan_ctx, "calibration"):
@@ -28183,6 +28188,7 @@ class UnifiedRestorerV3:
             kwargs["strength_envelope"] = _env
 
         # §2.63 Closed-Loop PID: Strength boost/dampen basierend auf Goal-Errors
+        # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in, _closed_loop_pid ist dann gesetzt)
         _pid_ctrl = getattr(self, "_closed_loop_pid", None)
         if _pid_ctrl is not None and "strength" in kwargs:
             try:
@@ -28203,21 +28209,23 @@ class UnifiedRestorerV3:
 
         # §2.62 Per-Segment-Ausführung: wenn Fahrplan non-uniforme Stärken hat,
         # Audio an Sektionsgrenzen splitten, pro Segment verarbeiten, crossfaden.
+        # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in)
         _use_per_segment = False
-        try:
-            _ps_fahrplan = ((self._restoration_context.get("denker_policy_input", {}) or {})
-                            .get("phase_interaction", {}) or {}).get("fahrplan")
-            if _ps_fahrplan is not None:
-                from backend.core.per_segment_executor import get_segment_strengths_from_fahrplan
+        if os.environ.get("AURIK_EVOLUTION", "") == "1":
+            try:
+                _ps_fahrplan = ((self._restoration_context.get("denker_policy_input", {}) or {})
+                                .get("phase_interaction", {}) or {}).get("fahrplan")
+                if _ps_fahrplan is not None:
+                    from backend.core.per_segment_executor import get_segment_strengths_from_fahrplan
 
-                _ps_phase_id = str(getattr(phase_metadata, "phase_id", ""))
-                _ps_base = float(kwargs.get("strength", 1.0))
-                _ps_info = get_segment_strengths_from_fahrplan(_ps_fahrplan, _ps_phase_id, _ps_base)
-                if _ps_info is not None:
-                    _ps_bounds, _ps_strengths = _ps_info
-                    _use_per_segment = True
-        except Exception:
-            pass
+                    _ps_phase_id = str(getattr(phase_metadata, "phase_id", ""))
+                    _ps_base = float(kwargs.get("strength", 1.0))
+                    _ps_info = get_segment_strengths_from_fahrplan(_ps_fahrplan, _ps_phase_id, _ps_base)
+                    if _ps_info is not None:
+                        _ps_bounds, _ps_strengths = _ps_info
+                        _use_per_segment = True
+            except Exception:
+                pass
 
         try:
             if _use_per_segment:
