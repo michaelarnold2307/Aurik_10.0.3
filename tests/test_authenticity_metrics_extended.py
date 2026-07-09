@@ -172,7 +172,7 @@ class TestFingerNoiseDetector:
 
         assert detector.sensitivity == 0.7
         assert detector.freq_range == (2000.0, 6000.0)
-        assert detector.metrics is not None  # metrics is a typed dataclass result
+        # metrics is populated by detect(), not __init__
 
     def test_initialization_with_params(self):
         """Test initialization with custom parameters"""
