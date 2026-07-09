@@ -239,6 +239,7 @@ def test_material_type_detection(defect_scanner, clean_audio, sample_rate):
         MaterialType.SHELLAC,
         MaterialType.VINYL,
         MaterialType.TAPE,
+        MaterialType.CASSETTE,
         MaterialType.CD_DIGITAL,
         MaterialType.STREAMING,
         MaterialType.UNKNOWN,
