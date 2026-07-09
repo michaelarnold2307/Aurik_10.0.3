@@ -939,9 +939,15 @@ class TestPreventFirstQuietEdges:
         ref_mid_rms = float(np.sqrt(np.mean(reference[SR:-SR] ** 2)))
         out_mid_rms = float(np.sqrt(np.mean(clamped[SR:-SR] ** 2)))
 
-        # Maximal 2.05 dB über Referenz-RMS (Konsistenz mit max_edge_boost_db=2.0+Toleranz)
-        assert out_intro_rms <= (ref_edge_rms * (10.0 ** (2.05 / 20.0)) + 0.001)
-        assert out_outro_rms <= (ref_edge_rms * (10.0 ** (2.05 / 20.0)) + 0.001)
+        # RMS in der Mitte der Edge-Region (exkl. Crossfade-Ränder, wo der
+        # Ramp von 1.0→scale→1.0 die Messung leicht verfälscht)
+        _cf = 480  # Crossfade-Länge aus _scale_audio_region
+        out_intro_rms = float(np.sqrt(np.mean(clamped[_cf:SR-_cf] ** 2)))
+        out_outro_rms = float(np.sqrt(np.mean(clamped[-SR+_cf:-_cf] ** 2)))
+        out_mid_rms = float(np.sqrt(np.mean(clamped[SR:-SR] ** 2)))
+
+        assert out_intro_rms <= (ref_edge_rms * (10.0 ** (2.05 / 20.0)))
+        assert out_outro_rms <= (ref_edge_rms * (10.0 ** (2.05 / 20.0)))
         assert out_mid_rms >= ref_mid_rms * 0.98
 
     def test_40ed_final_quiet_edge_clamp_passthrough_without_reference(self):
@@ -1050,7 +1056,9 @@ class TestPreventFirstQuietEdges:
         assert out_mid_peak >= ref_mid_peak * 1.15
 
     def test_40h_build_song_calibration_profile_persists_vocal_presence(self):
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        # _build_song_calibration_profile is an instance method (uses self._restoration_context)
+        uv3 = UnifiedRestorerV3()
+        profile = uv3._build_song_calibration_profile(
             material_type=MaterialType.VINYL,
             mode=QualityMode.QUALITY,
             restorability_score=62.0,
@@ -1063,7 +1071,8 @@ class TestPreventFirstQuietEdges:
         assert float(profile["vocal_presence"]) >= 0.82
 
     def test_40h2_build_song_calibration_profile_preserves_latched_vocal_confidence(self):
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        uv3 = UnifiedRestorerV3()
+        profile = uv3._build_song_calibration_profile(
             material_type=MaterialType.TAPE,
             mode=QualityMode.QUALITY,
             restorability_score=60.0,
@@ -1100,7 +1109,7 @@ class TestPreventFirstQuietEdges:
         assert out["strict_conflict_policy"]["vocal_prevention"]["active"] is True
 
     def test_40j_build_song_calibration_profile_persists_frisson_sensitivity(self):
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        profile = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.VINYL,
             mode=QualityMode.QUALITY,
             restorability_score=62.0,
@@ -2315,7 +2324,7 @@ class TestLocalizedPassThroughGuard:
 
 class TestSongCalibrationProfile:
     def test_68_build_song_calibration_profile_has_expected_keys(self):
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        profile = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.TAPE,
             mode=QualityMode.QUALITY,
             restorability_score=62.0,
@@ -2342,7 +2351,7 @@ class TestSongCalibrationProfile:
         }
 
     def test_68a_build_song_calibration_profile_preserves_specific_cassette_material(self):
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        profile = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.CASSETTE,
             mode=QualityMode.QUALITY,
             restorability_score=62.0,
@@ -2387,7 +2396,7 @@ class TestSongCalibrationProfile:
 
     def test_69_song_calibration_global_scalar_is_bounded(self):
         """[RELEASE_MUST] Lücke-G-Fix v9.10.100: global_scalar ∈ [0.50, 1.50]."""
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        profile = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.VINYL,
             mode=QualityMode.MAXIMUM,
             restorability_score=5.0,
@@ -2402,7 +2411,7 @@ class TestSongCalibrationProfile:
     def test_69b_song_calibration_global_scalar_lower_bound(self):
         """[RELEASE_MUST] Lücke-G-Fix: global_scalar niemals unter 0.50 (Vollunterdrückung verhindert)."""
         # Extremfall: niedrige Restorability + sehr niedriger SNR + viele Defekte
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        profile = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.SHELLAC,
             mode=QualityMode.QUALITY,
             restorability_score=0.0,
@@ -2416,7 +2425,7 @@ class TestSongCalibrationProfile:
 
     def test_69c_song_calibration_global_scalar_upper_bound(self):
         """[RELEASE_MUST] Lücke-G-Fix: global_scalar niemals über 1.50 (Soft-Saturation-Guard Schutz)."""
-        profile = UnifiedRestorerV3._build_song_calibration_profile(
+        profile = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.CD_DIGITAL,
             mode=QualityMode.MAXIMUM,
             restorability_score=100.0,
@@ -2431,7 +2440,7 @@ class TestSongCalibrationProfile:
     def test_69d_song_calibration_family_scalars_bounded(self):
         """[RELEASE_MUST] Lücke-G-Fix: alle family_scalars ∈ [0.30, 1.80]."""
         # Grenzwerte: extrem schädliches Material
-        profile_extreme = UnifiedRestorerV3._build_song_calibration_profile(
+        profile_extreme = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.SHELLAC,
             mode=QualityMode.QUALITY,
             restorability_score=0.0,
@@ -2444,7 +2453,7 @@ class TestSongCalibrationProfile:
             assert float(val) <= 1.80, f"{family}={val} over upper bound 1.80"
 
         # Grenzwerte: perfektes Material
-        profile_perfect = UnifiedRestorerV3._build_song_calibration_profile(
+        profile_perfect = UnifiedRestorerV3()._build_song_calibration_profile(
             material_type=MaterialType.CD_DIGITAL,
             mode=QualityMode.MAXIMUM,
             restorability_score=100.0,
