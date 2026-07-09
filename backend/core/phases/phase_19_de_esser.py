@@ -2337,6 +2337,134 @@ def _estimate_vibrato_from_pyin(
         return None, None
 
 
+def _find_contiguous_segments(
+    mask: np.ndarray, hop: int, sample_rate: int
+) -> list[tuple[float, float]]:
+    """Findet zusammenhängende True-Regionen in einer Bool-Maske."""
+    segments: list[tuple[float, float]] = []
+    if not np.any(mask):
+        return segments
+    edges = np.diff(np.concatenate([[0], mask.astype(np.int8), [0]]))
+    starts = np.where(edges == 1)[0]
+    ends = np.where(edges == -1)[0]
+    for s, e in zip(starts, ends):
+        t_start = float(s * hop / sample_rate)
+        t_end = float(e * hop / sample_rate)
+        if t_end - t_start >= 0.15:  # Min 150ms
+            segments.append((t_start, t_end))
+    return segments
+
+
+def _classify_gender_segment(
+    f0_hz: float,
+    vib_rate: float | None,
+    vib_depth: float | None,
+    spectral_tilt: float | None = None,
+    hnr_db: float | None = None,
+) -> tuple[str, float]:
+    """SOTA Gender-Klassifikation: gewichtetes Multi-Feature-Scoring.
+
+    Features (Relevanz-gewichtet):
+      F0 (×0.40): Median über voiced frames — anatomisch primär
+      Spectral Tilt (×0.25): dB/Oktave — ♀ flacher, ♂ steiler
+      Vibrato (×0.20): Rate + Tiefe — ♀ 4.8–5.8Hz/100–250¢
+      HNR (×0.15): Harmonics-to-Noise — ♀ klarer, ♂ rauschiger
+
+    Konfidenz = Gewinner-Score / max möglichen Score.
+    """
+    scores: dict[str, float] = {"male": 0.0, "female": 0.0, "child": 0.0}
+
+    # ── F0 (×0.40) ──────────────────────────────────────────────
+    _W_F0 = 0.40
+    if f0_hz < 130.0:
+        scores["male"] += _W_F0
+    elif f0_hz < 150.0:
+        scores["male"] += _W_F0 * 0.7; scores["female"] += _W_F0 * 0.3
+    elif f0_hz < 200.0:
+        scores["female"] += _W_F0 * 0.8; scores["male"] += _W_F0 * 0.2
+    elif f0_hz < 280.0:
+        scores["female"] += _W_F0
+    elif f0_hz < 320.0:
+        scores["female"] += _W_F0 * 0.5; scores["child"] += _W_F0 * 0.5
+    else:
+        scores["child"] += _W_F0
+
+    # ── Spectral Tilt (×0.25) ───────────────────────────────────
+    _W_TILT = 0.25
+    if spectral_tilt is not None:
+        t = float(spectral_tilt)
+        if t < -8.0:       scores["male"] += _W_TILT
+        elif t < -6.0:     scores["male"] += _W_TILT * 0.7; scores["female"] += _W_TILT * 0.3
+        elif t < -4.5:     scores["female"] += _W_TILT * 0.8; scores["male"] += _W_TILT * 0.2
+        elif t < -2.5:     scores["female"] += _W_TILT; scores["child"] += _W_TILT * 0.3
+        else:              scores["child"] += _W_TILT * 0.8; scores["female"] += _W_TILT * 0.5
+
+    # ── Vibrato (×0.20) ─────────────────────────────────────────
+    _W_VIB = 0.20
+    if vib_rate is not None and vib_depth is not None:
+        r, d = float(vib_rate), float(vib_depth)
+        if r >= 4.8 and d >= 120:       scores["female"] += _W_VIB
+        elif r >= 4.6 and d >= 100:     scores["female"] += _W_VIB * 0.8
+        elif r >= 4.0 and d >= 80:      scores["female"] += _W_VIB * 0.4; scores["male"] += _W_VIB * 0.4
+        elif r >= 3.5 and d >= 40:      scores["male"] += _W_VIB * 0.8
+        elif r > 0 and d > 0:           scores["male"] += _W_VIB * 0.5
+        if r >= 5.5 and d >= 80:        scores["child"] += _W_VIB * 0.6
+
+    # ── HNR (×0.15) ─────────────────────────────────────────────
+    _W_HNR = 0.15
+    if hnr_db is not None:
+        h = float(hnr_db)
+        if h > -1.0:        scores["female"] += _W_HNR * 0.8; scores["child"] += _W_HNR * 0.6
+        elif h > -3.0:      scores["female"] += _W_HNR * 0.7; scores["male"] += _W_HNR * 0.3
+        elif h > -5.0:      scores["male"] += _W_HNR * 0.7; scores["female"] += _W_HNR * 0.3
+        else:               scores["male"] += _W_HNR
+
+    # ── Winner + Confidence ──────────────────────────────────────
+    gender = max(scores, key=lambda k: scores[k])
+    max_possible = _W_F0 + _W_TILT + _W_VIB + _W_HNR
+    confidence = min(1.0, scores[gender] / max(0.30, max_possible * 0.7))
+    return gender, confidence
+
+
+def _compute_spectral_tilt(audio: np.ndarray, sample_rate: int) -> float | None:
+    """Spectral Tilt (dB/Oktave) via linearer Regression, 80–4000 Hz."""
+    try:
+        n = len(audio)
+        if n < sample_rate // 10:
+            return None
+        spec = np.abs(np.fft.rfft(audio * np.hanning(n)))
+        freqs = np.fft.rfftfreq(n, d=1.0 / sample_rate)
+        mask = (freqs >= 80.0) & (freqs <= 4000.0)
+        if not np.any(mask):
+            return None
+        log_f = np.log2(freqs[mask] + 1.0)
+        log_s = 20.0 * np.log10(spec[mask] + 1e-10)
+        slope, _ = np.polyfit(log_f, log_s, 1)
+        return float(slope)
+    except Exception:
+        return None
+
+
+def _merge_adjacent_gender_segments(
+    timeline: list[dict[str, object]],
+    max_gap_s: float = 2.0,
+) -> list[dict[str, object]]:
+    """Merged benachbarte Segmente gleichen Genders."""
+    if len(timeline) < 2:
+        return timeline
+
+    merged: list[dict[str, object]] = [dict(timeline[0])]
+    for seg in timeline[1:]:
+        prev = merged[-1]
+        gap = float(seg["t_start_s"]) - float(prev["t_end_s"])
+        if seg["gender"] == prev["gender"] and gap <= max_gap_s:
+            prev["t_end_s"] = seg["t_end_s"]
+            prev["confidence"] = max(float(prev["confidence"]), float(seg["confidence"]))
+        else:
+            merged.append(dict(seg))
+    return merged
+
+
     def _detect_gender_robust(self, audio: np.ndarray, sample_rate: int) -> str:
         """
         Gender-Detection: Robuster Detektor (F0 + Formanten + WORLD) bevorzugt,
@@ -2590,6 +2718,121 @@ def _estimate_vibrato_from_pyin(
             return VocalGender.FEMALE
         else:
             return VocalGender.CHILD
+
+    def _detect_gender_timeline(
+        self, audio: np.ndarray, sample_rate: int
+    ) -> list[dict[str, object]]:
+        """Erkennt ALLE Gesangsstimmen im Song mit Zeitsegmenten.
+
+        Statt eines globalen 'male'/'female'/'child' liefert diese Methode
+        eine Timeline mit (t_start, t_end, gender, confidence, f0) pro
+        erkannter Stimme. Duette, Backing-Vocals, Männer-/Frauen-Passagen
+        werden als separate Segmente klassifiziert.
+
+        Algorithmus:
+          1. pYIN F0 + Voicing → voiced Segmente extrahieren
+          2. Pro Segment: F0-Median, Vibrato-Rate, Vibrato-Tiefe
+          3. Gender-Klassifikation pro Segment
+          4. Benachbarte Segmente gleichen Genders mergen
+          5. Timeline zurückgeben
+
+        Returns:
+            [{t_start_s, t_end_s, gender, confidence, f0_hz, vibrato_hz,
+              vibrato_cents}, ...]
+        """
+        if audio.ndim == 2:
+            mono = np.mean(audio, axis=1).astype(np.float32)
+        else:
+            mono = audio.astype(np.float32)
+
+        # OOM-Guard: max 60 s für pYIN
+        mono = mono[: min(len(mono), sample_rate * 60)]
+
+        timeline: list[dict[str, object]] = []
+
+        try:
+            import librosa as _librosa
+
+            _f0, _voiced_flag, _voiced_prob = _librosa.pyin(
+                mono, fmin=60.0, fmax=700.0, sr=sample_rate,
+                frame_length=2048, win_length=1024,
+            )
+            if _f0 is None or len(_f0) < 10:
+                return timeline
+
+            hop = 256  # librosa default pyin hop
+            _f0_arr = np.asarray(_f0, dtype=np.float64)
+            _vp_arr = np.asarray(_voiced_prob, dtype=np.float64)
+
+            # ── 1. Voiced Segmente extrahieren ───────────────────────
+            voiced_mask = _vp_arr > 0.6
+            segments = _find_contiguous_segments(voiced_mask, hop, sample_rate)
+
+            if not segments:
+                return timeline
+
+            # ── 2. Pro Segment klassifizieren ────────────────────────
+            for seg_start_s, seg_end_s in segments:
+                f_start = max(0, int(seg_start_s * sample_rate / hop))
+                f_end = min(len(_f0_arr), int(seg_end_s * sample_rate / hop) + 1)
+                if f_end - f_start < 5:
+                    continue
+
+                seg_f0 = _f0_arr[f_start:f_end][_vp_arr[f_start:f_end] > 0.7]
+                if len(seg_f0) < 10:
+                    continue
+
+                f0_median = float(np.median(seg_f0))
+
+                # Vibrato im Segment
+                vib_rate, vib_depth = _estimate_vibrato_from_pyin(
+                    _f0_arr[f_start:f_end], _vp_arr[f_start:f_end], sample_rate, hop
+                )
+
+                # Spectral Tilt pro Segment (♀ flacher, ♂ steiler)
+                _s0 = int(seg_start_s * sample_rate)
+                _s1 = int(seg_end_s * sample_rate)
+                seg_audio = mono[_s0:_s1] if _s1 > _s0 else np.array([], dtype=np.float32)
+                seg_tilt = _compute_spectral_tilt(seg_audio, sample_rate) if len(seg_audio) > 0 else None
+
+                # Gender-Klassifikation (SOTA Multi-Feature Scoring)
+                gender, confidence = _classify_gender_segment(
+                    f0_median, vib_rate, vib_depth,
+                    spectral_tilt=seg_tilt,
+                )
+
+                timeline.append({
+                    "t_start_s": seg_start_s,
+                    "t_end_s": seg_end_s,
+                    "gender": gender,
+                    "confidence": confidence,
+                    "f0_hz": f0_median,
+                    "vibrato_hz": vib_rate,
+                    "vibrato_cents": vib_depth,
+                    "spectral_tilt": seg_tilt,
+                })
+
+        except Exception as exc:
+            logger.debug("GenderTimeline failed (%s)", exc)
+            return timeline
+
+        # ── 3. Benachbarte Segmente gleichen Genders mergen ──────────
+        timeline = _merge_adjacent_gender_segments(timeline)
+
+        # ── 4. Statistiken loggen ────────────────────────────────────
+        if timeline:
+            genders_found = set(seg["gender"] for seg in timeline)
+            total_s = sum(float(seg["t_end_s"]) - float(seg["t_start_s"]) for seg in timeline)
+            gender_summary = ", ".join(
+                f"{g}={sum(1 for s in timeline if s['gender']==g)}"
+                for g in sorted(genders_found)
+            )
+            logger.info(
+                "🎤 GenderTimeline: %d Segmente, %.1fs voiced, genders=[%s]",
+                len(timeline), total_s, gender_summary,
+            )
+
+        return timeline
 
     def _apply_formant_preservation(
         self,
