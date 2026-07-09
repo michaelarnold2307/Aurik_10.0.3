@@ -1340,7 +1340,9 @@ class EraClassifier:
         # (which implements these guards natively) is used instead.
         if result is not None and result.tier_used == 1:
             _clap_decade = result.decade
-            _stereo_violation = is_stereo and _clap_decade < 1960
+            # §SOTA #6: Nur echtes Stereo (width>0.05) triggert Violation.
+            # Dual-Mono (width≈0) ist typisch für digitalisierte Mono-Aufnahmen.
+            _stereo_violation = is_stereo and _clap_decade < 1960 and stereo_width > 0.05
             _hf_violation = (highband_presence > 0.20) and (_clap_decade < 1940)
             _analog_era_violation = (
                 transfer_chain is not None
