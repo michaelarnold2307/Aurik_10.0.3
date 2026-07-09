@@ -655,6 +655,39 @@ class DeEsserPhase(PhaseInterface):
             self.stats["gender_profile"] = detected_gender
             logger.info("🎤 Auto-detected gender: %s", detected_gender)
 
+        # §2.9.4 Multi-Gender-Timeline: Erkennt ALLE Stimmen im Song
+        _gender_timeline = self._detect_gender_timeline(audio, sample_rate)
+        self.stats["gender_timeline"] = _gender_timeline
+        _multi_gender = len(set(s["gender"] for s in _gender_timeline)) > 1 if _gender_timeline else False
+
+        # §2.9.5 Union-Profil: Wenn mehrere Gender erkannt wurden,
+        # schütze ALLE Stimmbereiche durch kombinierte Parameter
+        if _multi_gender and _gender_timeline:
+            _genders_present = sorted(set(s["gender"] for s in _gender_timeline))
+            _union_profile = _build_union_vocal_profile(_genders_present)
+            self.vocal_profile = _union_profile
+            self.stats["gender_profile"] = "multi"
+            self.stats["genders_detected"] = _genders_present
+            logger.info(
+                "🎤 Multi-Gender: %s → Union-Profil (Formanten %.0f–%.0f Hz, "
+                "Sibilanz-Bands %s)",
+                ", ".join(_genders_present),
+                _union_profile["formant_range"][0],
+                _union_profile["formant_range"][1],
+                _union_profile.get("s_band", "all"),
+            )
+        elif _gender_timeline:
+            # Single gender confirmed by timeline
+            _timeline_gender = _gender_timeline[0]["gender"]
+            if self.gender == VocalGender.AUTO or self.gender != _timeline_gender:
+                if _timeline_gender in VOCAL_PROFILES:
+                    self.vocal_profile = VOCAL_PROFILES[_timeline_gender]
+                    self.stats["gender_profile"] = _timeline_gender
+                    logger.info(
+                        "🎤 GenderTimeline bestätigt: %s (confidence=%.2f)",
+                        _timeline_gender, _gender_timeline[0]["confidence"],
+                    )
+
         # Stats Reset
         self.stats = {
             "bands_processed": {"low": False, "mid": False, "high": False},
@@ -2463,6 +2496,60 @@ def _merge_adjacent_gender_segments(
         else:
             merged.append(dict(seg))
     return merged
+
+
+def _build_union_vocal_profile(genders: list[str]) -> dict:
+    """Erzeugt ein kombiniertes Vocal-Profil, das ALLE angegebenen Gender schützt.
+
+    Formant-Bereich: von min(all low) bis max(all high)
+    Sibilanz-Band:  Vereinigungsmenge aller Gender-Bänder
+    Chest-Range:    von min(all low) bis max(all high)
+    Max-Depth:      konservativster Wert (geringste Reduktion)
+    """
+    if not genders:
+        return dict(VOCAL_PROFILES[VocalGender.FEMALE])
+
+    profiles = [VOCAL_PROFILES[g] for g in genders if g in VOCAL_PROFILES]
+    if not profiles:
+        return dict(VOCAL_PROFILES[VocalGender.FEMALE])
+
+    # Formant-Range: von tiefstem low bis höchstem high
+    formant_lows = [p.get("formant_range", (300, 2000))[0] for p in profiles]
+    formant_highs = [p.get("formant_range", (300, 2000))[1] for p in profiles]
+    union_formant = (min(formant_lows), max(formant_highs))
+
+    # Chest-Range (nur relevant wenn male dabei ist)
+    chest_lows = [p.get("chest_range", (100, 250))[0] for p in profiles]
+    chest_highs = [p.get("chest_range", (100, 250))[1] for p in profiles]
+    union_chest = (min(chest_lows), max(chest_highs))
+
+    # Sibilanz-Band: Union (niedrigste f_min, höchste f_max)
+    s_band_lows = [p.get("s_band", (5000, 8000))[0] for p in profiles]
+    s_band_highs = [p.get("s_band", (5000, 8000))[1] for p in profiles]
+    union_s_band = (min(s_band_lows), max(s_band_highs))
+
+    # Konservativste Werte
+    union_max_depth = max(p.get("max_depth_db", -3.5) for p in profiles)  # geringste Reduktion
+    union_formant_protect = max(p.get("formant_protect", 0.85) for p in profiles)
+    union_breath_threshold = min(p.get("breath_threshold_db", -30.0) for p in profiles)
+
+    # Kombiniere Vibrato-Erwartungen
+    vib_rates = [p.get("vibrato_rate_hz", 5.0) for p in profiles]
+    vib_depths = [p.get("vibrato_depth_cents", 120) for p in profiles]
+
+    return {
+        "formant_range": union_formant,
+        "chest_range": union_chest,
+        "s_band": union_s_band,
+        "max_depth_db": union_max_depth,
+        "formant_protect": union_formant_protect,
+        "breath_threshold_db": union_breath_threshold,
+        "vibrato_rate_hz": float(np.mean(vib_rates)),
+        "vibrato_depth_cents": float(np.mean(vib_depths)),
+        "sibilance_freq_range": union_s_band,
+        "harmonics_preserve": True,
+        "breath_enhance": True,
+    }
 
 
     def _detect_gender_robust(self, audio: np.ndarray, sample_rate: int) -> str:
