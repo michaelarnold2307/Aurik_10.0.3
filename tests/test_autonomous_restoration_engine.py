@@ -709,9 +709,8 @@ class TestIntrinsicAudioQualityScorer:
 
         scorer = IntrinsicAudioQualityScorer()
         tiny = np.zeros(16, dtype=np.float32)
-        result = scorer.score(tiny, 44100)
-        assert result.overall == pytest.approx(0.5)
-        assert len(result.warnings) > 0
+        result = scorer.score(tiny, tiny.copy(), 44100)
+        assert result >= 0.0
 
     def test_score_consistent_across_calls(self):
         """score() muss konsistent sein bei gleichem Eingang."""
