@@ -165,6 +165,53 @@ PHASE_EFFECT_CATALOG: dict[str, PhaseEffectProfile] = {
         min_severity=0.3,
         note="HF-Anhebung; nur bei echten Bandbreitenverlust, nicht als Default-Enhancement",
     ),
+    # ── §2.76: Bisher fehlende Phasen im Catalog → Joint-Calibrator kannte sie nicht
+    "phase_57_print_through_reduction": PhaseEffectProfile(
+        phase_id="phase_57_print_through_reduction",
+        goal_impact={
+            "transparenz": +0.05,
+            "artikulation": +0.04,
+            "natuerlichkeit": +0.03,
+            "emotionalitaet": +0.02,
+            "waerme": -0.01,  # kann leicht dünner klingen nach Echo-Entfernung
+        },
+        risks=["transient_smearing", "phase_artifact"],
+        preconditions={"print_through": "> 0.3"},
+        max_strength_by_material={"reel_tape": 0.95, "cassette": 0.85, "tape": 0.80, "vinyl": 0.0},
+        time_profile="medium",
+        min_severity=0.3,
+        note="Bidirektionale LMS-Adaptive Subtraction; Pre+Post-Echo getrennt (Magnetband-Durchdruck)",
+    ),
+    "phase_63_intermodulation_reduction": PhaseEffectProfile(
+        phase_id="phase_63_intermodulation_reduction",
+        goal_impact={
+            "transparenz": +0.05,
+            "timbre_authentizitaet": +0.04,
+            "natuerlichkeit": +0.03,
+            "brillanz": -0.01,  # IMD oft in Höhen am stärksten
+        },
+        risks=["phase_distortion", "energy_loss"],
+        preconditions={"intermodulation_distortion": "> 0.2"},
+        max_strength_by_material={"vinyl": 0.8, "tape": 0.7, "cassette": 0.7, "cd_digital": 0.3},
+        time_profile="heavy",
+        min_severity=0.2,
+        note="Volterra-basierte IMD-Tilgung; harmonische Verzerrungsprodukte entfernen",
+    ),
+    "phase_59_modulation_noise_reduction": PhaseEffectProfile(
+        phase_id="phase_59_modulation_noise_reduction",
+        goal_impact={
+            "transparenz": +0.04,
+            "natuerlichkeit": +0.04,
+            "waerme": +0.02,
+            "transient_energie": -0.01,
+        },
+        risks=["transient_smearing", "energy_loss"],
+        preconditions={"modulation_noise": "> 0.2"},
+        max_strength_by_material={"tape": 0.9, "reel_tape": 0.9, "cassette": 0.85, "vinyl": 0.0},
+        time_profile="medium",
+        min_severity=0.2,
+        note="Rauschmodulations-Entfernung (signalabhängiges Rauschen auf Magnetband)",
+    ),
 }
 
 
