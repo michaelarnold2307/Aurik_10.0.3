@@ -164,6 +164,25 @@ class PerceptualSalienceEstimator:
             n_masked,
             result.mean_salience,
         )
+
+        # §SOTA #10: Binaural Masking — Inter-Aural Cross-Correlation (IACC)
+        # Bei breitem Stereo (IACC<0.7) können Defekte in einem Kanal durch
+        # das kontralaterale Ohr partiell maskiert werden → Salience↓
+        if audio.ndim == 2 and audio.shape[0] == 2:
+            try:
+                _l = audio[0, : min(len(audio[0]), sr * 10)].astype(np.float64)
+                _r = audio[1, : min(len(audio[1]), sr * 10)].astype(np.float64)
+                _iacc = float(np.corrcoef(_l, _r)[0, 1]) if len(_l) > 100 else 1.0
+                _iacc = max(0.0, min(1.0, _iacc))
+                if _iacc < 0.85:
+                    _binaural_factor = float(np.clip(0.90 + 0.10 * _iacc, 0.90, 1.0))
+                    result.mean_salience *= _binaural_factor
+                    logger.debug(
+                        "§SOTA #10 Binaural: IACC=%.3f → salience ×%.2f", _iacc, _binaural_factor,
+                    )
+            except Exception:
+                pass
+
         return result
 
     def annotate_defect_scores(
