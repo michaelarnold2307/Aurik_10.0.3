@@ -722,7 +722,8 @@ class WowFlutterFix(PhaseInterface):
             n_level_dips_repaired = 0
             _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE, MaterialType.CASSETTE}
             _mat_enum = material if isinstance(material, MaterialType) else None
-            _has_tape_dip_defect = bool((kwargs.get("defect_locations") or {}).get("tape_head_level_dip"))
+            _dl_high = kwargs.get("defect_locations") or {}
+            _has_tape_dip_defect = bool(_dl_high.get("tape_head_level_dip") or _dl_high.get("transport_bump"))
             _is_primary_tape = _mat_enum in _TAPE_LEVEL_MATERIALS
             if (_is_primary_tape or _has_tape_dip_defect) and _effective_strength > 0.0:
                 audio, n_level_dips_repaired = self._stabilize_tape_level(
@@ -1047,7 +1048,8 @@ class WowFlutterFix(PhaseInterface):
         _TAPE_LEVEL_MATERIALS = {MaterialType.TAPE, MaterialType.REEL_TAPE, MaterialType.CASSETTE}
         _mat_enum = material if isinstance(material, MaterialType) else None
         _report_progress(90.0, "Wow/Flutter: Impuls-Reparaturen abgeschlossen")
-        _has_tape_dip_defect = bool((kwargs.get("defect_locations") or {}).get("tape_head_level_dip"))
+        _dl_post = kwargs.get("defect_locations") or {}
+        _has_tape_dip_defect = bool(_dl_post.get("tape_head_level_dip") or _dl_post.get("transport_bump"))
         _is_primary_tape = _mat_enum in _TAPE_LEVEL_MATERIALS
         if (_is_primary_tape or _has_tape_dip_defect) and _effective_strength > 0.0:
             restored, n_level_dips_repaired = self._stabilize_tape_level(
