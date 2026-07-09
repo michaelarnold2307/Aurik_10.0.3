@@ -1775,6 +1775,21 @@ _MATERIAL_PHASE_EXCLUSIONS: dict[str, frozenset] = {
     ),
 }
 
+# §SOTA #8: Sekundäre Kausalketten — von der primären Ursache zur Wurzel
+_SECONDARY_CAUSE_CHAIN: dict[str, tuple[str, ...]] = {
+    "vinyl_crackle": ("dust_contamination", "dry_playback", "static_discharge"),
+    "vinyl_wow": ("off_center_pressing", "bearing_wear", "belt_slippage"),
+    "vinyl_flutter": ("motor_instability", "capstan_irregularity"),
+    "tape_dropout": ("oxide_shedding", "head_clog", "binder_hydrolysis"),
+    "tape_hiss": ("magnetic_particle_noise", "bias_undercorrection"),
+    "tape_wow": ("capstan_eccentricity", "pinch_roller_degradation"),
+    "cassette_azimuth": ("shell_warp", "head_misalignment", "transport_wear"),
+    "mp3_artifact": ("mdct_quantization", "pre_echo_ringing", "band21_sfb21_cutoff"),
+    "clipping": ("preamp_overdrive", "adc_saturation", "limiter_misuse"),
+    "hum": ("ground_loop", "psu_ripple", "electromagnetic_induction"),
+    "reverb_excess": ("room_reflection", "mic_distance", "no_acoustic_treatment"),
+}
+
 # Empfohlene Parameter pro Ursache
 CAUSE_PARAMS: dict[str, dict[str, Any]] = {
     "tape_dropout": {
@@ -3576,6 +3591,12 @@ class CausalDefectReasoner:
         ]
         if len(ranked) > 1 and ranked[1][1] > 0.10:
             lines.append(f"Zweitwahrscheinlichste: {ranked[1][0]} ({ranked[1][1]:.3f})")
+
+        # §SOTA #8: Sekundäre Kausalkette — welche tieferen Ursachen stecken dahinter?
+        _secondary = _SECONDARY_CAUSE_CHAIN.get(primary_cause)
+        if _secondary:
+            lines.append(f"Sekundär-Ursachen: {' → '.join(_secondary)}")
+
         lines.append(f"Klick-Dichte: {sf.click_density:.2f}/s")
         lines.append(f"Dropout-Dichte: {sf.dropout_density:.3f}")
         lines.append(f"Brumm-Score: {sf.hum_score:.3f}")
