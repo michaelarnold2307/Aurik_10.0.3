@@ -1258,7 +1258,7 @@ class AurikDenker:
                 material,
                 getattr(cached_medium_result, "confidence", 0.0),
             )
-            _emit(2, f"Tonträger erkannt: {material} (Cache)")
+            _emit(2, f"Tonträger erkannt: {material} (aus Analyse-Cache)")
         else:
             _emit(2, "Tonträger wird erkannt …")
             try:
@@ -1385,6 +1385,13 @@ class AurikDenker:
         except Exception as exc:
             _record_stage_failure("defekt", "DefektDenker", exc)
             logger.warning("AurikDenker [3/10] DefektDenker: %s", exc)
+
+        # ── Song-individuelle Defekt-Meldung für den Nutzer ──────────
+        if defekt is not None and hasattr(defekt, "summary"):
+            _prim = str(getattr(defekt, "summary", {}).get("primary_defect", defekt_primaer_raw or ""))
+            _sev = float(getattr(defekt, "overall_severity", 0.5))
+            if _prim:
+                _emit(7, f"Hauptproblem erkannt: {_prim.replace('_', ' ').title()} — wird gezielt behandelt")
 
         # ── Stufe 4: Musikalischer Globalplan (§Dach) ────────────────────────
         _emit(8, "Musikalischer Restaurierungsplan erstellt …")
