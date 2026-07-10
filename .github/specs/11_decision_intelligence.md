@@ -94,6 +94,10 @@ Physical-Detektion schlägt statistischen Prior. Era-Information bleibt als Prec
 
 ## §ROADMAP-1: Cross-Phase Consensus (§3.0)
 
+**Status:** ✅ **Implementiert.** `denker/cross_phase_coordinator.py` (754 Zeilen).
+Aktiv in `_profiled_phase_call` mit Overlap-Matrix, Budget-Verteilung (≤1.0 pro Band),
+Material-adaptiven Caps und Naturalness-Guard (Musical Noise, Metallic Ringing, Roughness).
+
 **Problem:** Phase 19 (De-Esser) und Phase 38 (Presence Boost) bearbeiten beide
 den Frequenzbereich 2–8 kHz — unabhängig voneinander. Ihre Effekte können sich
 addieren und den Präsenzbereich überbetonen.
@@ -139,6 +143,10 @@ if envelope is not None:
 
 ## §ROADMAP-3: Artist/Track-Fingerprint-Persistenz (§4.0)
 
+**Status:** ✅ **Implementiert.** `SingerVoiceModel`-Ergebnisse werden via
+`_batch_intelligence.store()` im `BatchSessionLearner` persistiert (song_id-basiert).
+Folgende Songs derselben Session laden Stimmparameter als Prior.
+
 **Problem:** Aurik analysiert Elke Bests Stimme jedes Mal neu — Vibrato, Formanten,
 Register — obwohl der Song-ID `eb49f1d4` bekannt ist. Kein Transfer zwischen
 Restaurierungen desselben Künstlers.
@@ -161,6 +169,10 @@ VocalFocusAnalyzer: startet mit Prior statt blank
 ---
 
 ## §ROADMAP-4: Dynamic Phase Ordering (§5.0)
+
+**Status:** ✅ **Implementiert.** `PhaseInteractionDenker._dag_reorder()` sortiert
+Phasen material-abhängig: Shellac→additive vor subtractive, Tape→subtractive vor additive.
+Nutzt `PHASE_FREQ_PROFILES` aus dem `CrossPhaseCoordinator`.
 
 **Problem:** Die Phasen-Reihenfolge wird vor der Pipeline einmalig festgelegt.
 Aber die optimale Reihenfolge hängt vom Material ab: EQ vor Denoise bei
@@ -200,4 +212,4 @@ restore(audio, mode="preview", preview_duration_s=30)
 
 ---
 
-> **Letzte Änderung:** v9.20.3 — INV 1–10 implementiert · ROADMAP 1–7 spezifiziert
+> **Letzte Änderung:** v10.1.0 — ROADMAP 1–4 implementiert, 5–7 spezifiziert
