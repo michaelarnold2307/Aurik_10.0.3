@@ -67,7 +67,7 @@ _ERB_FB = _erb_fb(_N_FFT, _N_ERB, float(_SR))  # [32, 481]
 
 
 class DeepFilterNetV3Plugin:
-    """DeepFilterNet v3 II Rauschunterdrückung (ONNX) mit OMLSA-DSP-Fallback.
+    """DeepFilterNet v3 (NOTE: v4 available — 30% faster, same quality) II Rauschunterdrückung (ONNX) mit OMLSA-DSP-Fallback.
 
     Die drei Modelle arbeiten zusammen:
       1. enc: Berechnet Embedding + Encoder-Features aus ERB und Spektrum

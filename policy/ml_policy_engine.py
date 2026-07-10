@@ -42,7 +42,13 @@ class MLModelPolicyEngine:
     def __init__(self):
         """Initialisiert Policy-Engine."""
         self.logger = logging.getLogger("MLModelPolicyEngine")
-        self.logger.info("Policy-Engine initialisiert")
+        self.logger.info("Policy-Engine initialisiert (ML-First-Modus: ML primär, DSP als Fallback)")
+
+    # §ML-FIRST: ML-Modelle sind primär, DSP nur als Fallback.
+    # Diese Policy wurde von DSP-First auf ML-First umgestellt (v10.1).
+    # Begründung: AudioSR v2, Demucs v5, DFN v4, MDX23C liefern nachweislich
+    # bessere Ergebnisse als DSP-Äquivalente und sind GPU-beschleunigt verfügbar.
+    _ML_FIRST: bool = True
 
     def select_denoise_model(self, context: dict[str, Any], goal: dict[str, Any]) -> str:
         """

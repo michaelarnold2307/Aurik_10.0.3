@@ -74,6 +74,8 @@ class AudioMetadata:
     date: str = ""
     genre: str = ""
     tracknumber: str = ""
+    isrc: str = ""  # §ISRC International Standard Recording Code
+    upc: str = ""   # §UPC/EAN Universal Product Code
     cover_art: bytes | None = None
     cover_mime: str = "image/jpeg"
     extra: dict[str, str] = field(default_factory=dict)
@@ -126,6 +128,15 @@ class MetadataPreserver:
             meta.date = str(tags.get("TDRC", "") or "")
             meta.genre = str(tags.get("TCON", "") or "")
             meta.tracknumber = str(tags.get("TRCK", "") or "")
+
+            # §ISRC/UPC: professionelle Distributions-Metadaten
+            _isrc_raw = tags.get("TSRC") or tags.get("TXXX:ISRC")
+            if _isrc_raw:
+                meta.isrc = str(_isrc_raw)
+            _upc_raw = tags.get("TXXX:UPC") or tags.get("TXXX:EAN")
+            if _upc_raw:
+                meta.upc = str(_upc_raw)
+
             # Cover art (first APIC frame)
             for key in tags:
                 if key.startswith("APIC"):
