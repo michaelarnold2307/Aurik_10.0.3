@@ -237,6 +237,13 @@ def optimize_naturalness(
             arr, _ = _guarded_stage("stereo_focus", _r13c, arr)
             applied.append("stereo_focus")
 
+        # 13d. Bandbreiten-Extension: Fehlende Höhen rekonstruieren (nur Vintage-Material)
+        if _needs_bandwidth_extension(material):
+            _r13d = arr.copy()
+            arr = _bandwidth_extend(arr, sr, material)
+            arr, _ = _guarded_stage("bandwidth_extend", _r13d, arr)
+            applied.append("bandwidth_extend")
+
     # ── 14. Studio 2026 Re-Production Chain (§v10.5) ───────────────────
     if mode == "STUDIO_2026":
         _s13_pre = arr.copy()
@@ -955,3 +962,17 @@ def _detect_diffuse_center(audio: np.ndarray, sr: int) -> bool:
         return rms_S / (rms_M + 1e-12) > 0.35
     except Exception:
         return False
+
+
+def _needs_bandwidth_extension(material: str) -> bool:
+    """Prüft ob das Material Bandbreiten-Extension braucht.
+    Nur für Vintage-Material mit bekannten Bandbreiten-Limits.
+    """
+    from backend.core.dsp.bandwidth_extender import needs_bandwidth_extension
+    return needs_bandwidth_extension(material)
+
+
+def _bandwidth_extend(audio, sr, material):
+    """Erweitert Bandbreite für Vintage-Material via spektrale Spiegelung."""
+    from backend.core.dsp.bandwidth_extender import extend_bandwidth
+    return extend_bandwidth(audio, sr, material=material, amount=0.35)
