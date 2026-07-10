@@ -46,9 +46,9 @@ class TestStemConfig:
         from backend.core.source_aware_fahrplan import get_stem_config
 
         cfg = get_stem_config("bass")
-        # Bass: Rumble-Filter, Harmonic-Enhancement aktiv
+        # Bass: Rumble-Filter aktiv, Harmonic-Enhancement via Spectral-Repair
         assert cfg.phase_strengths.get("phase_05_rumble_filter", 0.0) > 0.0
-        assert cfg.phase_strengths.get("phase_23_harmonic_enhancement", 0.0) > 0.0
+        assert cfg.phase_strengths.get("phase_23_spectral_repair", 0.0) > 0.0
         # Kein Exciter/Presence
         assert cfg.phase_strengths.get("phase_21_exciter", 1.0) == 0.0
         assert cfg.phase_strengths.get("phase_38_presence_boost", 1.0) == 0.0
