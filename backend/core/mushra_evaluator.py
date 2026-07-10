@@ -440,7 +440,8 @@ class MushraEvaluator:
             # Clamp to ±60 LU — values beyond that indicate a near-silent or
             # clipped signal; the score already clips to 0 at |12| LU anyway.
             return float(np.clip(diff, -60.0, 60.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("mushra_evaluator.py::_compute_lufs_diff fallback: %s", e)
             return 0.0
 
     def _compute_spectral_corr(self, ref: np.ndarray, test: np.ndarray, sr: int) -> float:
@@ -460,7 +461,8 @@ class MushraEvaluator:
             )
             corr = corr_raw if np.isfinite(corr_raw) else 0.5
             return float(np.clip(corr, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("mushra_evaluator.py::_compute_spectral_corr fallback: %s", e)
             return 0.5
 
     def _quick_score(self, ref: np.ndarray, test: np.ndarray, sr: int) -> float:

@@ -294,7 +294,8 @@ class ReverbReduction(PhaseInterface):
             _pim_map = kwargs.get("pim_intensity_map")
             if _pim_map is not None:
                 _per_band_mask = compute_per_band_nr_mask(_pim_map, sample_rate)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_20_reverb_reduction.py::process fallback: %s", e)
             pass
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
@@ -320,7 +321,8 @@ class ReverbReduction(PhaseInterface):
                 _ft_in_20 = audio.mean(axis=0) if audio.ndim == 2 else audio
                 _lfc_res_20 = _get_lfc_20().track(_ft_in_20.astype(np.float32), sample_rate)
                 _f1_pre_20 = float(_lfc_res_20.get("f1_mean", 0.0)) or None
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_20_reverb_reduction.py::process fallback: %s", e)
                 pass
 
         strength = self.REDUCTION_STRENGTH.get(material, 0.4)
@@ -1009,7 +1011,8 @@ class ReverbReduction(PhaseInterface):
                         abs(_f1_post_20 - _f1_pre_20),
                     )
                     reduced = audio.copy()
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_20_reverb_reduction.py::unknown fallback: %s", e)
                 pass
         if _p20_panns >= 0.35:
             try:
@@ -1184,7 +1187,8 @@ class ReverbReduction(PhaseInterface):
                 _before = audio
                 _after = apply_per_band_mask(_before, _per_band_mask, sample_rate, mix=0.55)
                 audio = _after
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_20_reverb_reduction.py::unknown fallback: %s", e)
                 pass
 
         # §2.71 Strength-Envelope: Chirurgische Dereverb
@@ -1503,7 +1507,8 @@ class ReverbReduction(PhaseInterface):
                     try:
                         _mfloor_z20 = np.interp(f_z, _masking_freqs_p20, _masking_floor_p20).astype(np.float32)
                         G_z = np.maximum(G_z, _mfloor_z20[:, np.newaxis])
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_20_reverb_reduction.py::unknown fallback: %s", e)
                         pass
 
                 # §4.8a-ii preserve_mask (§Gap8 v9.12.8): G_eff = mask*0.90 + (1-mask)*G_z

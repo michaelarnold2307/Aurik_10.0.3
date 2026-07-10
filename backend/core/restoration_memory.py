@@ -83,7 +83,8 @@ def _make_audio_fingerprint(audio: np.ndarray, sr: int) -> str:
         rms_str = "_".join(f"{int(v * 1000):04d}" for v in rms_vals[:8])
         fp_str = f"{zcr:.4f}_{centroid:.1f}_{rms_str}"
         return hashlib.sha256(fp_str.encode()).hexdigest()[:16]
-    except Exception:
+    except Exception as e:
+        logger.warning("restoration_memory.py::_make_audio_fingerprint fallback: %s", e)
         return "fingerprint_error"
 
 
@@ -270,7 +271,8 @@ class RestorationMemory:
                 if _fp not in {"short_audio", "fingerprint_error"}:
                     with self._internal_lock:
                         self._fingerprint_index[_fp] = key_str
-            except Exception:
+            except Exception as e:
+                logger.warning("restoration_memory.py::_save_result_internal fallback: %s", e)
                 pass
 
     # ------------------------------------------------------------------

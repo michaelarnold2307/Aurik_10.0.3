@@ -439,7 +439,8 @@ class HarmonicRestorationPhase(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength", "strength", "wet"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_07_harmonic_restoration.py::process fallback: %s", e)
             pass
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio, _p07_transposed = to_channels_last(audio)
@@ -1514,7 +1515,8 @@ class HarmonicRestorationPhase(PhaseInterface):
                 return audio
             result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
             return np.clip(result, -1.0, 1.0).astype(np.float32)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_07_harmonic_restoration.py::_apply_mono fallback: %s", e)
             return audio
 
     @staticmethod
@@ -1572,7 +1574,8 @@ class HarmonicRestorationPhase(PhaseInterface):
             if not h1_vals:
                 return 0.0
             return float(np.mean(h2_vals)) / max(float(np.mean(h1_vals)), 1e-10)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_07_harmonic_restoration.py::_measure_h2_ratio fallback: %s", e)
             return 0.0
 
     def supports_material(self, _material_type: str) -> bool:

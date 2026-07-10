@@ -277,5 +277,6 @@ def _estimate_noise_floor_dbfs(audio: np.ndarray, sr: int) -> float:
             return -80.0
         p5 = float(np.percentile(rms_vals, 5))
         return float(20.0 * np.log10(p5 + 1e-20))
-    except Exception:
+    except Exception as e:
+        logger.warning("noise_texture_resynth.py::_estimate_noise_floor_dbfs fallback: %s", e)
         return -80.0

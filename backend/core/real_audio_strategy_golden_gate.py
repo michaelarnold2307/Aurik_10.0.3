@@ -171,7 +171,8 @@ def _resolve_strategy_phase_coalitions(
             if len(normalized_members) >= 2:
                 normalized[coalition_name] = normalized_members
         return normalized
-    except Exception:
+    except Exception as e:
+        logger.warning("real_audio_strategy_golden_gate.py::_resolve_strategy_phase_coalitions fallback: %s", e)
         return {}
 
 

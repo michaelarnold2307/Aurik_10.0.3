@@ -257,7 +257,8 @@ class BeatsPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("BEATs", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("beats_plugin.py::_infer_onnx fallback", exc_info=True)
             pass
         try:
             inp = self._to_model_input(audio, sr)
@@ -294,7 +295,8 @@ class BeatsPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("BEATs", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("beats_plugin.py::_infer_onnx fallback", exc_info=True)
                     pass
 
     def _panns_fallback(self, audio: np.ndarray, sr: int, top_k: int) -> BeatsResult:

@@ -141,7 +141,8 @@ class CrossChannelRepair:
                     damaged, sr, repair_start, repair_end,
                     context_ms=40, crossfade_ms=12
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("cross_channel_repair.py::unknown fallback: %s", e)
                 pass
 
         result[affected_channel] = damaged
@@ -159,7 +160,8 @@ class CrossChannelRepair:
                     result[affected_channel], sr, repair_start, repair_end,
                     context_ms=80, crossfade_ms=20
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("cross_channel_repair.py::unknown fallback: %s", e)
                 pass
 
         self._repair_boundaries.append((affected_channel, repair_start, repair_end))
@@ -210,7 +212,8 @@ class CrossChannelRepair:
                 result[affected_channel], sr, start, end,
                 context_ms=30, crossfade_ms=8
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("cross_channel_repair.py::repair_click fallback: %s", e)
             pass
 
         # §AF: Continuity-Check

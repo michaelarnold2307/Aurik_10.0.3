@@ -231,7 +231,8 @@ class PleasantnessRegistry:
             for cb in self._callbacks:
                 try:
                     cb(snap)
-                except Exception:
+                except Exception as e:
+                    logger.warning("pleasantness_registry.py::report_post fallback: %s", e)
                     pass
 
             return snap

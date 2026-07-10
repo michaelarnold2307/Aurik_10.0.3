@@ -450,7 +450,8 @@ def _apply_temporal_masking(
 
         return np.asarray(envelope_masked, dtype=np.float64)
 
-    except Exception:
+    except Exception as e:
+        logger.warning("strength_envelope.py::unknown fallback: %s", e)
         return envelope
 
 
@@ -506,7 +507,8 @@ def resample_envelope_to_sr(
                 fill_value=(float(envelope[0]), float(envelope[-1])),
             )
             return spline(target_t).astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("strength_envelope.py::resample_envelope_to_sr fallback: %s", e)
             pass  # Fallback to linear
 
     return np.interp(target_t, env_t, envelope.astype(np.float64)).astype(np.float32)

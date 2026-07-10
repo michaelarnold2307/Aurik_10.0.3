@@ -163,7 +163,8 @@ class EmotionalArcPlanner:
                 from scipy.ndimage import gaussian_filter1d  # pylint: disable=import-outside-toplevel
 
                 weights = gaussian_filter1d(weights.astype(np.float64), sigma=sigma_frames).astype(np.float32)
-            except Exception:
+            except Exception as e:
+                logger.warning("emotional_arc_planner.py::_plan_impl fallback: %s", e)
                 pass  # smoothing is optional
 
         weights = np.clip(weights, 0.5, 1.5).astype(np.float32)
@@ -198,7 +199,8 @@ class EmotionalArcPlanner:
                 i_e = min(n_frames, int(t_end / _RESOLUTION_S) + 1)
                 if i_e > i_s:
                     weights[i_s:i_e] = np.maximum(weights[i_s:i_e], zone_weight)
-            except Exception:
+            except Exception as e:
+                logger.warning("emotional_arc_planner.py::_apply_zone_weight fallback: %s", e)
                 pass
 
 

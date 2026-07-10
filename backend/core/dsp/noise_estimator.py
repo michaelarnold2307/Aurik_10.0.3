@@ -218,7 +218,8 @@ def compute_imcra_noise_estimate(
             power = (np.abs(Zxx) ** 2).astype(np.float32)
             noise_floor = np.median(power, axis=1, keepdims=True)
             return np.broadcast_to(noise_floor, power.shape).copy()  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("noise_estimator.py::compute_imcra_noise_estimate fallback: %s", e)
             return np.full((n_fft // 2 + 1, 1), 1e-8, dtype=np.float32)  # type: ignore[no-any-return]
 
 

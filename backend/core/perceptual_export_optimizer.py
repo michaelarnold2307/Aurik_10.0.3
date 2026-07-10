@@ -178,7 +178,8 @@ class PerceptualExportOptimizer:
                 else:
                     result = sp_sig.sosfilt(sos, result)
             logger.info("§AQ Listening adaptation: %s", mode)
-        except Exception:
+        except Exception as e:
+            logger.warning("perceptual_export_optimizer.py::_apply_listening_adaptation fallback: %s", e)
             pass
 
         return np.clip(result, -1.0, 1.0).astype(np.float32)
@@ -194,5 +195,6 @@ class PerceptualExportOptimizer:
                     meminfo[key.strip()] = int(val.split()[0])
             available = meminfo.get('MemAvailable', meminfo.get('MemFree', 0))
             return available / (1024 * 1024)  # KB → GB
-        except Exception:
+        except Exception as e:
+            logger.warning("perceptual_export_optimizer.py::_get_available_ram fallback: %s", e)
             return 8.0  # Conservative fallback

@@ -229,7 +229,8 @@ def compute_signal_relative_gate_dbfs(  # pylint: disable=too-many-positional-ar
         noise_floor_db = float(np.percentile(rms_db_vals, percentile))
         gate = float(np.clip(noise_floor_db + margin_db, -60.0, -10.0))
         return max(_floor, gate)  # material floor as minimum; signal can only raise it
-    except Exception:
+    except Exception as e:
+        logger.warning("audio_utils.py::compute_signal_relative_gate_dbfs fallback: %s", e)
         return _floor
 
 

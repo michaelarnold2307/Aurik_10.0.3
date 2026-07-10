@@ -377,7 +377,8 @@ def compute_phase_proxy_for_pmgg(
     if handler is not None:
         try:
             result.update(handler(audio_before, audio_after, sr))
-        except Exception:
+        except Exception as e:
+            logger.warning("cassette_defect_verifier.py::compute_phase_proxy_for_pmgg fallback: %s", e)
             pass
 
     # Layer 3: Kategorie-basierte Universal-Proxies (v10.3)
@@ -387,7 +388,8 @@ def compute_phase_proxy_for_pmgg(
         if cat_fn is not None:
             try:
                 result.update(cat_fn(audio_before, audio_after, sr))
-            except Exception:
+            except Exception as e:
+                logger.warning("cassette_defect_verifier.py::compute_phase_proxy_for_pmgg fallback: %s", e)
                 pass
 
     # Layer 4: Universelle Fallback-Proxies

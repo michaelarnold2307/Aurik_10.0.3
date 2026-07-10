@@ -1027,7 +1027,8 @@ class SpectralBandGapRepairPhase(PhaseInterface):
         try:
             _, _, Zxx_in = signal.stft(audio_in, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
             _, _, Zxx_out = signal.stft(audio_out, sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_56_spectral_band_gap_repair.py::_mrsa_gain_refinement fallback: %s", e)
             return audio_out
 
         n_freq = Zxx_in.shape[0]
@@ -1089,7 +1090,8 @@ class SpectralBandGapRepairPhase(PhaseInterface):
             _, result = signal.istft(
                 np.asarray(Zxx_refined, dtype=np.complex64), sr, nperseg=REF_WIN, noverlap=REF_WIN - REF_HOP
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_56_spectral_band_gap_repair.py::unknown fallback: %s", e)
             return audio_out
 
         if len(result) < n:

@@ -81,7 +81,8 @@ def apply_onset_protection_mask(
                     end = min(n, start + window_samples)
                     if start < n:
                         onset_mask_arr[start:end] = True
-            except Exception:
+            except Exception as e:
+                logger.warning("onset_guard.py::apply_onset_protection_mask fallback: %s", e)
                 return post  # Ohne Onset-Daten: kein Eingriff
         else:
             onset_mask_arr = np.asarray(onset_mask, dtype=bool)

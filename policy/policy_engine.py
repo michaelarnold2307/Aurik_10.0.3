@@ -404,7 +404,8 @@ class PolicyEngine:
                 dsp_cls = globals().get(name)
                 if dsp_cls:
                     dsp_chain.append(dsp_cls())
-            except Exception:
+            except Exception as e:
+                logger.warning("policy_engine.py::process fallback", exc_info=True)
                 pass
         # Adaptive Policy: Passe Reihenfolge und Auswahl nach Features, Genre, Experten-Feedback an
         if features.get("genre") == "jazz":
@@ -535,7 +536,8 @@ class PolicyEngine:
             )
             with open(audit_path, "w") as f:
                 json.dump(audit_data, f, indent=2)
-        except Exception:
+        except Exception as e:
+            logger.warning("policy_engine.py::unknown fallback", exc_info=True)
             pass
         # Rückgabe: alle Exzellenz-relevanten Ergebnisse inkl. Tonträgeranzeige
         return {

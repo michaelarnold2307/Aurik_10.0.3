@@ -25,7 +25,8 @@ def _get_material_type():
         from backend.core.defect_scanner import MaterialType
 
         return MaterialType
-    except Exception:
+    except Exception as e:
+        logger.warning("medium_classifier.py::_get_material_type fallback: %s", e)
         return None
 
 
@@ -220,7 +221,8 @@ class _SpectralFingerprinter:
         """
         try:
             return self._wow_flutter_fcpe(mono, sr)
-        except Exception:
+        except Exception as e:
+            logger.warning("medium_classifier.py::_wow_flutter fallback: %s", e)
             return self._wow_flutter_zcr_fallback(mono, sr)
 
     def _wow_flutter_fcpe(self, mono: np.ndarray, sr: int) -> tuple[float, float]:

@@ -220,7 +220,8 @@ class SpatialEnhancementPhase(PhaseInterface):
                 _tag_vocal = float(_panns_tags.get("vocals", 0.0))
                 _tag_singing = float(_panns_tags.get("singing", 0.0))
                 _p46_panns = max(_p46_panns, _tag_vocal, _tag_singing)
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_46_spatial_enhancement.py::process fallback: %s", e)
                 pass
 
         _vocal_echo_guard = (not _is_studio_mode) and _p46_panns >= 0.25

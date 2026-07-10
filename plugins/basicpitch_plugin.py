@@ -164,7 +164,8 @@ class BasicPitchPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("BasicPitch", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("basicpitch_plugin.py::_analyze_onnx fallback", exc_info=True)
             pass
         try:
             session = self._session
@@ -273,7 +274,8 @@ class BasicPitchPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("BasicPitch", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("basicpitch_plugin.py::unknown fallback", exc_info=True)
                     pass
 
     def _analyze_dsp(self, audio: np.ndarray, sr: int, max_polyphony: int) -> BasicPitchResult:

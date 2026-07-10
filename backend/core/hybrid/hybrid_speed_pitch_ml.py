@@ -331,7 +331,8 @@ class HybridSpeedPitch:
                 if len(valid) == 0:
                     return 0.0, 0.0
                 return float(np.median(valid)), 0.35  # Feste niedrige Konfidenz
-            except Exception:
+            except Exception as e:
+                logger.warning("hybrid_speed_pitch_ml.py::_apply_pyin_global fallback: %s", e)
                 return 0.0, 0.0
 
     def _apply_crepe_global(self, audio: np.ndarray, sample_rate: int) -> tuple[float, float]:

@@ -105,7 +105,8 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert isinstance(result, TontraegerErgebnis)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_12_material_type_nonempty(self):
@@ -115,7 +116,8 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert len(result.material_type) > 0
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_13_confidence_finite(self):
@@ -125,7 +127,8 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert math.isfinite(result.confidence)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_14_no_nan_in_detected_media_confidences(self):
@@ -136,7 +139,8 @@ class TestTontraegerDenkerErkenne:
             result = TontraegerDenker().erkenne(audio, SR)
             for _, conf in result.detected_media:
                 assert math.isfinite(conf)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_15_stereo_input_accepted(self):
@@ -146,7 +150,8 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert isinstance(result, TontraegerErgebnis)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_16_silence_no_crash(self):
@@ -156,7 +161,8 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert result is not None
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_17_recommended_phases_strings(self):
@@ -166,7 +172,8 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert all(isinstance(p, str) for p in result.recommended_phases)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_18_short_audio_no_crash(self):
@@ -175,7 +182,8 @@ class TestTontraegerDenkerErkenne:
         audio = np.zeros(256, dtype=np.float32)
         try:
             TontraegerDenker().erkenne(audio, SR)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Kein uncaught crash erwartet
 
     def test_19_clipped_input_no_crash(self):
@@ -184,7 +192,8 @@ class TestTontraegerDenkerErkenne:
         audio = np.ones(SR, dtype=np.float32)
         try:
             TontraegerDenker().erkenne(audio, SR)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_20_confidence_in_range(self):
@@ -194,5 +203,6 @@ class TestTontraegerDenkerErkenne:
         try:
             result = TontraegerDenker().erkenne(audio, SR)
             assert 0.0 <= result.confidence <= 1.0
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass

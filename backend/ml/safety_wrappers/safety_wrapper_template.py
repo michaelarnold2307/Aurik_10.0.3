@@ -444,7 +444,8 @@ class BaseSafetyWrapper:
             hpe_delta = float(hpe_cmp.get("delta_score", 0.0))
             # Map delta [-1,1] to score [0,1] where positive delta = high score
             hpe_score = float(np.clip(0.5 + hpe_delta * 0.5, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("safety_wrapper_template.py::_compute_quality_score fallback", exc_info=True)
             pass
 
         # §v10: 50% HPE + 30% structure + 20% SNR

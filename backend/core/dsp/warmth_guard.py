@@ -57,7 +57,8 @@ def _bandpass_energy_db(audio: np.ndarray, sr: int) -> float:
         filtered = sosfiltfilt(sos, mono).astype(np.float32)
         rms = float(np.sqrt(np.mean(filtered**2) + 1e-12))
         return float(20.0 * np.log10(rms + 1e-12))
-    except Exception:
+    except Exception as e:
+        logger.warning("warmth_guard.py::_bandpass_energy_db fallback: %s", e)
         return -120.0
 
 

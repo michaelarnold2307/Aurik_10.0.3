@@ -549,7 +549,8 @@ class RestaurierDenker:
                     _uv3_kwargs["estimated_bitrate_kbps"] = _kbps
                     _uv3_kwargs["bitrate_aware_limits"] = get_bitrate_aware_limits(str(material), audio, sr)
                     logger.info("RestaurierDenker: Bitrate ~%d kbps (conf=%.2f)", _kbps, _conf)
-            except Exception:
+            except Exception as e:
+                logger.warning("restaurier_denker.py::unknown fallback: %s", e)
                 pass
 
             try:
@@ -633,7 +634,8 @@ class RestaurierDenker:
                             if _sweet.warnings:
                                 for w in _sweet.warnings[:3]:
                                     logger.info("  - %s", w)
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("restaurier_denker.py::unknown fallback: %s", e)
                             pass
 
                         if _sweet is not None and _sweet.all_green:
@@ -646,7 +648,8 @@ class RestaurierDenker:
                                 _aura_cmp = compare_aura(np.asarray(audio, dtype=np.float32), _restored_f32, sr)
                                 if not _aura_cmp.get("aura_preserved", True):
                                     logger.warning("RestaurierDenker: AURA VERLETZT — %s", _aura_cmp.get("verdict", ""))
-                            except Exception:
+                            except Exception as e:
+                                logger.warning("restaurier_denker.py::unknown fallback: %s", e)
                                 pass
                             # §v10 Song-Profil aktualisieren
                             try:
@@ -770,7 +773,7 @@ class RestaurierDenker:
             except Exception as are_exc:
                 logger.warning("AurikAutonomousPipeline fehlgeschlagen: %s — Fallback auf UV3", are_exc)
 
-        # ── Letzter Fallback: UV3 direkt ──────────────────────────────────────
+        # ── §v10.5 UV3 immer direkt (ARE-Pfad deprecated) ──────────────────
         restorer = self._get_restorer(mode=mode)
         if restorer is None:
             return self._fallback(audio, material or "unknown", "Kein Restorer verfügbar")
@@ -950,6 +953,36 @@ class RestaurierDenker:
         out_audio = np.nan_to_num(out_audio, nan=0.0, posinf=0.0, neginf=0.0)
         out_audio = np.clip(out_audio, -1.0, 1.0)
 
+        # §v10.2 Naturalness Optimizer MAX: HPE-geführte Post-Processing
+        _hpe_before: dict[str, Any] = {}
+        _hpe_after: dict[str, Any] = {}
+        try:
+            from backend.core.naturalness_optimizer import optimize_naturalness
+
+            _mat = detected_material or getattr(raw, "material_type", None)
+            _mat_str = str(_mat.value if hasattr(_mat, "value") else _mat) if _mat else "unknown"
+            _orig_audio = getattr(raw, "original_audio", None)
+            if _orig_audio is None:
+                _orig_audio = getattr(raw, "reference_audio", out_audio.copy())
+            if _orig_audio is None:
+                _orig_audio = out_audio.copy()
+            _era = str(getattr(raw, "era", "") or "")
+            _mode = "STUDIO_2026" if getattr(raw, "mode", "") in ("studio2026", "STUDIO_2026") else "RESTORATION"
+            result = optimize_naturalness(
+                out_audio, _orig_audio, 48000,
+                material=_mat_str, era=_era, mode=_mode,
+            )
+            out_audio = result.audio
+            _hpe_before = {"score": result.hpe_before}
+            _hpe_after = {"score": result.hpe_after}
+            logger.info(
+                "NaturalnessOptimizer MAX: HPE %.3f → %.3f (Δ%+.3f) | stages: %s | improvements: %s",
+                result.hpe_before, result.hpe_after, result.delta_hpe,
+                result.applied_stages, result.improvements[:3] if result.improvements else [],
+            )
+        except Exception as _hpe_exc:
+            logger.debug("NaturalnessOptimizer nicht verfügbar: %s", _hpe_exc)
+
         rt = float(raw.rt_factor) if math.isfinite(raw.rt_factor) else 0.0
 
         # Material aus raw übernehmen wenn nicht explizit übergeben
@@ -972,7 +1005,12 @@ class RestaurierDenker:
             phases_executed=list(raw.phases_executed or []),
             phases_skipped=list(raw.phases_skipped or []),
             musical_goals=goals,
-            warnings=list(raw.warnings or []),
+            warnings=list(raw.warnings or []) + (
+                ["HPE ↑ trotz PMGG-Regression — angenehmeres Ergebnis gewinnt"]
+                if _hpe_after.get("score", 0) > _hpe_before.get("score", 0) + 0.02
+                and float(raw.quality_estimate) < 0.5
+                else []
+            ),
             material=detected_material or "unknown",
             confidence=float(raw.confidence) if math.isfinite(raw.confidence) else 1.0,
             winning_variant=getattr(raw, "winning_variant", None),
@@ -984,6 +1022,12 @@ class RestaurierDenker:
                 # song_calibration, and all other §2.53 telemetry fields.
                 **(dict(raw.metadata or {}) if isinstance(getattr(raw, "metadata", None), dict) else {}),
                 "total_time_seconds": float(raw.total_time_seconds or 0.0),
+                # §v10.1 HPE Naturalness Scores
+                "hpe_score_before": _hpe_before.get("score", None),
+                "hpe_score_after": _hpe_after.get("score", None),
+                "hpe_delta": (_hpe_after.get("score", 0) - _hpe_before.get("score", 0)) if _hpe_before and _hpe_after else None,
+                # §v10.5 HPE-is-Boss: PMGG-Regression ist akzeptabel wenn HPE steigt
+                "hpe_overrides_pmgg": bool(_hpe_after.get("score", 0) > _hpe_before.get("score", 0) + 0.02),
             },
             # §S5 Propagations-Fix: GAF-Ergebnis (inapplicable Goals) aus UV3-RestorationResult
             # direkt weiterleiten — ohne dieses Feld bleibt _rest_inapplicable_goals in

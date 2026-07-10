@@ -114,3 +114,21 @@ Beide Modi via Magic Buttons in der GUI erreichbar.
 | **Windows 10/11** | NSIS-Installer (`.exe`) | ✅ |
 
 Keine Python-Kenntnisse, kein Terminal, kein `pip install` erforderlich.
+
+---
+
+## 🖥️ GPU-Unterstützung (AMD ROCm / DirectML)
+
+Aurik 9.12.8 beschleunigt rechenintensive Phasen (Defect-Scanning, MERT-Embeddings,
+PSLA, CLAP-Referenz-Matching, Whisper-Tiny-ONNX) automatisch über die GPU, wenn
+verfügbar **und** der Anwender GPU-Compute explizit aktiviert hat.
+
+| Plattform | GPU-API | Treiber |
+| --- | --- | --- |
+| **Linux** | AMD ROCm 6.x (PyTorch ROCm) | `amdgpu` + ROCm Runtime |
+| **Windows 10/11** | AMD DirectML (ONNX Runtime) | Aktueller Adrenalin-Treiber |
+
+**Wichtig:** Aurik verwendet GPU-Beschleunigung **nur optional** — 100 % offline auf
+CPU ist jederzeit möglich. Die GPU bringt einen **2×–8× Speedup** (phase-abhängig).
+
+📖 **[Vollständiges GPU Setup →](GPU_SETUP.md)** — ROCm-Installation, Verifikation und Troubleshooting.

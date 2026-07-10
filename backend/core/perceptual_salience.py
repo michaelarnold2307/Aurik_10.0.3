@@ -180,7 +180,8 @@ class PerceptualSalienceEstimator:
                     logger.debug(
                         "§SOTA #10 Binaural: IACC=%.3f → salience ×%.2f", _iacc, _binaural_factor,
                     )
-            except Exception:
+            except Exception as e:
+                logger.warning("perceptual_salience.py::unknown fallback: %s", e)
                 pass
 
         return result

@@ -2180,7 +2180,8 @@ class DefectPhaseMapper:
                 if v != v:  # NaN
                     return float(default)
                 return max(0.0, min(1.0, v))
-            except Exception:
+            except Exception as e:
+                logger.warning("defect_phase_mapper.py::_sanitize_01 fallback: %s", e)
                 return float(default)
 
         seen: dict[str, float] = {}  # phase_id → max_severity

@@ -51,7 +51,8 @@ def _get_resample_poly() -> Any | None:
     try:
         module = importlib.import_module("scipy.signal")
         return module.resample_poly
-    except Exception:
+    except Exception as e:
+        logger.warning("era_classifier.py::_get_resample_poly fallback: %s", e)
         return None
 
 
@@ -606,7 +607,8 @@ def _estimate_spectral_tilt(audio_mono: np.ndarray, sr: int) -> float:
     try:
         slope = float(np.linalg.lstsq(A, log_power, rcond=None)[0][0])
         return float(np.clip(slope, -12.0, 2.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("era_classifier.py::_estimate_spectral_tilt fallback: %s", e)
         return -4.0
 
 

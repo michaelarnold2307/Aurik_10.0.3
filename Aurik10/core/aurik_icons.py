@@ -137,7 +137,8 @@ def _make_pixmap(svg_path: str, size: int) -> object:
             px = QPixmap(size, size)
             px.fill(Qt.transparent)
             return px
-        except Exception:
+        except Exception as e:
+            logger.warning("aurik_icons.py::_make_pixmap fallback", exc_info=True)
             return None
 
 

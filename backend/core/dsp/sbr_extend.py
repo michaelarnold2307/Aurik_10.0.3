@@ -39,5 +39,6 @@ def _sbr_extend(audio: np.ndarray, sr: int) -> np.ndarray:
         D_new = mag * np.exp(1j * phase)
         y = librosa.istft(D_new, hop_length=hop, length=len(audio))
         return np.asarray(y, dtype=np.float32)
-    except Exception:
+    except Exception as e:
+        logger.warning("sbr_extend.py::_sbr_extend fallback: %s", e)
         return audio

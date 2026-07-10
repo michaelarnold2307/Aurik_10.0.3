@@ -127,7 +127,8 @@ class ArtifactDetectionPlugin:
 
             _plm_ad = _get_plm_ad()
             _plm_ad.set_active(self._BUDGET_NAME, True)
-        except Exception:
+        except Exception as e:
+            logger.warning("artifact_detection_plugin.py::detect_artifacts fallback", exc_info=True)
             pass
         try:
             with torch.no_grad():
@@ -136,7 +137,8 @@ class ArtifactDetectionPlugin:
             if _plm_ad is not None:
                 try:
                     _plm_ad.set_active(self._BUDGET_NAME, False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("artifact_detection_plugin.py::detect_artifacts fallback", exc_info=True)
                     pass
         raw = np.nan_to_num(output.numpy().tolist(), nan=0.0, posinf=0.0, neginf=0.0)
         return {

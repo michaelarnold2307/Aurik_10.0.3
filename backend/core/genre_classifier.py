@@ -491,7 +491,8 @@ class GermanSchlagerClassifier:
             # music typically ≤ 0.40.  Threshold 0.42 increases safety margin against
             # stochastic borderline-noise segments while keeping tonal/music material.
             return flatness <= 0.42
-        except Exception:
+        except Exception as e:
+            logger.warning("genre_classifier.py::_is_music_like fallback: %s", e)
             return True  # on error: conservative — continue classification
 
     def _compute_accordion_score(self, mono: np.ndarray, sr: int) -> float:
@@ -1024,7 +1025,8 @@ class GermanSchlagerClassifier:
             onsets = librosa.onset.onset_detect(y=mono, sr=sr, units="time")  # type: ignore[attr-defined]
             duration_s = len(mono) / sr
             return float(len(onsets) / max(duration_s, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("genre_classifier.py::_onset_rate fallback: %s", e)
             return 2.0
 
     @staticmethod
@@ -1717,7 +1719,8 @@ class GermanSchlagerClassifier:
             from plugins.panns_plugin import classify_audio as _panns_classify_audio
 
             _tags = _panns_classify_audio(audio, sr)
-        except Exception:
+        except Exception as e:
+            logger.warning("genre_classifier.py::_compute_panns_genre_prior fallback: %s", e)
             return {}
         if not isinstance(_tags, dict) or not _tags:
             return {}
@@ -1999,7 +2002,8 @@ class GermanSchlagerClassifier:
             import librosa
 
             return np.asarray(librosa.resample(audio, orig_sr=sr_in, target_sr=sr_out), dtype=np.float32)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("genre_classifier.py::_resample fallback: %s", e)
             return audio
 
     def _estimate_key(self, audio: np.ndarray, sr: int) -> str:
@@ -2026,7 +2030,8 @@ class GermanSchlagerClassifier:
             key_idx = int(np.argmax(chroma_mean))
             key_names = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "H"]
             return f"{key_names[key_idx]}-Dur"
-        except Exception:
+        except Exception as e:
+            logger.warning("genre_classifier.py::_estimate_key fallback: %s", e)
             return "Unbekannt"
 
     def _determine_genre_label(self, subgenre: str, _bpm: float, lang_de_score: float = 0.5) -> str:

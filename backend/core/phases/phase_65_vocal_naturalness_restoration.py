@@ -363,7 +363,8 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
                     if _vzs <= _center_s <= _vze:
                         _p65_vib_cap = min(_p65_vib_cap, 0.20)
                         break
-                except Exception:
+                except Exception as e:
+                    logger.warning("phase_65_vocal_naturalness_restoration.py::unknown fallback: %s", e)
                     pass
             for _pz in _p65_passaggio_zones:
                 try:
@@ -375,7 +376,8 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
                     if _pzs <= _center_s <= _pze:
                         _p65_vib_cap = min(_p65_vib_cap, 0.35)
                         break
-                except Exception:
+                except Exception as e:
+                    logger.warning("phase_65_vocal_naturalness_restoration.py::unknown fallback: %s", e)
                     pass
             if _p65_vib_cap < effective_strength:
                 effective_strength = _p65_vib_cap

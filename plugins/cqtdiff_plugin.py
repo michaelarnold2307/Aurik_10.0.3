@@ -263,7 +263,8 @@ class CQTdiffPlusPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("CQTdiff+", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("cqtdiff_plugin.py::_inpaint_diffusion fallback", exc_info=True)
             pass
         try:
             session = self._session
@@ -302,7 +303,8 @@ class CQTdiffPlusPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("CQTdiff+", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("cqtdiff_plugin.py::_inpaint_diffusion fallback", exc_info=True)
                     pass
 
     # ------------------------------------------------------------------
@@ -465,7 +467,8 @@ class CQTdiffPlusPlugin:
             _nc2 = float(np.linalg.norm(_c2a))
             corr = float(np.dot(_c1a, _c2a) / (_nc1 * _nc2 + 1e-10))
             return float(np.clip(np.nan_to_num(corr), -1.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("cqtdiff_plugin.py::_compute_chroma_corr fallback", exc_info=True)
             return 0.9  # Optimistischer Standardwert bei librosa-Fehler
 
 

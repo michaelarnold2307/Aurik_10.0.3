@@ -154,7 +154,8 @@ class TestVocalAIBranch:
                 denker.optimiere(audio, SR, material="vocal")
                 # Enhancer wurde instanziiert
                 mock_cls.assert_called_once()
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass  # Andere Schritte dürfen scheitern
 
     def test_11_tape_material_skips_enhancer(self):
@@ -170,7 +171,8 @@ class TestVocalAIBranch:
             denker = self._patched_exzellenz_denker()
             try:
                 denker.optimiere(audio, SR, material="tape")
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass
             mock_cls.assert_not_called()
 
@@ -190,7 +192,8 @@ class TestVocalAIBranch:
             try:
                 self._patched_exzellenz_denker().optimiere(audio, SR, material="singer")
                 mock_cls.assert_called()
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass
 
     def test_13_vocal_enhancer_exception_swallowed(self):
@@ -208,7 +211,8 @@ class TestVocalAIBranch:
                 result = self._patched_exzellenz_denker().optimiere(audio, SR, material="vocal")
                 # Kein Absturz
                 assert result is not None
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass  # Andere Stufen dürfen scheitern
 
     def test_14_vinyl_material_skips_enhancer(self):
@@ -222,7 +226,8 @@ class TestVocalAIBranch:
 
             try:
                 self._patched_exzellenz_denker().optimiere(audio, SR, material="vinyl")
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass
             mock_cls.assert_not_called()
 
@@ -241,7 +246,8 @@ class TestVocalAIBranch:
             try:
                 self._patched_exzellenz_denker().optimiere(audio, SR, material="voice")
                 mock_cls.assert_called()
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass
 
 
@@ -277,7 +283,8 @@ class TestOptimiereInvarianten:
         try:
             result = self._run_lightweight_optimiere(audio, material="tape")
             assert isinstance(result, ExzellenzErgebnis)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Falls deps nicht vorhanden
 
     def test_17_audio_no_nan(self):
@@ -287,7 +294,8 @@ class TestOptimiereInvarianten:
         try:
             result = self._run_lightweight_optimiere(audio)
             assert np.isfinite(result.audio).all()
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_18_goals_passed_non_negative(self):
@@ -297,7 +305,8 @@ class TestOptimiereInvarianten:
         try:
             result = self._run_lightweight_optimiere(audio)
             assert result.goals_passed >= 0
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_19_musical_goals_dict(self):
@@ -307,7 +316,8 @@ class TestOptimiereInvarianten:
         try:
             result = self._run_lightweight_optimiere(audio)
             assert isinstance(result.musical_goals, dict)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_20_excellence_score_finite(self):
@@ -317,7 +327,8 @@ class TestOptimiereInvarianten:
         try:
             result = self._run_lightweight_optimiere(audio)
             assert math.isfinite(result.excellence_score)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
 

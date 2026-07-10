@@ -397,7 +397,8 @@ class AccessibleCLI:
                 print("\a", end="", flush=True)  # Single beep
             else:
                 print("\a", end="", flush=True)  # Single beep
-        except Exception:
+        except Exception as e:
+            logger.warning("cli_accessibility.py::play_sound fallback", exc_info=True)
             pass  # Silently fail if beep not supported
 
     def table(self, headers: list[str], rows: list[list[str]], alignments: list[str] | None = None):

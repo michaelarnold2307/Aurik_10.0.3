@@ -125,7 +125,7 @@ class DirectDefectRepair:
                     xi = np.arange(s0, s1, dtype=np.float64)
                     yi = np.polyval(coeffs, xi)
                     result[ch, s0:s1] = yi.astype(np.float32)
-                except:
+                except Exception as e:
                     pass
         return result
 

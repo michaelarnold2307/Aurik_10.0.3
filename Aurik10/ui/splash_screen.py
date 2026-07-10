@@ -45,7 +45,8 @@ except Exception:
         _match = re.search(r'^version\s*=\s*"([^"]+)"', _content, re.MULTILINE)
         if _match:
             _VERSION = _match.group(1)
-    except Exception:
+    except Exception as e:
+        logger.warning("splash_screen.py::unknown fallback", exc_info=True)
         pass
 
 

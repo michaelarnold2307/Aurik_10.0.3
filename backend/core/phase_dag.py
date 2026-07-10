@@ -224,7 +224,8 @@ def _phase_num(pid: str) -> int:
     """Extrahiert die Phasennummer aus einer Phase-ID (Tiebreaker für Sortierung)."""
     try:
         return int(pid.split("_")[1])
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_dag.py::_phase_num fallback: %s", e)
         return 999
 
 

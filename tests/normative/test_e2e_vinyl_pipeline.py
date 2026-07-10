@@ -95,7 +95,8 @@ def _make_minimal_defect_result(material_type):
             sample_rate=SR,
             duration_seconds=DURATION_S,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("test fallback", exc_info=True)
         return None
 
 

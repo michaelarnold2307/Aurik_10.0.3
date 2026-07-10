@@ -72,7 +72,8 @@ def _k_weight_channel(channel: np.ndarray, sr: int) -> np.ndarray:
         sos_hi = butter(1, 1500.0, btype="highpass", fs=sr, output="sos")
         high = sosfiltfilt(sos_hi, weighted)
         return weighted + high * 0.18  # type: ignore[no-any-return]
-    except Exception:
+    except Exception as e:
+        logger.warning("analysis_and_modules.py::_k_weight_channel fallback: %s", e)
         return channel
 
 
@@ -198,7 +199,8 @@ class FeatureExtractor:
                     "f0_mean": float(np.mean(f0_vals)),
                     "f0_std": float(np.std(f0_vals)),
                 }
-            except Exception:
+            except Exception as e:
+                logger.warning("analysis_and_modules.py::crepe_features fallback: %s", e)
                 return {"f0_median": -1.0, "f0_mean": -1.0, "f0_std": -1.0}
 
         def librosa_features() -> dict[str, Any]:
@@ -229,7 +231,8 @@ class FeatureExtractor:
                     "mfcc_mean": -1.0,
                     "mfcc_std": -1.0,
                 }
-            except Exception:
+            except Exception as e:
+                logger.warning("analysis_and_modules.py::librosa_features fallback: %s", e)
                 return {
                     "chroma_mean": -1.0,
                     "chroma_std": -1.0,
@@ -264,7 +267,8 @@ class FeatureExtractor:
                             os.remove(tmp_in.name)
                         if os.path.exists(tmp_out.name):
                             os.remove(tmp_out.name)
-            except Exception:
+            except Exception as e:
+                logger.warning("analysis_and_modules.py::panns_features fallback: %s", e)
                 return {}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -511,7 +515,8 @@ class FeatureExtractor:
 
             return float(click_density)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("analysis_and_modules.py::_detect_clicks fallback: %s", e)
             return 0.0
 
     def _detect_crackle(self, audio: np.ndarray, sr: int) -> float:
@@ -548,7 +553,8 @@ class FeatureExtractor:
 
             return float(mean_density)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("analysis_and_modules.py::_detect_crackle fallback: %s", e)
             return 0.0
 
     def _detect_clipping_percentage(self, audio: np.ndarray) -> float:
@@ -564,7 +570,8 @@ class FeatureExtractor:
             clipping_percentage = np.sum(clipped) / len(audio) * 100.0
             return float(clipping_percentage)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("analysis_and_modules.py::_detect_clipping_percentage fallback: %s", e)
             return 0.0
 
     def _detect_dropouts(self, audio: np.ndarray, sr: int) -> tuple:
@@ -615,7 +622,8 @@ class FeatureExtractor:
 
             return dropout_regions, len(dropout_regions)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("analysis_and_modules.py::_detect_dropouts fallback: %s", e)
             return [], 0
 
     def _detect_wow_flutter(self, audio: np.ndarray, sr: int) -> tuple:
@@ -673,7 +681,8 @@ class FeatureExtractor:
 
             return float(wow_score), float(flutter_score)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("analysis_and_modules.py::_detect_wow_flutter fallback: %s", e)
             return 0.0, 0.0
 
     def _detect_hum(self, audio: np.ndarray, sr: int) -> float:
@@ -712,7 +721,8 @@ class FeatureExtractor:
 
             return float(hum_score)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("analysis_and_modules.py::_detect_hum fallback: %s", e)
             return 0.0
 
 

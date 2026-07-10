@@ -188,7 +188,8 @@ class MusicalStructureAnalyzer:
         except Exception:
             try:
                 chroma = self._stft_chroma(mono, sr, hop)
-            except Exception:
+            except Exception as e:
+                logger.warning("musical_structure_analyzer.py::_ssm_segment fallback: %s", e)
                 return self._uniform_segment(n, sr, duration_s)
 
         n_frames = chroma.shape[1]
@@ -577,7 +578,8 @@ class MusicalStructureAnalyzer:
             peak_lag = int(np.argmax(ac[min_lag:max_lag])) + min_lag
             bpm = 60.0 * sr / (peak_lag * hop)
             return float(np.clip(bpm, 40.0, 240.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_structure_analyzer.py::_estimate_bpm fallback: %s", e)
             return 120.0
 
 

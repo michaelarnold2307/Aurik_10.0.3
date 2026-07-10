@@ -578,7 +578,8 @@ class SpectralRepair(PhaseInterface):
                 and avail_ratio >= self._THRASH_RELAX_ML_MIN_AVAIL_RATIO
                 and swap_pct < self._THRASH_RELAX_ML_MAX_SWAP_PCT
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_23_spectral_repair.py::_can_relax_thrashing_guard fallback: %s", e)
             return False
 
     def get_metadata(self) -> PhaseMetadata:
@@ -617,7 +618,8 @@ class SpectralRepair(PhaseInterface):
         """Gibt True when swap/RAM pressure makes heavy phase-23 paths unsafe zurück."""
         try:
             return bool(is_system_thrashing())
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_23_spectral_repair.py::_is_system_thrashing fallback: %s", e)
             return False
 
     def process(
@@ -1867,7 +1869,8 @@ class SpectralRepair(PhaseInterface):
                             _avail_gb,
                         )
                         _mrsa_ok = False
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_23_spectral_repair.py::unknown fallback: %s", e)
                 pass  # psutil nicht verfügbar — MRSA versuchen
             if _mrsa_ok:
                 try:

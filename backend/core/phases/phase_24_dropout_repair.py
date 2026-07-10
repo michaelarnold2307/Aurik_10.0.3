@@ -406,7 +406,8 @@ class DropoutRepairPhase(PhaseInterface):
             import gc  # pylint: disable=import-outside-toplevel
 
             import psutil  # pylint: disable=import-outside-toplevel
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_24_dropout_repair.py::_has_sufficient_ml_headroom fallback: %s", e)
             return True
 
         # Guard 1: AudioSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).

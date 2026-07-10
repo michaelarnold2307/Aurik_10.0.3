@@ -206,7 +206,8 @@ class VocalStyleProfiler:
             peak_rate = float(freqs_mod[np.where(mask)[0][0] + int(np.argmax(fft_mag[mask]))])
 
             return float(np.clip(peak_rate, 0.0, 12.0)), float(np.clip(depth_cents, 0.0, 200.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_style_profiler.py::_compute_vibrato fallback: %s", e)
             return 0.0, 0.0
 
     def _compute_chest_head_ratio(self, mono: np.ndarray, sr: int) -> float:
@@ -234,7 +235,8 @@ class VocalStyleProfiler:
                 if total > 1e-10:
                     ratios.append(e_low / total)
             return float(np.clip(np.mean(ratios) if ratios else 0.5, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_style_profiler.py::_compute_chest_head_ratio fallback: %s", e)
             return 0.5
 
     def _compute_phrase_contour_variance(self, mono: np.ndarray, sr: int) -> float:
@@ -248,7 +250,8 @@ class VocalStyleProfiler:
             if not rms_vals:
                 return 0.0
             return float(np.clip(float(np.var(rms_vals)) * 1e4, 0.0, 1000.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_style_profiler.py::_compute_phrase_contour_variance fallback: %s", e)
             return 0.0
 
     def _compute_f1_f2_ratio(self, mono: np.ndarray, sr: int) -> float:
@@ -264,7 +267,8 @@ class VocalStyleProfiler:
             if f2 > 10.0 and f1 > 10.0:
                 return float(np.clip(f1 / f2, 0.0, 1.0))
             return 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_style_profiler.py::_compute_f1_f2_ratio fallback: %s", e)
             return 0.0
 
     def _compute_breathiness(self, mono: np.ndarray, sr: int) -> float:
@@ -304,7 +308,8 @@ class VocalStyleProfiler:
                 if h1_amp > 1e-10 and h2_amp > 1e-10:
                     h1_h2_diffs.append(20.0 * np.log10(h1_amp / h2_amp))
             return float(np.clip(np.mean(h1_h2_diffs) if h1_h2_diffs else 0.0, 0.0, 30.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_style_profiler.py::_compute_breathiness fallback: %s", e)
             return 0.0
 
 

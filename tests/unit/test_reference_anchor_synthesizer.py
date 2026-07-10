@@ -33,7 +33,8 @@ def _mock_era():
             material_prior="tape",
             noise_profile=np.zeros(128, dtype=np.float32),
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("test fallback", exc_info=True)
         return None
 
 

@@ -372,7 +372,8 @@ class PhaseAligner:
                 # Dry/Wet-Mix mit correction_strength
                 mix = float(getattr(self, "correction_strength", 1.0))
                 return (corrected * mix + audio * (1.0 - mix)).astype(audio.dtype)
-            except Exception:
+            except Exception as e:
+                logger.warning("multi_track_specialist.py::correct_phase fallback", exc_info=True)
                 return audio.copy()
 
     def process(self, audio_stereo: np.ndarray, sample_rate: int) -> np.ndarray:

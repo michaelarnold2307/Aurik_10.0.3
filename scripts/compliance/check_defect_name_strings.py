@@ -37,7 +37,8 @@ def scan_file(filepath: Path) -> list[tuple[int, str, str]]:
     """Returns [(line, found_name, suggested_canonical), ...]."""
     try:
         lines = filepath.read_text(encoding="utf-8").split("\n")
-    except Exception:
+    except Exception as e:
+        logger.warning("check_defect_name_strings.py::scan_file fallback", exc_info=True)
         return []
 
     findings = []

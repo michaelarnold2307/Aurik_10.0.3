@@ -296,7 +296,8 @@ class DefectPrecisionEnhancer:
                     mono_after, sr, s0, s1
                 )
                 boundary_ok = continuity.get("ok", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("defect_precision_enhancer.py::verify_repair fallback: %s", e)
                 pass
 
             if after_rms < before_rms * 0.1:
@@ -382,5 +383,6 @@ class _SimpleMaskingModel:
             # Audibility: defect must stand out from background
             return smr > -25  # audible if SMR > -25 dB
 
-        except Exception:
+        except Exception as e:
+            logger.warning("defect_precision_enhancer.py::is_audible fallback: %s", e)
             return True  # assume audible on error

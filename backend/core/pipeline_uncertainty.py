@@ -279,7 +279,8 @@ class PipelineUncertaintyEstimator:
             top3_conf = float(np.clip(top3_mass / 0.75, 0.0, 1.0))
 
             return float(np.clip(0.40 * margin_conf + 0.30 * entropy_conf + 0.30 * top3_conf, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("pipeline_uncertainty.py::_estimate_plan_support fallback: %s", e)
             return 0.5
 
     def _try_ml_uq_backend(self, base_confidence: float) -> dict[str, Any]:

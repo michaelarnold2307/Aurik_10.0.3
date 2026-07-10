@@ -57,7 +57,8 @@ def prewarm_crepe(request):
         from plugins.crepe_plugin import get_crepe_plugin
 
         get_crepe_plugin()  # Singleton einmalig initialisieren
-    except Exception:
+    except Exception as e:
+        logger.warning("test fallback", exc_info=True)
         pass  # DSP-Fallback aktiv — kein Modell, trotzdem kein Absturz
 
 

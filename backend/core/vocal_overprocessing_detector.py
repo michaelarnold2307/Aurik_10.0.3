@@ -176,13 +176,15 @@ def _extract_f1_f2(audio: np.ndarray, sr: int, lpc_order: int = 14) -> tuple[flo
                     f1_vals.append(formants[0])
                 if len(formants) >= 2:
                     f2_vals.append(formants[1])
-            except Exception:
+            except Exception as e:
+                logger.warning("vocal_overprocessing_detector.py::_extract_f1_f2 fallback: %s", e)
                 pass
 
         f1 = float(np.median(f1_vals)) if f1_vals else 0.0
         f2 = float(np.median(f2_vals)) if f2_vals else 0.0
         return f1, f2
-    except Exception:
+    except Exception as e:
+        logger.warning("vocal_overprocessing_detector.py::_extract_f1_f2 fallback: %s", e)
         return 0.0, 0.0
 
 

@@ -322,28 +322,32 @@ def _get_hpe(mono: np.ndarray, sr: int) -> float:
     try:
         from backend.core.human_pleasantness_estimator import compute_pleasantness
         return float(compute_pleasantness(mono, sr).score)
-    except Exception:
+    except Exception as e:
+        logger.warning("sweet_spot_optimizer.py::_get_hpe fallback: %s", e)
         return 0.5
 
 def _get_inviting(mono: np.ndarray, sr: int) -> float:
     try:
         from backend.core.inviting_sound_checker import check_inviting_sound
         return float(check_inviting_sound(mono, sr).score)
-    except Exception:
+    except Exception as e:
+        logger.warning("sweet_spot_optimizer.py::_get_inviting fallback: %s", e)
         return 0.5
 
 def _get_transparency(mono: np.ndarray, sr: int, arr: np.ndarray) -> float:
     try:
         from backend.core.transparency_guard import check_transparency
         return float(check_transparency(mono.astype(np.float32), sr).score)
-    except Exception:
+    except Exception as e:
+        logger.warning("sweet_spot_optimizer.py::_get_transparency fallback: %s", e)
         return 0.5
 
 def _get_goosebumps(mono: np.ndarray, sr: int) -> float:
     try:
         from backend.core.goosebumps_factor import compute_goosebumps
         return float(compute_goosebumps(mono, sr).score)
-    except Exception:
+    except Exception as e:
+        logger.warning("sweet_spot_optimizer.py::_get_goosebumps fallback: %s", e)
         return 0.5
 
 def _check_spectral_color(mono, sr):

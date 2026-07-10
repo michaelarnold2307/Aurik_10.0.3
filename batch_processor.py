@@ -180,7 +180,8 @@ class BatchProcessor:
                 with open(self.state_file, encoding="utf-8") as f:
                     state = json.load(f)
                 return set(state.get("completed", []))
-            except Exception:
+            except Exception as e:
+                logger.warning("batch_processor.py::_load_state fallback", exc_info=True)
                 return set()
         return set()
 

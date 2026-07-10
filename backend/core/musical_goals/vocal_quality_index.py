@@ -319,7 +319,8 @@ def _compute_formant_stability(
                     valid = [f for f in freqs if f > 200]
                     if valid:
                         f1_list.append(valid[0])
-                except Exception:
+                except Exception as e:
+                    logger.warning("vocal_quality_index.py::_lpc_f1_frames fallback: %s", e)
                     pass
             return f1_list
 

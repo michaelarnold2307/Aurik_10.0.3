@@ -24,7 +24,8 @@ def get_aurik_version() -> str:
         from importlib.metadata import version as _pkg_version  # pylint: disable=import-outside-toplevel
 
         return _pkg_version("aurik9")
-    except Exception:
+    except Exception as e:
+        logger.warning("version.py::get_aurik_version fallback: %s", e)
         pass
     try:
         _pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"

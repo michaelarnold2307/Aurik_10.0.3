@@ -49,7 +49,8 @@ def _run_warmup_logic(module_map: dict | None = None, sleep_s: float = 0.0) -> l
             fn = getattr(m, _accessor, None)
             if fn is not None:
                 fn()
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Kein Absturz — Lazy-Load übernimmt
     return loaded
 
@@ -127,7 +128,8 @@ class TestWarmupThread:
             if fn is not None:
                 fn()
                 loaded.append(accessor)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
         assert loaded == []
 

@@ -863,7 +863,8 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
     def _safe01(v: Any) -> float:
         try:
             vf = float(v)
-        except Exception:
+        except Exception as e:
+            logger.warning("bridge.py::_safe01 fallback", exc_info=True)
             return 0.0
         if not np.isfinite(vf):
             return 0.0
@@ -872,7 +873,8 @@ def get_experience_insights(result: Any) -> dict[str, Any]:
     def _safe_float(v: Any, default: float = 0.0) -> float:
         try:
             vf = float(v)
-        except Exception:
+        except Exception as e:
+            logger.warning("bridge.py::_safe_float fallback", exc_info=True)
             return float(default)
         if not np.isfinite(vf):
             return float(default)
@@ -1728,7 +1730,8 @@ def build_export_metadata(result: object, **tag_kwargs):
                     import math
 
                     out[k] = 0.0 if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v
-                except Exception:
+                except Exception as e:
+                    logger.warning("bridge.py::_safe_guard fallback", exc_info=True)
                     pass
             elif isinstance(v, (list, tuple)):
                 out[k] = [str(x) for x in v]
@@ -2405,7 +2408,8 @@ def get_layman_summary(result: Any) -> dict[str, Any]:
         _exp_meta = _coerce_dict_str_any(_meta.get("export_metrics", {}))
         lufs_target = _exp_meta.get("target_lufs")
         lufs_actual = _exp_meta.get("integrated_lufs_after") or _exp_meta.get("output_integrated_lufs")
-    except Exception:
+    except Exception as e:
+        logger.warning("bridge.py::unknown fallback", exc_info=True)
         pass
 
     # ── ML-Modell-Status für GUI ──
@@ -2544,5 +2548,6 @@ def get_pipeline_ab_snapshots(*, include_audio: bool = True, max_duration_s: flo
             snippets.append(entry)
         
         return snippets
-    except Exception:
+    except Exception as e:
+        logger.warning("bridge.py::get_pipeline_ab_snapshots fallback", exc_info=True)
         return []

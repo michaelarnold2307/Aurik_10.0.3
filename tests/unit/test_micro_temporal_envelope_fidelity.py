@@ -237,7 +237,8 @@ def test_measure_nan_guard():
     try:
         result = measure(audio, audio, SR)
         assert isinstance(result, MTEFResult)
-    except Exception:
+    except Exception as e:
+        logger.warning("test fallback", exc_info=True)
         pass  # acceptable to raise on all-NaN
 
 

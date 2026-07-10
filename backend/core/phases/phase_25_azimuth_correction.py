@@ -889,7 +889,8 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
             sos_hf = signal.butter(4, [hf_low, hf_high], btype="band", output="sos")
             left_hf = signal.sosfilt(sos_hf, left)
             right_hf = signal.sosfilt(sos_hf, right)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_25_azimuth_correction.py::_measure_hf_loss fallback: %s", e)
             return 0.0
 
         # Measure HF energy per channel
@@ -942,7 +943,8 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
             restored = np.clip(restored, -1.0, 1.0)
 
             return restored  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_25_azimuth_correction.py::_restore_hf_content fallback: %s", e)
             return corrected_audio
 
     def _recombine_multiband(self, bands: list[np.ndarray]) -> np.ndarray:

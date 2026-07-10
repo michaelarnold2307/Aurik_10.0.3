@@ -456,7 +456,8 @@ class SignalFlowTracer:
             wav = data.get("output_wav")
             if wav and Path(wav).exists():
                 return wav  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("signal_flow_tracer.py::latest_output_wav fallback: %s", e)
             pass
         # 3. Filesystem-Fallback: neueste WAV in output/
         return _find_latest_output_wav()
@@ -559,7 +560,8 @@ def _to_mono(audio: np.ndarray | None) -> np.ndarray | None:
             else:
                 a = np.mean(a, axis=1)
         return a.ravel()  # type: ignore[no-any-return]
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_to_mono fallback: %s", e)
         return None
 
 
@@ -570,7 +572,8 @@ def _to_db_peak(audio: np.ndarray) -> float:
         if peak < 1e-9:
             return -120.0
         return float(20.0 * np.log10(np.clip(peak, 1e-9, None)))
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_to_db_peak fallback: %s", e)
         return -120.0
 
 
@@ -581,7 +584,8 @@ def _to_db_rms(audio: np.ndarray) -> float:
         if rms < 1e-9:
             return -120.0
         return float(20.0 * np.log10(np.clip(rms, 1e-9, None)))
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_to_db_rms fallback: %s", e)
         return -120.0
 
 
@@ -607,7 +611,8 @@ def _compute_psd_fingerprint(audio: np.ndarray, sr: int) -> tuple[np.ndarray | N
 
         freqs, psd = welch(mono, fs=sr, nperseg=nperseg)
         return psd.astype(np.float32), freqs.astype(np.float32)
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_compute_psd_fingerprint fallback: %s", e)
         return None, None
 
 
@@ -642,7 +647,8 @@ def _compute_spectral_novelty_fast(
         excess_bins: int = int(np.sum(pp > op * 2.0))
         novelty = float(excess_bins) / float(n) if n > 0 else 0.0
         return float(np.clip(novelty, 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_compute_spectral_novelty_fast fallback: %s", e)
         return 0.0
 
 
@@ -689,7 +695,8 @@ def _hnr_fast(audio: np.ndarray, sr: int) -> float | None:
 
         hnr = 10.0 * np.log10(peak_val / (1.0 - peak_val + 1e-12))
         return float(np.clip(hnr, -20.0, 40.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_hnr_fast fallback: %s", e)
         return None
 
 
@@ -743,7 +750,8 @@ def _detect_echo(diff: np.ndarray, sr: int, pre: np.ndarray | None = None) -> tu
         lag_ms = (lag_min + peak_idx) / sr * 1000.0
 
         return float(np.clip(peak_val, 0.0, 1.0)), lag_ms
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_detect_echo fallback: %s", e)
         return 0.0, 0.0
 
 
@@ -792,7 +800,8 @@ def _check_silence_contamination(
                 max_contamination = max(max_contamination, db)
 
         return max_contamination if max_contamination > -100.0 else None
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_slice fallback: %s", e)
         return None
 
 
@@ -808,7 +817,8 @@ def _find_latest_output_wav() -> str | None:
         if not candidates:
             return None
         return str(max(candidates, key=lambda p: p.stat().st_mtime))
-    except Exception:
+    except Exception as e:
+        logger.warning("signal_flow_tracer.py::_find_latest_output_wav fallback: %s", e)
         return None
 
 

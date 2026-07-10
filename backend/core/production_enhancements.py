@@ -234,7 +234,8 @@ class CodecAwareProcessor:
                         result[1] = sosfilt(sos, result[1])
                     else:
                         result = sosfilt(sos, result)
-                except Exception:
+                except Exception as e:
+                    logger.warning("production_enhancements.py::process fallback: %s", e)
                     pass  # non-blocking
 
             # 3. True-Peak Limiter

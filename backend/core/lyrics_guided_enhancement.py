@@ -793,7 +793,8 @@ class LyricsGuidedEnhancement:
 
                 _plm_w2v = _get_plm_w2v()
                 _plm_w2v.set_active("lyrics_aligner_wav2vec2", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("lyrics_guided_enhancement.py::_align_phonemes fallback: %s", e)
                 pass
             # OOM-Guard: chunk wav2vec2 into 30 s segments to prevent 34+ GB
             # intermediate allocation on long files (§2.36 — root cause of OOM).
@@ -823,7 +824,8 @@ class LyricsGuidedEnhancement:
                 if _plm_w2v is not None:
                     try:
                         _plm_w2v.set_active("lyrics_aligner_wav2vec2", False)  # type: ignore[attr-defined]
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("lyrics_guided_enhancement.py::unknown fallback: %s", e)
                         pass
 
             # Run encoder: output is (1, T_frames, vocab_size) CTC log-probs
@@ -1066,7 +1068,8 @@ class LyricsGuidedEnhancement:
 
             _plm_whisper = _get_plm_w()
             _plm_whisper.set_active("lyrics_transcriber_whisper", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("lyrics_guided_enhancement.py::_transcribe_onnx fallback: %s", e)
             pass
         # Encoder inference — output: (1, 1500, 384)
         try:
@@ -1075,7 +1078,8 @@ class LyricsGuidedEnhancement:
             if _plm_whisper is not None:
                 try:
                     _plm_whisper.set_active("lyrics_transcriber_whisper", False)  # type: ignore[attr-defined]
-                except Exception:
+                except Exception as e:
+                    logger.warning("lyrics_guided_enhancement.py::_transcribe_onnx fallback: %s", e)
                     pass
         frame_energy = np.sqrt(np.mean(hidden[0] ** 2, axis=-1))  # (1500,)
 

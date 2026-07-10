@@ -149,7 +149,8 @@ class PreferenceLearner:
             if _PREFERENCE_FILE.exists():
                 with open(_PREFERENCE_FILE, "r") as f:
                     return json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.warning("preference_learner.py::_load fallback: %s", e)
             pass
         return {"sessions": [], "genre_weights": {}, "material_weights": {}}
 

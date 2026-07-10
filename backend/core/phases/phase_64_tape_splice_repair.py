@@ -451,24 +451,28 @@ class TapeSpliceRepairPhase(PhaseInterface):
         for _z in kwargs.get("vibrato_zones") or []:
             try:
                 _p64_zones.append((float(_z[0]), float(_z[1]), 0.20))  # §0p Vibrato-Schutz
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_64_tape_splice_repair.py::process fallback: %s", e)
                 pass
         for _z in kwargs.get("frisson_zones") or []:
             try:
                 _fz_s = float(getattr(_z, "start_s", None) or _z[0])
                 _fz_e = float(getattr(_z, "end_s", None) or _z[1])
                 _p64_zones.append((_fz_s, _fz_e, 0.30))  # Frisson sakrosankt
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_64_tape_splice_repair.py::process fallback: %s", e)
                 pass
         for _z in kwargs.get("whisper_zones") or []:
             try:
                 _p64_zones.append((float(_z[0]), float(_z[1]), 0.25))  # Flüsterpassagen
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_64_tape_splice_repair.py::unknown fallback: %s", e)
                 pass
         for _z in kwargs.get("passaggio_zones") or []:
             try:
                 _p64_zones.append((float(_z[0]), float(_z[1]), 0.35))  # Passaggio-Übergänge
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_64_tape_splice_repair.py::unknown fallback: %s", e)
                 pass
         result_audio = apply(
             audio,

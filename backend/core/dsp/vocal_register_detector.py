@@ -68,7 +68,8 @@ def _spectral_flatness(mono: np.ndarray, sr: int) -> float:
         geo_mean = float(np.exp(np.mean(np.log(psd))))
         arith_mean = float(np.mean(psd))
         return float(np.clip(geo_mean / (arith_mean + 1e-12), 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("vocal_register_detector.py::_spectral_flatness fallback: %s", e)
         return 0.5
 
 
@@ -83,7 +84,8 @@ def _estimate_f0_median(mono: np.ndarray, sr: int) -> float | None:
             voiced = np.asarray(f0)[np.asarray(f0) > 50.0]
             if len(voiced) >= 3:
                 return float(np.median(voiced))
-    except Exception:
+    except Exception as e:
+        logger.warning("vocal_register_detector.py::_estimate_f0_median fallback: %s", e)
         pass
 
     # pYIN-Fallback
@@ -100,7 +102,8 @@ def _estimate_f0_median(mono: np.ndarray, sr: int) -> float | None:
         voiced_f0 = f0_pyin[voiced_flag & (f0_pyin > 0)]
         if len(voiced_f0) >= 3:
             return float(np.median(voiced_f0))
-    except Exception:
+    except Exception as e:
+        logger.warning("vocal_register_detector.py::_estimate_f0_median fallback: %s", e)
         pass
 
     return None

@@ -1302,7 +1302,8 @@ class WowFlutterFix(PhaseInterface):
         y = residual_cents[confident_mask]
         try:
             coeffs, *_ = np.linalg.lstsq(design, y, rcond=None)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_12_wow_flutter_fix.py::_fit_sinusoidal_wow_curve fallback: %s", e)
             return pitch_trajectory, profile
         amp_cents = float(np.hypot(coeffs[0], coeffs[1]))
         if amp_cents < 4.0 or amp_cents > 60.0:

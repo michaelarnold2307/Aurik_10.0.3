@@ -400,7 +400,8 @@ def _hpss_percussive(
         _, perc = librosa.effects.hpss(mono, margin=_HPSS_MARGIN)  # type: ignore[attr-defined]
         hpss_result = np.asarray(perc, dtype=np.float32)
         return hpss_result
-    except Exception:
+    except Exception as e:
+        logger.warning("transient_energy_metric.py::_hpss_percussive fallback: %s", e)
         pass
 
     # Fallback: Spektrale Median-Glättung — High-Variance-Anteile (percussive) extrahieren
@@ -463,7 +464,8 @@ def _detect_onsets(
                 units="samples",
             )
             return [int(o) for o in onset_frames]
-        except Exception:
+        except Exception as e:
+            logger.warning("transient_energy_metric.py::_detect_onsets fallback: %s", e)
             pass
 
     # Fallback: Energie-Fluss

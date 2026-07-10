@@ -110,7 +110,8 @@ class DiffwavePlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("DiffWave", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("diffwave_plugin.py::_diffuse fallback", exc_info=True)
             pass
         try:
             N = len(mono)
@@ -155,7 +156,8 @@ class DiffwavePlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("DiffWave", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("diffwave_plugin.py::_diffuse fallback", exc_info=True)
                     pass
 
 

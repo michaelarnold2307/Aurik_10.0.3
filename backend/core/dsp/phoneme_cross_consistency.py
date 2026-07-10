@@ -376,7 +376,8 @@ class PhonemeConsistencyMonitor:
                     segs.append((float(word.start_s), float(word.end_s), phon))
                 if segs:
                     return segs
-        except Exception:
+        except Exception as e:
+            logger.warning("phoneme_cross_consistency.py::_get_segments fallback: %s", e)
             pass
 
         # DSP-Fallback

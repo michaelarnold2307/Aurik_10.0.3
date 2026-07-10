@@ -229,7 +229,8 @@ class StemTargetedNRPhase(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength", "strength", "wet"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_66_stem_targeted_nr.py::process fallback: %s", e)
             pass
         audio, _p66_transposed = to_channels_last(audio)
         self.validate_input(audio)

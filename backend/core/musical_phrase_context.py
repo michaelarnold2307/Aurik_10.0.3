@@ -71,7 +71,8 @@ def _get_madmom_module():
     """Lädt madmom optional lazy; gibt None zurück, falls nicht verfügbar."""
     try:
         return importlib.import_module("madmom")
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_phrase_context.py::_get_madmom_module fallback: %s", e)
         return None
 
 

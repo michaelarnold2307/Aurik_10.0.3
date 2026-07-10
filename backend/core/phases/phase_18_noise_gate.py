@@ -343,7 +343,8 @@ class NoiseGate(PhaseInterface):
             )
             if "noise_reduction_strength" in kwargs:
                 kwargs["noise_reduction_strength"] = _pim_params["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_18_noise_gate.py::process fallback: %s", e)
             pass
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"

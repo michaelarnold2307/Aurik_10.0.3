@@ -98,7 +98,8 @@ class VocalClarityMax:
                     result[ch] = ch_result[:len(result[ch])]
                 else:
                     result = ch_result[:len(result)].astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_clarity_max.py::process fallback: %s", e)
             pass
 
         # ── 2. Formant Enhancement (F1-F4) ──
@@ -126,7 +127,8 @@ class VocalClarityMax:
                     result[ch] = ch_result[:len(result[ch])]
                 else:
                     result = ch_result[:len(result)].astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_clarity_max.py::unknown fallback: %s", e)
             pass
 
         # ── 3. Breath Intelligence ──
@@ -139,7 +141,8 @@ class VocalClarityMax:
                     np.mean(result, axis=0) if result.ndim == 2 else result, sr, vocal_mask
                 )
                 report.breath_preserved = breath_rms_after >= breath_rms_before * 0.85
-            except Exception:
+            except Exception as e:
+                logger.warning("vocal_clarity_max.py::unknown fallback: %s", e)
                 pass
 
         # ── 4. Consonant Preservation (3-8 kHz Transienten) ──
@@ -149,7 +152,8 @@ class VocalClarityMax:
                 np.mean(result, axis=0) if result.ndim == 2 else result, sr
             )
             report.consonant_preserved = len(consonants_after) >= len(consonants_before) * 0.9
-        except Exception:
+        except Exception as e:
+            logger.warning("vocal_clarity_max.py::unknown fallback: %s", e)
             pass
 
         # ── 5. VQI Naturalness Check ──
@@ -171,7 +175,8 @@ class VocalClarityMax:
                 result = self._dynamics.match_envelope(
                     result, sr, 0, len(mono) // 10
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("vocal_clarity_max.py::unknown fallback: %s", e)
                 pass
 
         self._reports.append(report)

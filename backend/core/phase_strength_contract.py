@@ -19,7 +19,8 @@ def _safe_float(value: Any, default: float) -> float:
     """Konvertiert robust nach float und faengt NaN/Inf ab."""
     try:
         out = float(value)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_strength_contract.py::_safe_float fallback: %s", e)
         return float(default)
     if not np.isfinite(out):
         return float(default)

@@ -103,7 +103,8 @@ class PresetManager:
                         data.get("params", {}),
                     )
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("preset_manager.py::get_all_presets fallback", exc_info=True)
                 pass
         return presets
 
@@ -165,7 +166,8 @@ class PresetManager:
             )
             self.save_preset(preset)
             return preset
-        except Exception:
+        except Exception as e:
+            logger.warning("preset_manager.py::import_preset fallback", exc_info=True)
             return None
 
     def export_preset(self, name: str, path: pathlib.Path) -> bool:

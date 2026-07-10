@@ -56,7 +56,8 @@ def _detect_onsets_simple(audio_mono: np.ndarray, sr: int, hop: int = 256) -> np
 
         onsets = librosa.onset.onset_detect(y=audio_mono, sr=sr, hop_length=hop, units="samples", backtrack=True)  # type: ignore[attr-defined]
         return np.asarray(onsets, dtype=np.int64)  # type: ignore[no-any-return]
-    except Exception:
+    except Exception as e:
+        logger.warning("transient_guard.py::_detect_onsets_simple fallback: %s", e)
         pass
 
     # Fallback: Differenz der Frame-Energie

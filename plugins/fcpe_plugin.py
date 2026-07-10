@@ -298,7 +298,8 @@ class FcpePlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("FCPE", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("fcpe_plugin.py::_analyze_fcpe_onnx fallback", exc_info=True)
             pass
         try:
             import scipy.signal as sps
@@ -360,7 +361,8 @@ class FcpePlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("FCPE", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("fcpe_plugin.py::_analyze_fcpe_onnx fallback", exc_info=True)
                     pass
 
     def _analyze_pyin(self, audio: np.ndarray, sr: int) -> CrepeResult:

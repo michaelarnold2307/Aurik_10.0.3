@@ -208,7 +208,8 @@ def compute_carrier_recovery_ratio(audio_pre: np.ndarray, audio_post: np.ndarray
                     # Scale: 10 dB HF-NR → 0.25; 20 dB → 0.50 (capped 0.40)
                     _hf_db = float(10.0 * np.log10(_hf_floor_pre / (_hf_floor_post + 1e-30)))
                     _hf_ratio = float(np.clip(_hf_db / 40.0, 0.0, 0.40))
-        except Exception:
+        except Exception as e:
+            logger.warning("carrier_transfer_characteristics.py::_to_mono fallback: %s", e)
             pass  # non-blocking: spectral_correlation fallback ist ausreichend
 
     return float(np.clip(_spec_ratio + _nr_ratio + _hf_ratio, 0.0, 1.0))

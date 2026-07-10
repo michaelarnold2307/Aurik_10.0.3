@@ -117,7 +117,8 @@ class SileroPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("SileroVAD", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("silero_plugin.py::_vad_mask_single_call fallback", exc_info=True)
             pass
         try:
             inp = mono16[None].astype(np.float32)  # [1, n_samples]
@@ -143,7 +144,8 @@ class SileroPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("SileroVAD", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("silero_plugin.py::_vad_mask_single_call fallback", exc_info=True)
                     pass
 
     def _energy_mask(self, mono16: np.ndarray) -> np.ndarray:
@@ -164,7 +166,8 @@ class SileroPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("SileroVAD", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("silero_plugin.py::_vad_onnx fallback", exc_info=True)
             pass
         try:
             inp = chunk[None].astype(np.float32)
@@ -181,7 +184,8 @@ class SileroPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("SileroVAD", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("silero_plugin.py::_vad_onnx fallback", exc_info=True)
                     pass
 
     @staticmethod

@@ -46,7 +46,8 @@ try:
     from plugins.laion_clap_plugin import get_laion_clap as _clap_factory_loaded
 
     _clap_factory_impl = _clap_factory_loaded
-except Exception:
+except Exception as e:
+    logger.warning("phase_53_semantic_audio.py::unknown fallback: %s", e)
     pass
 _clap_factory: Any = _clap_factory_impl
 
@@ -55,7 +56,8 @@ try:
     from plugins.beats_plugin import get_beats_plugin as _beats_factory_loaded
 
     _beats_factory_impl = _beats_factory_loaded
-except Exception:
+except Exception as e:
+    logger.warning("phase_53_semantic_audio.py::unknown fallback: %s", e)
     pass
 _beats_factory: Any = _beats_factory_impl
 

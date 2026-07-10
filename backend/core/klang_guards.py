@@ -53,7 +53,8 @@ class BassPunchCoupling:
             if punch < 1e-10:
                 return 1.0
             return sub / punch
-        except Exception:
+        except Exception as e:
+            logger.warning("klang_guards.py::measure fallback: %s", e)
             return 1.0
 
     def set_baseline(self, audio: np.ndarray, sr: int) -> None:
@@ -113,7 +114,8 @@ class VocalFormantGuard:
                 if 0 < idx < len(fft) - 2:
                     harmonic_energy += float(np.max(fft[max(0, idx - 2):idx + 3]))
             return centroid, min(1.0, harmonic_energy / total)
-        except Exception:
+        except Exception as e:
+            logger.warning("klang_guards.py::_measure fallback: %s", e)
             return 800.0, 0.5
 
     def set_baseline(self, audio: np.ndarray, sr: int) -> None:
@@ -157,7 +159,8 @@ class StereoCoherenceGuard:
             num = np.mean(L * R)
             den = np.sqrt(np.mean(L * L) * np.mean(R * R)) + eps
             return float(np.clip(num / den, -1.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("klang_guards.py::_iccc fallback: %s", e)
             return 1.0
 
     def set_baseline(self, audio: np.ndarray) -> None:
@@ -204,7 +207,8 @@ class DynamicsArcGuard:
                 power = np.mean(seg * seg) + 1e-12
                 lufs_vals.append(-0.691 + 10.0 * math.log10(power))
             return np.array(lufs_vals, dtype=np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("klang_guards.py::_measure_lufs_arc fallback: %s", e)
             return np.zeros(segments, dtype=np.float32)
 
     def set_baseline(self, audio: np.ndarray, sr: int) -> None:
@@ -446,7 +450,8 @@ class EmotionalArcPreserver:
                 else:
                     valence.append(800.0)
             return np.array(arousal, dtype=np.float32), np.array(valence, dtype=np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("klang_guards.py::_measure fallback: %s", e)
             return np.zeros(segments, dtype=np.float32), np.zeros(segments, dtype=np.float32)
 
     def set_baseline(self, audio: np.ndarray, sr: int) -> None:
@@ -501,7 +506,8 @@ class HumanizationPass:
                     )
                 return result
             return HumanizationPass._process_channel(audio_f, sr, strength)
-        except Exception:
+        except Exception as e:
+            logger.warning("klang_guards.py::apply fallback: %s", e)
             return audio
 
     @staticmethod

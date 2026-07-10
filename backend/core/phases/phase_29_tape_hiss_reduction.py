@@ -364,7 +364,8 @@ class TapeHissReductionPhase(PhaseInterface):
         def _w(name: str, default: float = 1.0) -> float:
             try:
                 return float(goal_weights.get(name, default))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_29_tape_hiss_reduction.py::_w fallback: %s", e)
                 return default
 
         naturalness = float(np.clip(_w("natuerlichkeit"), 0.3, 2.0))
@@ -451,7 +452,8 @@ class TapeHissReductionPhase(PhaseInterface):
             _pim_map = kwargs.get("pim_intensity_map")
             if _pim_map is not None:
                 _per_band_mask = compute_per_band_nr_mask(_pim_map, sample_rate)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_29_tape_hiss_reduction.py::process fallback: %s", e)
             pass
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
@@ -487,7 +489,8 @@ class TapeHissReductionPhase(PhaseInterface):
             from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_evict29
 
             _get_plm_evict29().evict_for_phase("phase_29_tape_hiss_reduction")
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_29_tape_hiss_reduction.py::process fallback: %s", e)
             pass
 
         # Determine if ML should be used
@@ -1342,7 +1345,8 @@ class TapeHissReductionPhase(PhaseInterface):
                 _before = audio
                 _after = apply_per_band_mask(_before, _per_band_mask, sample_rate, mix=0.55)
                 audio = _after
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_29_tape_hiss_reduction.py::_band_energy_29 fallback: %s", e)
                 pass
 
         # §2.71 Strength-Envelope: Chirurgische Tape-Hiss-Reduktion
@@ -1936,7 +1940,8 @@ class TapeHissReductionPhase(PhaseInterface):
                             np.maximum(G_z, _mfloor_zone[:, np.newaxis]),
                             G_z,
                         )
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_29_tape_hiss_reduction.py::unknown fallback: %s", e)
                         pass  # nie pipeline-blockierend
 
                 # §v9.10.113: Stronger HF suppression in presence/air zones when DeepFilterNet absent.
@@ -2205,7 +2210,8 @@ class TapeHissReductionPhase(PhaseInterface):
 
             _plm29_dfn = _get_plm29()
             _plm29_dfn.set_active("DeepFilterNetV3", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_29_tape_hiss_reduction.py::_refine_hf_with_ml fallback: %s", e)
             pass
 
         try:
@@ -2325,7 +2331,8 @@ class TapeHissReductionPhase(PhaseInterface):
             if _plm29_dfn is not None:
                 try:
                     _plm29_dfn.set_active("DeepFilterNetV3", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("phase_29_tape_hiss_reduction.py::unknown fallback: %s", e)
                     pass
 
     def _apply_adaptive_gate(

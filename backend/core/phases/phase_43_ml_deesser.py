@@ -415,7 +415,8 @@ def _try_mp_senet_refine(audio: np.ndarray, sr: int) -> tuple[np.ndarray | None,
         if _get_plugin_lifecycle_manager_43 is not None:
             _plm43_mps = _get_plugin_lifecycle_manager_43()
             _plm43_mps.set_active("MP-SENet", True)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_43_ml_deesser.py::_try_mp_senet_refine fallback: %s", e)
         pass
 
     try:
@@ -433,7 +434,8 @@ def _try_mp_senet_refine(audio: np.ndarray, sr: int) -> tuple[np.ndarray | None,
         if _plm43_mps is not None:
             try:
                 _plm43_mps.set_active("MP-SENet", False)
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_43_ml_deesser.py::_try_mp_senet_refine fallback: %s", e)
                 pass
 
 
@@ -504,7 +506,8 @@ class AdaptiveDeEsserPhase(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_43_ml_deesser.py::process fallback: %s", e)
             pass
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
@@ -517,7 +520,8 @@ class AdaptiveDeEsserPhase(PhaseInterface):
         try:
             if _get_plugin_lifecycle_manager_43 is not None:
                 _get_plugin_lifecycle_manager_43().evict_for_phase("phase_43_ml_deesser")
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_43_ml_deesser.py::process fallback: %s", e)
             pass
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))

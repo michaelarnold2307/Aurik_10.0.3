@@ -270,7 +270,8 @@ class ArtistKnowledgeBase:
                 cur = conn.execute("SELECT COUNT(*) FROM restoration_history")
                 row = cur.fetchone()
                 return int(row[0]) if row else 0
-            except Exception:
+            except Exception as e:
+                logger.warning("artist_knowledge_base.py::get_record_count fallback: %s", e)
                 return 0
 
     # ------------------------------------------------------------------

@@ -245,7 +245,8 @@ def _resample_to_48k(audio: np.ndarray, sr: int) -> np.ndarray:
             # Frontend parity: soxr HQ for deterministic quality alignment.
             out = _soxr_rs.resample(audio, sr, _TARGET_SR, quality="HQ")
             return np.asarray(out, dtype=np.float32)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("aurik_cli.py::_resample_to_48k fallback", exc_info=True)
             pass
     if _sig is not None:
         try:
@@ -279,7 +280,8 @@ def _resample_audio(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
         try:
             _out: np.ndarray = np.asarray(_soxr_rs.resample(audio, src_sr, dst_sr, quality="HQ"), dtype=np.float32)
             return _out
-        except Exception:
+        except Exception as e:
+            logger.warning("aurik_cli.py::_resample_audio fallback", exc_info=True)
             pass
     if _sig is not None:
         n_out = int(round(audio.shape[0] * dst_sr / src_sr))

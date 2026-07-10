@@ -112,7 +112,8 @@ def repair_dropouts_precise(audio, sr):
                     result = ch_data[:len(result)].astype(np.float32)
             
             repaired += 1
-        except Exception:
+        except Exception as e:
+            logger.warning("precision_dropout_repair.py::unknown fallback: %s", e)
             pass
     
     return np.clip(result, -1.0, 1.0).astype(np.float32), len(outliers), repaired

@@ -231,7 +231,8 @@ class GacelaPlugin:
                     if not _mgr().try_allocate_vram("Gacela", self._BUDGET_SIZE_GB):
                         logger.info("GACELA: VRAM-Budget erschöpft — CPU-Load")
                         _dev = "cpu"
-                except Exception:
+                except Exception as e:
+                    logger.warning("gacela_plugin.py::_try_load fallback", exc_info=True)
                     pass
             self._generator.to(_dev)
             for enc in self._encoders:
@@ -428,7 +429,8 @@ class GacelaPlugin:
                         from backend.core.ml_device_manager import get_ml_device_manager as _mgr
 
                         _mgr().report_gpu_error("Gacela", exc)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("gacela_plugin.py::unknown fallback", exc_info=True)
                         pass
                 except Exception as _mv_exc:
                     logger.debug("GACELA GPU→CPU move fehlgeschlagen: %s", _mv_exc)

@@ -464,5 +464,6 @@ class LanguageNet:
             for c in range(n_mfcc):
                 dct_out[c] = np.sum(log_mel * np.cos(math.pi * c * (np.arange(n_mel) + 0.5) / n_mel))
             return dct_out.astype(np.float32)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("adaptive_plugins.py::_compute_mfcc_mean fallback: %s", e)
             return None

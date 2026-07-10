@@ -2957,7 +2957,8 @@ def _get_musical_sections(audio: Any, sr: int) -> list[tuple[float, float, str]]
     try:
         from backend.core.section_goal_adapter import get_sections
         return get_sections(np.asarray(audio), int(sr))
-    except Exception:
+    except Exception as e:
+        logger.warning("aurik_denker.py::_get_musical_sections fallback", exc_info=True)
         return []
 
 

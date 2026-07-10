@@ -439,7 +439,8 @@ class BassEnhancement(PhaseInterface):
         try:
             sos_vp = signal.butter(4, [120.0 / (sr / 2), min(500.0 / (sr / 2), 0.99)], btype="band", output="sos")
             vp_band = signal.sosfiltfilt(sos_vp, bass)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_37_bass_enhancement.py::_virtual_pitch_bass fallback: %s", e)
             return self._generate_sub_harmonic(bass) * 0.25  # type: ignore[no-any-return]
 
         _rms = float(np.sqrt(np.mean(vp_band.astype(np.float64) ** 2) + 1e-12))

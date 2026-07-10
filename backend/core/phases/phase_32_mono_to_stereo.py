@@ -629,7 +629,8 @@ class MonoToStereoPhaseV2(PhaseInterface):
             enhanced = np.clip(enhanced, -1.0, 1.0)
 
             return enhanced  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_32_mono_to_stereo.py::_enhance_hf_content fallback: %s", e)
             return audio
 
     def _check_mono_compatibility(self, audio: np.ndarray) -> bool:

@@ -135,7 +135,8 @@ def _meta_float(metadata: dict[str, str] | None, key: str, default: float = 0.0)
         return default
     try:
         return float(metadata.get(key, default) or default)
-    except Exception:
+    except Exception as e:
+        logger.warning("audio_exporter.py::_meta_float fallback: %s", e)
         return default
 
 
@@ -144,7 +145,8 @@ def _meta_int(metadata: dict[str, str] | None, key: str, default: int = 0) -> in
         return default
     try:
         return int(float(metadata.get(key, default) or default))
-    except Exception:
+    except Exception as e:
+        logger.warning("audio_exporter.py::_meta_int fallback: %s", e)
         return default
 
 

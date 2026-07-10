@@ -383,7 +383,8 @@ class FrequencyRestorationPhase(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength", "strength", "wet"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_06_frequency_restoration.py::process fallback: %s", e)
             pass
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         start_time = time.time()
@@ -395,7 +396,8 @@ class FrequencyRestorationPhase(PhaseInterface):
             )
 
             _get_plm_evict06().evict_for_phase("phase_06_frequency_restoration")
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_06_frequency_restoration.py::process fallback: %s", e)
             pass
 
         # §2.47 PMGG-Retry: locality_factor skaliert finale Intensität bei Retries.

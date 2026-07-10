@@ -379,7 +379,8 @@ class TestAurikDenkerStage1b:
                 result = AurikDenker().denke(audio, SR)
                 if result is not None:
                     assert "kette" in result.stage_notes
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass  # Andere Stufen dürfen scheitern
 
     def test_16b_pre_analysis_medium_forwarded_to_kette_denker(self):

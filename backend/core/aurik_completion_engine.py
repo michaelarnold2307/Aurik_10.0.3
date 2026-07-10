@@ -177,7 +177,8 @@ class PMGGHPEMonkeyPatch:
                 cls._hpe_drops += 1
                 return False, f"HPE {delta:+.3f} in {phase_name}"
             return True, f"HPE {delta:+.3f}"
-        except Exception:
+        except Exception as e:
+            logger.warning("aurik_completion_engine.py::check_phase fallback: %s", e)
             return True, ""
 
 
@@ -209,7 +210,8 @@ def load_song_profile(genre: str, medium: str) -> SongProfile:
             with open(path) as f:
                 data = json.load(f)
             return SongProfile(**data)
-    except Exception:
+    except Exception as e:
+        logger.warning("aurik_completion_engine.py::load_song_profile fallback: %s", e)
         pass
     return SongProfile(genre=genre, medium=medium)
 

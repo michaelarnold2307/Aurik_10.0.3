@@ -290,7 +290,8 @@ def _aurik_restoration_fn(audio: np.ndarray, sr: int, sid: str | None = None) ->
                 _intensity, _prio_cnt = _snapshot
                 _sid_key = str(sid or "unknown")
                 _COMP_INNOVATION_SNAPSHOTS.setdefault(_sid_key, []).append((_intensity, _prio_cnt))
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
         return result.audio
     finally:

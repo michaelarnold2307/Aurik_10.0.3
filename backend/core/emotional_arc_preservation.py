@@ -284,7 +284,8 @@ class EmotionalArcPreservationMetric:
                             _seg_weights[_seg_idx] = 2.0  # §2.44: Frisson = ×2.0
                             break
                     _seg_idx += 1
-            except Exception:
+            except Exception as e:
+                logger.warning("emotional_arc_preservation.py::unknown fallback: %s", e)
                 pass  # non-blocking: frisson_zones Fehler darf Messung nicht blockieren
 
         # ----------------------------------------------------------------
@@ -503,7 +504,8 @@ class EmotionalArcPreservationMetric:
             if not math.isfinite(corr):
                 return 0.0
             return float(np.clip(corr, -1.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("emotional_arc_preservation.py::_weighted_pearson fallback: %s", e)
             return 0.0
 
     def correct_arc(

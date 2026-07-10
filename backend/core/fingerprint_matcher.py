@@ -56,7 +56,8 @@ class FingerprintMatcher:
             if _FINGERPRINT_DB.exists():
                 with open(_FINGERPRINT_DB) as f:
                     return json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.warning("fingerprint_matcher.py::_load_db fallback: %s", e)
             pass
         return {"fingerprints": {}, "parameters": {}}
 

@@ -326,7 +326,8 @@ class ProgressiveQualityMode:
             # SNR → MOS: empirisch kalibriert
             mos = 1.0 + 4.0 / (1.0 + math.exp(-(snr - 15.0) / 8.0))
             return float(np.clip(mos, 1.0, 5.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("progressive_quality_mode.py::_estimate_mos fallback: %s", e)
             return 3.0
 
     def _defect_result_to_labels(self, defect_result) -> list[str]:

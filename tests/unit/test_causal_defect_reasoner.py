@@ -161,7 +161,8 @@ class TestSpectralFeatures:
         # Sollte keinen Exception werfen
         try:
             extract_spectral_features(audio, SR)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Akzeptiert: NaN propagation im Extractor, Crash ist nicht OK
         # Hauptsache kein unbehandelter crash (Test kommt durch)
 

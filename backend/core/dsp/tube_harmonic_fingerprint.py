@@ -118,7 +118,8 @@ def _estimate_f0_median(audio_mono: np.ndarray, sr: int) -> float:
         if not f0_candidates:
             return 0.0
         return float(np.median(f0_candidates))
-    except Exception:
+    except Exception as e:
+        logger.warning("tube_harmonic_fingerprint.py::_estimate_f0_median fallback: %s", e)
         return 0.0
 
 

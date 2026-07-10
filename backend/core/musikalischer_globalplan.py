@@ -448,7 +448,8 @@ def _estimate_warmth(mono: np.ndarray, sr: int) -> float:
         mid_energy = float(np.sum(fft[(freqs >= 1000.0) & (freqs < 4000.0)] ** 2) + 1e-12)
         warmth = float(np.clip(low_energy / (low_energy + mid_energy), 0.0, 1.0))
         return warmth
-    except Exception:
+    except Exception as e:
+        logger.warning("musikalischer_globalplan.py::_estimate_warmth fallback: %s", e)
         return 0.5
 
 
@@ -476,7 +477,8 @@ def _estimate_brightness(mono: np.ndarray, sr: int) -> float:
         total_energy = float(np.sum(fft**2) + 1e-12)
         brightness = float(np.clip(hf_energy / total_energy * 10.0, 0.0, 1.0))
         return brightness
-    except Exception:
+    except Exception as e:
+        logger.warning("musikalischer_globalplan.py::_estimate_brightness fallback: %s", e)
         return 0.5
 
 
@@ -508,7 +510,8 @@ def _estimate_dynamic_range(mono: np.ndarray) -> float:
         p10 = float(np.percentile(rms_arr, 10))
         dr = float(np.clip((p95 - p10) / (p95 + 1e-12), 0.0, 1.0))
         return dr
-    except Exception:
+    except Exception as e:
+        logger.warning("musikalischer_globalplan.py::_estimate_dynamic_range fallback: %s", e)
         return 0.5
 
 

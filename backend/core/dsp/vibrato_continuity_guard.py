@@ -223,7 +223,8 @@ class VibratoContinuityGuard:
 
             analytic = _hilbert(f0_curve - float(np.mean(f0_curve)))
             return float(np.arctan2(analytic.imag, analytic.real)[0])
-        except Exception:
+        except Exception as e:
+            logger.warning("vibrato_continuity_guard.py::_estimate_f0_phase_at_start fallback: %s", e)
             return None
 
     @staticmethod
@@ -371,7 +372,8 @@ class VibratoContinuityGuard:
                 return 0.0
             analytic = _hilbert(f0_detrended)
             return float(np.arctan2(analytic.imag, analytic.real)[-1])
-        except Exception:
+        except Exception as e:
+            logger.warning("vibrato_continuity_guard.py::_estimate_phase_end fallback: %s", e)
             return 0.0
 
     @staticmethod

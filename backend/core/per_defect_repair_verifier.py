@@ -135,7 +135,8 @@ class PerDefectRepairVerifier:
                 v.continuity_ok = ct.continuity_ok
                 if not ct.continuity_ok:
                     v.warnings.append(f"Continuity violation: {ct.max_envelope_deviation_db:.1f} dB")
-            except Exception:
+            except Exception as e:
+                logger.warning("per_defect_repair_verifier.py::verify_defect fallback: %s", e)
                 pass
 
         return v

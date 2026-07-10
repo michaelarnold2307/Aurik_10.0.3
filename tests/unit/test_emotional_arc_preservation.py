@@ -197,7 +197,8 @@ class TestSignalCombinations:
         try:
             r = self.m.measure(orig, rest, SR)
             assert isinstance(r, EmotionalArcResult)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Toleriert: unterschiedliche Längen können abgelehnt werden
 
     def test_22_threshold_arousal_constant(self):

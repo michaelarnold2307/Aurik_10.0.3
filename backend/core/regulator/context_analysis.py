@@ -233,7 +233,8 @@ class ContextAnalyzer:
             best_lag = np.argmax(ac[min_lag:max_lag]) + min_lag
             bpm = 60.0 / (best_lag * frame_sec)
             return float(np.clip(bpm, 40.0, 250.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("context_analysis.py::_estimate_tempo fallback: %s", e)
             return 0.0
 
     def _classify_genre(

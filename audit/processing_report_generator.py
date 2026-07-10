@@ -1149,7 +1149,8 @@ class ProcessingReportGenerator:
                 content={"goals": goals},
                 summary=f"Average musical goals score: {avg_score:.2f}",
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("processing_report_generator.py::_create_musical_goals_section fallback", exc_info=True)
             return ReportSection(
                 section_type=ReportSectionType.MUSICAL_GOALS,
                 title="Musical Goals Evaluation",

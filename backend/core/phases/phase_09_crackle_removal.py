@@ -341,7 +341,8 @@ class CrackleRemovalPhase(PhaseInterface):
         def _w(name: str, default: float = 1.0) -> float:
             try:
                 return float(goal_weights.get(name, default))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_09_crackle_removal.py::_w fallback: %s", e)
                 return default
 
         naturalness = float(np.clip(_w("natuerlichkeit"), 0.3, 2.0))
@@ -1863,7 +1864,8 @@ class CrackleRemovalPhase(PhaseInterface):
             if not np.isfinite(a_coeffs).all():
                 return None
             return np.asarray(a_coeffs, dtype=np.float64)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_09_crackle_removal.py::_yule_walker_predictor_coeffs fallback: %s", e)
             return None
 
     def _interpolate_linear(self, audio: np.ndarray, gap_start: int, gap_end: int) -> np.ndarray:
@@ -1904,7 +1906,8 @@ class CrackleRemovalPhase(PhaseInterface):
         try:
             hf_before = signal.sosfilt(sos, before)
             hf_after = signal.sosfilt(sos, after)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_09_crackle_removal.py::_measure_crackle_reduction fallback: %s", e)
             return 0.0
 
         # Measure impulsive energy (peak detection)

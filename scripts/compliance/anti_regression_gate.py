@@ -32,7 +32,8 @@ def check_typo_double_prefix(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_typo_double_prefix fallback", exc_info=True)
         return issues
     # Pattern: word_word_ where word == word (like cached_cached_)
     for match in re.finditer(r'\b([a-z]+)_\1_[a-z]', content):
@@ -47,7 +48,8 @@ def check_preservation_mode_threshold(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_preservation_mode_threshold fallback", exc_info=True)
         return issues
     # Pattern: bw_loss_sev >= 0.90 (old threshold)
     if re.search(r'bw_loss.*>=\s*0\.9[0-6]', content):
@@ -69,7 +71,8 @@ def check_wrong_field_name(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_wrong_field_name fallback", exc_info=True)
         return issues
     for wrong, correct in KNOWN_WRONG.items():
         if wrong in content:
@@ -86,7 +89,8 @@ def check_bare_except_pass(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             lines = f.readlines()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_bare_except_pass fallback", exc_info=True)
         return issues
     for i, line in enumerate(lines):
         if re.match(r'\s*except\s+Exception\s*(as\s+\w+)?\s*:', line):
@@ -113,7 +117,8 @@ def check_pruner_signature(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_pruner_signature fallback", exc_info=True)
         return issues
     if 'def prune(' in content and 'restoration_context' not in content:
         for i, line in enumerate(content.split(chr(10)), 1):
@@ -129,7 +134,8 @@ def check_sentinel_architecture(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_sentinel_architecture fallback", exc_info=True)
         return issues
     if 'VocalDistortionSentinel' in content:
         if 'def check(' in content and 'def measure(' not in content:
@@ -145,7 +151,8 @@ def check_magic_numbers(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_magic_numbers fallback", exc_info=True)
         return issues
     # Pattern: *= 0.85 or *= 0.6 in goal weight context
     for i, line in enumerate(content.split(chr(10)), 1):
@@ -162,7 +169,8 @@ def check_absolute_bw_loss(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_absolute_bw_loss fallback", exc_info=True)
         return issues
     # Pattern: using _bw_loss_sev directly for decisions (not _bw_loss_relative)
     if '_bw_loss_sev' in content and '_bw_loss_relative' not in content:
@@ -183,7 +191,8 @@ def check_defect_classification(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_defect_classification fallback", exc_info=True)
         return issues
     if 'SURGICAL_DEFECT_TYPES' in content:
         # Check all DefectTypes are accounted for
@@ -208,7 +217,8 @@ def check_surgical_architecture(filepath: str) -> list[str]:
     try:
         with open(filepath) as f:
             content = f.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("anti_regression_gate.py::check_surgical_architecture fallback", exc_info=True)
         return issues
 
     # Check 1: PhasePlan must have surgical_routing

@@ -1537,7 +1537,8 @@ class ArtifactFreedomGate:
             _ROUGHNESS_CALIB = 1.5e-3
             roughness = float(am_energy / (_ROUGHNESS_CALIB + 1e-12))
             return max(0.0, min(roughness, 10.0))  # cap at 10 asper
-        except Exception:
+        except Exception as e:
+            logger.warning("artifact_freedom_gate.py::_compute_roughness_zwicker fallback: %s", e)
             return 0.0
 
     def _compute_sharpness_bismarck(self, audio: np.ndarray, sr: int) -> float:
@@ -1638,7 +1639,8 @@ class ArtifactFreedomGate:
             sharpness = 0.11 * weighted_sum / total_N
 
             return max(0.0, min(sharpness, 10.0))  # cap at 10 acum
-        except Exception:
+        except Exception as e:
+            logger.warning("artifact_freedom_gate.py::_g fallback: %s", e)
             return 0.0
 
     # ── Salienz-Gewichtung (§2.49) ─────────────────────────────────────────
@@ -1751,7 +1753,8 @@ class ArtifactFreedomGate:
                 return 0
             search = np.concatenate([gcc[n_fft - max_delay :], gcc[: max_delay + 1]])
             return int(np.argmax(np.abs(search))) - max_delay
-        except Exception:
+        except Exception as e:
+            logger.warning("artifact_freedom_gate.py::_estimate_interchannel_lag_samples fallback: %s", e)
             return 0
 
     # ── §2.50 Source Material Baseline ────────────────────────────────────

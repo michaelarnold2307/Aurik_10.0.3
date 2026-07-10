@@ -851,7 +851,8 @@ class AutonomousRestorationEngine:
         if progress_callback is not None:
             try:
                 progress_callback(88, f"Beste Strategie: {best_variant.name}", 0.0)
-            except Exception:
+            except Exception as e:
+                logger.warning("autonomous_restoration_engine.py::unknown fallback: %s", e)
                 pass
 
         # Audio unverändert zurückgeben (Parameter werden downstream angewandt)
@@ -902,5 +903,6 @@ class AutonomousRestorationEngine:
             if noise_power < 1e-12 or signal_power < 1e-12:
                 return 0.0
             return float(10.0 * np.log10(signal_power / noise_power))
-        except Exception:
+        except Exception as e:
+            logger.warning("autonomous_restoration_engine.py::_estimate_snr_improvement fallback: %s", e)
             return 0.0

@@ -199,7 +199,8 @@ def audit_phase_pleasantness(
         try:
             reg = get_pleasantness_registry()
             reg.report_post(phase_name, after_score, delta=delta)
-        except Exception:
+        except Exception as e:
+            logger.warning("pleasantness_integration.py::audit_phase_pleasantness fallback: %s", e)
             pass
 
         return {

@@ -1070,7 +1070,8 @@ class EQCorrectionPhase(PhaseInterface):
             measured = np.array([psd_db[np.argmin(np.abs(freqs_w - f))] for f in PROBE_FREQS], dtype=np.float64)
             # Mean-center (only shape matters, not absolute level)
             measured -= measured.mean()
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_04_eq_correction.py::_auto_detect_riaa_variant fallback: %s", e)
             return candidates[0]
 
         # Build expected curves for each candidate at probe frequencies

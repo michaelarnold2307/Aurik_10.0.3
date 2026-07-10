@@ -299,5 +299,6 @@ def _emit_progress(cb: Any, pct: float, msg: str) -> None:
     if cb is not None:
         try:
             cb(pct, msg, 0.0)
-        except Exception:
+        except Exception as e:
+            logger.warning("source_aware_restorer.py::_emit_progress fallback: %s", e)
             pass

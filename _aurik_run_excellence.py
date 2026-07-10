@@ -26,7 +26,8 @@ def _optional_import(module_name: str) -> Any:
     """Lädt optionale Module ohne statische Rebinding-Diagnosen."""
     try:
         return importlib.import_module(module_name)
-    except Exception:
+    except Exception as e:
+        logger.warning("_aurik_run_excellence.py::_optional_import fallback", exc_info=True)
         return None
 
 

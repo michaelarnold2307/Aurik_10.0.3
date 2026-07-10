@@ -309,7 +309,8 @@ class TestBarkScaleProcessor:
         try:
             result = proc.analyze(sig, SR)
             assert result is not None
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Stereo-Ablehnung ist auch gültiges Verhalten
 
 
@@ -380,7 +381,8 @@ class TestComprehensiveMetricsCalculator:
         try:
             result = calc.compute_all(_stereo(_sine()))
             assert result is not None
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Stereo optional
 
     def test_11_short_signal(self, calc):
@@ -566,7 +568,8 @@ class TestIntrinsicAudioQualityScorer:
         try:
             val = scorer.score_as_float(_stereo(_sine()), SR)
             assert math.isfinite(val)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Stereo-Ablehnung ok
 
     def test_13_low_sr_no_crash(self, scorer):
@@ -828,7 +831,8 @@ class TestPsychoacousticCore:
         try:
             curve = core.get_perceptual_eq_curve(freqs, SR)
             assert len(curve) == len(freqs)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Optionale Methode
 
     def test_12_convenience_analyze(self):
@@ -901,7 +905,8 @@ class TestPsychoAcousticMetrics:
         try:
             val = metrics.calculate_sisdr(sig, sig.copy())
             assert math.isfinite(val)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_10_spectral_distortion_identical(self, metrics):
@@ -909,7 +914,8 @@ class TestPsychoAcousticMetrics:
         try:
             val = metrics.calculate_spectral_distortion(sig, sig.copy())
             assert math.isfinite(val) and val >= 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_11_roughness_silence(self, metrics):
@@ -928,7 +934,8 @@ class TestPsychoAcousticMetrics:
         try:
             result = measure_quality_improvement(ref, test, SR)
             assert result is not None
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     def test_14_no_nan_across_metrics(self, metrics):
@@ -1010,7 +1017,8 @@ class TestResamplingUtils:
         try:
             out, sr_out = resample_to_48k(sig, 22050)
             assert sr_out == 48000
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Stereo optional
 
     def test_09_short_signal(self):

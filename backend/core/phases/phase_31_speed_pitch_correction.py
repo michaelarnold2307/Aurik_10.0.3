@@ -935,7 +935,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
                 if len(valid) == 0:
                     return 0.0, 0.0
                 return float(np.median(valid)), 0.4  # Feste niedrige Konfidenz
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_31_speed_pitch_correction.py::_detect_pitch_pyin fallback: %s", e)
                 return 0.0, 0.0
 
     def _compute_tuning_offset(
@@ -1364,7 +1365,8 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             f0_safe = np.where(voiced & (f0 > 1.0), f0, 200.0)
             _p31_periods = np.clip(np.round(sr / np.maximum(f0_safe, 1.0)).astype(int), 20, sr // 50)
             return _p31_periods  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_31_speed_pitch_correction.py::_psola_compute_periods_mono fallback: %s", e)
             return None
 
     def _psola_apply_mono(self, y_1d: np.ndarray, period_samps: np.ndarray, ratio: float) -> np.ndarray:

@@ -507,7 +507,8 @@ class MertMushraProxy:
             ratio = vocal_energy / total_energy
             # Mapping: ratio ~0.40 (balanced) → 0.4; ratio ~0.65 (vocal-dominant) → 0.7
             return float(np.clip(ratio * 1.1, 0.0, 0.95))
-        except Exception:
+        except Exception as e:
+            logger.warning("mert_mushra_proxy.py::_estimate_vocal_probability fallback: %s", e)
             return 0.5  # Unknown → neutral
 
     def evaluate(
@@ -1336,7 +1337,8 @@ class MertMushraProxy:
             C2 = (0.03 * 80) ** 2
             nsim = (2 * mu_r * mu_t + C1) * (2 * sig_rt + C2) / ((mu_r**2 + mu_t**2 + C1) * (sig_r**2 + sig_t**2 + C2))
             return float(np.clip(nsim, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("mert_mushra_proxy.py::_compute_nsim fallback: %s", e)
             return float(np.clip(1.0 - np.sqrt(np.mean((ref - test) ** 2)), 0.0, 1.0))
 
     @staticmethod
@@ -1351,7 +1353,8 @@ class MertMushraProxy:
             diff = mfcc_ref[:min_f, 1:] - mfcc_test[:min_f, 1:]
             frame_dists = np.sqrt(2.0 * np.sum(diff**2, axis=1))
             return max(0.0, (10.0 / math.log(10)) * float(np.mean(frame_dists)))
-        except Exception:
+        except Exception as e:
+            logger.warning("mert_mushra_proxy.py::_compute_mcd fallback: %s", e)
             return 5.0
 
     @staticmethod
@@ -1383,7 +1386,8 @@ class MertMushraProxy:
             _ct = chroma_test[:min_len]
             corr = _pearson(_cr, _ct) if np.std(_cr) > 1e-12 and np.std(_ct) > 1e-12 else 1.0
             return float(np.clip(corr, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("mert_mushra_proxy.py::_compute_chroma_corr fallback: %s", e)
             return 0.5
 
     @staticmethod
@@ -1393,7 +1397,8 @@ class MertMushraProxy:
             rms_ref = float(np.sqrt(np.mean(ref**2) + 1e-12))
             rms_test = float(np.sqrt(np.mean(test**2) + 1e-12))
             return 20.0 * math.log10(rms_test) - 20.0 * math.log10(rms_ref)
-        except Exception:
+        except Exception as e:
+            logger.warning("mert_mushra_proxy.py::_compute_lufs_diff fallback: %s", e)
             return 0.0
 
     @staticmethod
@@ -2491,7 +2496,8 @@ class MertMushraProxy:
                 try:
                     nsim = MertMushraProxy._compute_nsim(ref, test, sr)
                     return float(np.clip(nsim, 0.0, 1.0))
-                except Exception:
+                except Exception as e:
+                    logger.warning("mert_mushra_proxy.py::_compute_worst_segment_score fallback: %s", e)
                     return 0.5
 
             n_segs = len(ref) // seg_len
@@ -3242,7 +3248,8 @@ def _extract_onnx_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> 
 
         _plm = _get_plm_mert()
         _plm.set_active("MERT", True)
-    except Exception:
+    except Exception as e:
+        logger.warning("mert_mushra_proxy.py::_extract_onnx_embedding fallback: %s", e)
         pass
 
     try:
@@ -3265,7 +3272,8 @@ def _extract_onnx_embedding(mert_plugin: object, audio: np.ndarray, sr: int) -> 
         if _plm is not None:
             try:
                 _plm.set_active("MERT", False)
-            except Exception:
+            except Exception as e:
+                logger.warning("mert_mushra_proxy.py::_extract_onnx_embedding fallback: %s", e)
                 pass
 
 
@@ -3325,7 +3333,8 @@ def _extract_dsp_embedding(audio: np.ndarray, sr: int) -> np.ndarray:
             vec /= norm
 
         return vec  # type: ignore[no-any-return]
-    except Exception:
+    except Exception as e:
+        logger.warning("mert_mushra_proxy.py::_extract_dsp_embedding fallback: %s", e)
         return np.zeros(512, dtype=np.float32)  # type: ignore[no-any-return]
 
 

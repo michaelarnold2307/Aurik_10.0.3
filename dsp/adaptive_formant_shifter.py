@@ -161,7 +161,8 @@ class AdaptiveFormantShifter:
         audio_f64 = audio.astype(np.float64)
         try:
             a = librosa.lpc(audio_f64, order=order)  # [1, a1, a2, …, a_order]
-        except Exception:
+        except Exception as e:
+            logger.warning("adaptive_formant_shifter.py::_lpc_formant_shift fallback", exc_info=True)
             return audio.copy()
 
         # Guard: degenerate LPC → LAPACK DLASCL failure

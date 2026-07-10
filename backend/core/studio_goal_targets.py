@@ -88,7 +88,8 @@ class SongGoalTargets:
 def _safe_float(v: object, default: float = 1.0) -> float:
     try:
         f = float(v)  # type: ignore[arg-type]
-    except Exception:
+    except Exception as e:
+        logger.warning("studio_goal_targets.py::_safe_float fallback: %s", e)
         return default
     if not np.isfinite(f):
         return default
@@ -101,7 +102,8 @@ def _safe_int(v: object, default: int | None = None) -> int | None:
             return default
         _f = float(v)  # type: ignore[arg-type]
         return int(_f)
-    except Exception:
+    except Exception as e:
+        logger.warning("studio_goal_targets.py::_safe_int fallback: %s", e)
         return default
 
 

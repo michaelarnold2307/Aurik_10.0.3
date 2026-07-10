@@ -87,7 +87,8 @@ def _sanitize_confidence(value: object | None, default: float = 0.65) -> float:
         if np.isnan(v) or np.isinf(v):
             return float(default)
         return float(np.clip(v, 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("adaptive_phase_rescheduler.py::_sanitize_confidence fallback: %s", e)
         return float(default)
 
 

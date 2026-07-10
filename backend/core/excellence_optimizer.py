@@ -527,7 +527,8 @@ def _enhance_spectral_continuity(
                     return out
                 return smoothed
             Zxx_new = _pghi_out
-        except Exception:
+        except Exception as e:
+            logger.warning("excellence_optimizer.py::_enhance_spectral_continuity fallback: %s", e)
             pass  # fallback: use original-phase reconstruction
     smoothed = _istft(Zxx_new, len(_audio_proc))
 

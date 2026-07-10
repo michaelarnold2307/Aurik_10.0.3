@@ -19,7 +19,8 @@ def check_file(filepath: str) -> list[str]:
     try:
         with open(filepath) as fh:
             tree = ast.parse(fh.read())
-    except Exception:
+    except Exception as e:
+        logger.warning("check_format_strings.py::check_file fallback", exc_info=True)
         return issues
 
     for node in ast.walk(tree):

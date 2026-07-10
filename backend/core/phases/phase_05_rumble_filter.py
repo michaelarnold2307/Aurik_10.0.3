@@ -279,7 +279,8 @@ class RumbleFilterPhase(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength", "strength", "wet"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_05_rumble_filter.py::process fallback: %s", e)
             pass
         use_fir: bool = bool(kwargs.get("use_fir", False))
         self.sample_rate = int(sample_rate)
@@ -673,7 +674,8 @@ class RumbleFilterPhase(PhaseInterface):
         try:
             _quiet_sos = signal.butter(2, 80.0 / (self.sample_rate / 2.0), btype="high", output="sos")
             _music_proxy = signal.sosfiltfilt(_quiet_sos, _mono32).astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_05_rumble_filter.py::_detect_transients_professional fallback: %s", e)
             pass
         _quiet_frame_len = 4800  # 100 ms @ 48 kHz
         _quiet_n = len(_music_proxy) // _quiet_frame_len

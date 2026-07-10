@@ -214,7 +214,8 @@ class SurfaceNoiseProfiling(PhaseInterface):
         def _w(name: str, default: float = 1.0) -> float:
             try:
                 return float(goal_weights.get(name, default))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_28_surface_noise_profiling.py::_w fallback: %s", e)
                 return default
 
         naturalness = float(np.clip(_w("natuerlichkeit"), 0.3, 2.0))
@@ -275,7 +276,8 @@ class SurfaceNoiseProfiling(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength", "strength", "wet"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_28_surface_noise_profiling.py::process fallback: %s", e)
             pass
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"

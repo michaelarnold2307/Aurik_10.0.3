@@ -142,7 +142,8 @@ class SpecializedDefectRepair:
                         ch_data[s0:s1] = yi.astype(np.float32)*w + ch_data[s0:s1]*(1-w)
                     else:
                         ch_data[s0:s1] = yi.astype(np.float32)
-                except Exception:
+                except Exception as e:
+                    logger.warning("specialized_defect_repair.py::_repair_dropouts fallback: %s", e)
                     pass
         return result
 

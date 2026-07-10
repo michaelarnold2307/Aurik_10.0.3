@@ -579,7 +579,8 @@ class MertPlugin:
             if not ml_budget_try_allocate("MERT-95M-fairseq", 0.40):
                 try:
                     ml_budget_release("MERT-95M-fairseq")
-                except Exception:
+                except Exception as e:
+                    logger.warning("mert_plugin.py::_try_load_fairseq fallback", exc_info=True)
                     pass
                 if not ml_budget_try_allocate("MERT-95M-fairseq", 0.40):
                     logger.warning("MERT fairseq: ML-Budget erschöpft — DSP-Fallback")
@@ -616,7 +617,8 @@ class MertPlugin:
             if not ml_budget_try_allocate("MERT-ONNX", size_gb=0.18):
                 try:
                     ml_budget_release("MERT-ONNX")
-                except Exception:
+                except Exception as e:
+                    logger.warning("mert_plugin.py::_try_load_onnx fallback", exc_info=True)
                     pass
                 if not ml_budget_try_allocate("MERT-ONNX", size_gb=0.18):
                     logger.warning("MERT ONNX: ML-Budget erschöpft — DSP-Fallback")
@@ -737,7 +739,8 @@ class MertPlugin:
             try:
                 _plm_mert_hf = get_plugin_lifecycle_manager()
                 _plm_mert_hf.set_active("MERT-330M-HF", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("mert_plugin.py::_analyze_hf fallback", exc_info=True)
                 pass
             try:
                 with torch.no_grad():
@@ -747,7 +750,8 @@ class MertPlugin:
                 if _plm_mert_hf is not None:
                     try:
                         _plm_mert_hf.set_active("MERT-330M-HF", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("mert_plugin.py::_analyze_hf fallback", exc_info=True)
                         pass
             last_hidden = outputs.last_hidden_state  # (batch, time, dim)
             # NAT-Score aus L2-Norm der Embeddings (Proxy für tonale Stärke)
@@ -810,7 +814,8 @@ class MertPlugin:
             try:
                 _plm_mert_onnx = get_plugin_lifecycle_manager()
                 _plm_mert_onnx.set_active("MERT-ONNX", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("mert_plugin.py::_analyze_onnx fallback", exc_info=True)
                 pass
             try:
                 result = self._model.run(None, feed)[0]  # (1, time, dim) oder (1, dim)
@@ -818,7 +823,8 @@ class MertPlugin:
                 if _plm_mert_onnx is not None:
                     try:
                         _plm_mert_onnx.set_active("MERT-ONNX", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("mert_plugin.py::_analyze_onnx fallback", exc_info=True)
                         pass
             score = float(np.clip(np.mean(np.abs(result)) / 10.0, 0.0, 1.0))
             dsp = _dsp_analyze(audio, self._target_sr)

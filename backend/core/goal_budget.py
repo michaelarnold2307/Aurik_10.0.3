@@ -129,6 +129,7 @@ def create_goal_budget(
             for goal, weight in profile.goal_weights.items():
                 if goal in targets:
                     targets[goal] = round(0.30 * weight / 2.0, 3)  # weight 2.0 → 0.30 Budget
-        except Exception:
+        except Exception as e:
+            logger.warning("goal_budget.py::create_goal_budget fallback: %s", e)
             pass
     return GoalBudget(targets, material_key=material_key)

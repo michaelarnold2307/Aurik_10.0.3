@@ -76,7 +76,8 @@ def get_exports(filepath: str) -> set[str]:
     try:
         with open(filepath) as f:
             tree = ast.parse(f.read())
-    except Exception:
+    except Exception as e:
+        logger.warning("check_import_breaking.py::get_exports fallback", exc_info=True)
         return set()
 
     exports: set[str] = set()

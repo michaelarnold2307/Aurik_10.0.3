@@ -473,7 +473,8 @@ def _snr_in_band(mono: np.ndarray, sr: int, f_lo: float, f_hi: float) -> float:
     try:
         sos = sig.butter(4, [f_lo_n, f_hi_n], btype="band", output="sos")
         band = sig.sosfilt(sos, mono)
-    except Exception:
+    except Exception as e:
+        logger.warning("consonant_enhancement.py::_snr_in_band fallback: %s", e)
         return 0.0
     band_rms = float(np.sqrt(np.mean(band**2)) + 1e-12)
     total_rms = float(np.sqrt(np.mean(mono**2)) + 1e-12)

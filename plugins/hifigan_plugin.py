@@ -118,7 +118,8 @@ class HifiGanPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("HiFiGAN", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("hifigan_plugin.py::_vocode_onnx fallback", exc_info=True)
             pass
         try:
             T = mel.shape[1]
@@ -145,7 +146,8 @@ class HifiGanPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("HiFiGAN", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("hifigan_plugin.py::_vocode_onnx fallback", exc_info=True)
                     pass
 
     @staticmethod

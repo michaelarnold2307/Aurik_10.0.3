@@ -137,7 +137,8 @@ class TapeHeadArtifactRepair:
                         ch_data[s0:s1] = yi.astype(np.float32) * win + ch_data[s0:s1] * (1 - win)
                     else:
                         ch_data[s0:s1] = yi.astype(np.float32)
-                except Exception:
+                except Exception as e:
+                    logger.warning("tape_head_artifact_repair.py::_repair_short_dropouts fallback: %s", e)
                     pass
 
             if result.ndim == 2:

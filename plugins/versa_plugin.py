@@ -360,7 +360,8 @@ class VersaPlugin:
 
                 _plm_versa = _get_plm_v()
                 _plm_versa.set_active("VersaSingMOS", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("versa_plugin.py::_score_singmos_pro fallback", exc_info=True)
                 pass
             try:
                 for _candidate in (mono_16k[np.newaxis, :], mono_16k):
@@ -375,7 +376,8 @@ class VersaPlugin:
                 if _plm_versa is not None:
                     try:
                         _plm_versa.set_active("VersaSingMOS", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("versa_plugin.py::_score_singmos_pro fallback", exc_info=True)
                         pass
 
             if _scores is None:

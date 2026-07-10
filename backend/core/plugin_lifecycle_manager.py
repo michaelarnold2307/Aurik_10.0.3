@@ -549,7 +549,8 @@ class PluginLifecycleManager:
         if _psutil is not None:
             try:
                 return float(_psutil.swap_memory().percent)
-            except Exception:
+            except Exception as e:
+                logger.warning("plugin_lifecycle_manager.py::_swap_percent fallback: %s", e)
                 return 0.0
         return 0.0
 

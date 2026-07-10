@@ -222,7 +222,8 @@ class TestTDPIntegration:
             perc, harm = tdp.separate(audio, SR)
             assert np.isfinite(perc).all()
             assert np.isfinite(harm).all()
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Sehr kurze Dateien dürfen ablehnen
 
     def test_22_all_scores_finite_after_pipeline(self, tdp, sine_440_2s):

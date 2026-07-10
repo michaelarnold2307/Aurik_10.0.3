@@ -977,7 +977,8 @@ def _estimate_f0_simple(audio: np.ndarray, sr: int) -> float:
             return 0.0
         peak_idx = np.argmax(autocorr[min_lag:max_lag]) + min_lag
         return float(sr / peak_idx)
-    except Exception:
+    except Exception as e:
+        logger.warning("vocal_focus_analyzer.py::_estimate_f0_simple fallback: %s", e)
         return 0.0
 
 

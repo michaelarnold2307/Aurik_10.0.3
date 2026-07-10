@@ -289,24 +289,28 @@ class ClickPopRemoval(PhaseInterface):
         for _z in kwargs.get("vibrato_zones") or []:
             try:
                 _p27_protected_zones.append((float(_z[0]), float(_z[1]), 0.20))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_27_click_pop_removal.py::process fallback: %s", e)
                 pass
         for _z in kwargs.get("frisson_zones") or []:
             try:
                 _fz_s = float(getattr(_z, "start_s", None) or _z[0])
                 _fz_e = float(getattr(_z, "end_s", None) or _z[1])
                 _p27_protected_zones.append((_fz_s, _fz_e, 0.30))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_27_click_pop_removal.py::process fallback: %s", e)
                 pass
         for _z in kwargs.get("whisper_zones") or []:
             try:
                 _p27_protected_zones.append((float(_z[0]), float(_z[1]), 0.25))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_27_click_pop_removal.py::process fallback: %s", e)
                 pass
         for _z in kwargs.get("passaggio_zones") or []:
             try:
                 _p27_protected_zones.append((float(_z[0]), float(_z[1]), 0.35))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_27_click_pop_removal.py::process fallback: %s", e)
                 pass
         _p27_pz = _p27_protected_zones or None
 
@@ -701,7 +705,8 @@ class ClickPopRemoval(PhaseInterface):
         # Least squares
         try:
             coeffs = np.linalg.lstsq(X, y, rcond=None)[0]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_27_click_pop_removal.py::_ar_prediction fallback: %s", e)
             return self._cubic_interpolation(audio, start, end)
 
         # Predict

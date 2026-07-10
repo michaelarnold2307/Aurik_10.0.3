@@ -148,7 +148,8 @@ def _swap_io_rate_mb_per_s(swap_obj: object) -> float:
         _last_swap_sin = sin
         _last_swap_sout = sout
         return float(rate_mb_s)
-    except Exception:
+    except Exception as e:
+        logger.warning("ml_memory_budget.py::_swap_io_rate_mb_per_s fallback: %s", e)
         return 0.0
 
 
@@ -214,7 +215,8 @@ def is_system_thrashing() -> bool:
                 swap_io_rate_mb_s,
             )
         return thrashing
-    except Exception:
+    except Exception as e:
+        logger.warning("ml_memory_budget.py::is_system_thrashing fallback: %s", e)
         return False
 
 
@@ -264,7 +266,8 @@ def _allow_lightweight_under_pressure(model_name: str, size_gb: float) -> bool:
                 _PRESSURE_LIGHT_MODEL_TOTAL_GB_CAP,
             )
             return True
-    except Exception:
+    except Exception as e:
+        logger.warning("ml_memory_budget.py::_allow_lightweight_under_pressure fallback: %s", e)
         return False
     return False
 
@@ -314,7 +317,8 @@ def _should_block_heavy_ml_load(size_gb: float) -> bool:
                 avail_gb,
             )
         return should_block
-    except Exception:
+    except Exception as e:
+        logger.warning("ml_memory_budget.py::_should_block_heavy_ml_load fallback: %s", e)
         return False
 
 

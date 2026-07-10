@@ -717,14 +717,16 @@ class PhaseInteractionDenker:
                     len(_fahrplan.sections),
                     _fahrplan.note,
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_interaction_denker.py::unknown fallback", exc_info=True)
                 pass
             if _n_cal > 0:
                 logger.info(
                     "§2.60 Denker-Kalibrierung: %d/%d Phasen intensitäts-angepasst",
                     _n_cal, len(ordered),
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_interaction_denker.py::unknown fallback", exc_info=True)
             pass
 
         return PhasePlan(
@@ -1048,7 +1050,8 @@ class PhaseInteractionDenker:
         try:
             material_type_cls = _load_symbol("backend.core.defect_scanner", "MaterialType")
             policy_material = material_type_cls(material_key)
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_interaction_denker.py::_with_policy_material fallback", exc_info=True)
             return defect_result
         if getattr(defect_result, "material_type", None) == policy_material:
             return defect_result
@@ -1065,7 +1068,8 @@ class PhaseInteractionDenker:
                 material_key,
             )
             return planned
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_interaction_denker.py::_with_policy_material fallback", exc_info=True)
             return defect_result
 
     @staticmethod

@@ -343,7 +343,8 @@ class ArtisticIntentDiscriminator:
             # High hf_ratio + high flatness = broadband noise (defect)
             thd = float(np.clip(hf_ratio * 2.0 * (1.0 - flatness * 0.5), 0.0, 1.0))
             return thd
-        except Exception:
+        except Exception as e:
+            logger.warning("artistic_intent_discriminator.py::_measure_harmonic_distortion fallback: %s", e)
             return 0.0
 
     @staticmethod
@@ -382,7 +383,8 @@ class ArtisticIntentDiscriminator:
                         a_s = int(a)
                         b_s = int(b)
                     covered += max(0, min(b_s, n_samples) - max(0, a_s))
-            except Exception:
+            except Exception as e:
+                logger.warning("artistic_intent_discriminator.py::_fraction_in_zones fallback: %s", e)
                 pass
         return float(np.clip(covered / max(1, n_samples), 0.0, 1.0))
 
@@ -411,7 +413,8 @@ class ArtisticIntentDiscriminator:
             cv = float(arr.std() / (arr.mean() + 1e-8))  # coefficient of variation
             # Low CV = high consistency = likely intentional
             return float(np.clip(1.0 - cv * 2.0, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("artistic_intent_discriminator.py::_measure_repetition_consistency fallback: %s", e)
             return 0.0
 
     @staticmethod

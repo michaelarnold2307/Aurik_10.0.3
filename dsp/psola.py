@@ -444,7 +444,8 @@ class PsolaPitchShifter:
 
             pearson = np.dot(orig_env, proc_env) / (norm_o * norm_p)
             return float(pearson) >= self.FORMANT_PEARSON_THRESHOLD
-        except Exception:
+        except Exception as e:
+            logger.warning("psola.py::_check_formant_preservation fallback", exc_info=True)
             return True  # Im Zweifel: OK annehmen
 
 

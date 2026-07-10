@@ -70,7 +70,8 @@ def _estimate_interchannel_lag_samples(audio: np.ndarray, sr: int, max_seconds: 
             return 0
         search = np.concatenate([gcc[n_fft - max_delay :], gcc[: max_delay + 1]])
         return int(np.argmax(np.abs(search))) - max_delay
-    except Exception:
+    except Exception as e:
+        logger.warning("file_import.py::_estimate_interchannel_lag_samples fallback", exc_info=True)
         return 0
 
 
@@ -207,7 +208,8 @@ def load_audio_file(
                 sf.info(filepath)
                 _sf_unsupported = False
                 logger.debug("load_audio_file: soundfile capability probe passed for %s", _ext)
-            except Exception:
+            except Exception as e:
+                logger.warning("file_import.py::load_audio_file fallback", exc_info=True)
                 pass
 
         # ── Metadata ─────────────────────────────────────────────────────────
@@ -322,7 +324,8 @@ def load_audio_file(
             finally:
                 try:
                     os.unlink(_tmp.name)
-                except Exception:
+                except Exception as e:
+                    logger.warning("file_import.py::unknown fallback", exc_info=True)
                     pass
 
         if audio is None and not _sf_unsupported:

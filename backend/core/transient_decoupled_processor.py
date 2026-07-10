@@ -205,7 +205,8 @@ class TransientDecoupledProcessing:
             diff_ms = np.abs(o_pk[:n] - p_pk[:n]) * hop / sr * 1000.0
             dtw_ms = float(np.sqrt(np.mean(diff_ms**2)))
             return dtw_ms > 8.0, dtw_ms
-        except Exception:
+        except Exception as e:
+            logger.warning("transient_decoupled_processor.py::_grove_violated_ex fallback: %s", e)
             return False, 0.0
 
 

@@ -100,7 +100,8 @@ class DeepFilterNetV3Plugin:
                 # Second-chance allocation: clear potential stale slot and retry once.
                 try:
                     _release("DeepFilterNetV3")
-                except Exception:
+                except Exception as e:
+                    logger.warning("deepfilternet_v3_ii_plugin.py::_try_load fallback", exc_info=True)
                     pass
                 if not try_allocate("DeepFilterNetV3", size_gb=0.15):
                     logger.warning("DeepFilterNet: ML-Budget erschöpft — DSP-Fallback aktiv")
@@ -215,7 +216,8 @@ class DeepFilterNetV3Plugin:
 
                 _plm_dfn = _get_plm_dfn()
                 _plm_dfn.set_active("DeepFilterNetV3", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("deepfilternet_v3_ii_plugin.py::_enhance_channel fallback", exc_info=True)
                 pass
             try:
                 out = self._infer_onnx(mono)
@@ -223,7 +225,8 @@ class DeepFilterNetV3Plugin:
                 if _plm_dfn is not None:
                     try:
                         _plm_dfn.set_active("DeepFilterNetV3", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("deepfilternet_v3_ii_plugin.py::_enhance_channel fallback", exc_info=True)
                         pass
         else:
             out = self._omlsa_fallback(mono, _SR)

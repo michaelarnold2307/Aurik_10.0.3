@@ -670,7 +670,8 @@ def estimate_goal_importance(
             return default
         try:
             return str(v).strip().lower()
-        except Exception:
+        except Exception as e:
+            logger.warning("song_goal_importance.py::_to_str fallback: %s", e)
             return default
 
     _genre = _to_str(genre_label)

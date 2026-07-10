@@ -235,7 +235,8 @@ class SongStructureAnalyzer:
             flatness = float(np.exp(np.mean(np.log(psd))) / (np.mean(psd) + 1e-12))
             # Vokal typisch: flatness < 0.15 UND globalem PANNs-Vertrauen
             return flatness < 0.20 and panns_confidence >= 0.20
-        except Exception:
+        except Exception as e:
+            logger.warning("song_structure_analyzer.py::_estimate_vocal_activity fallback: %s", e)
             return panns_confidence >= 0.35
 
     def _assign_label(

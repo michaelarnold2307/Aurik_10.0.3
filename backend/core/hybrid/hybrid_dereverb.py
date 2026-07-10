@@ -254,7 +254,8 @@ class HybridDereverb:
             import gc
 
             import psutil
-        except Exception:
+        except Exception as e:
+            logger.warning("hybrid_dereverb.py::_has_sufficient_ml_headroom fallback: %s", e)
             return True
 
         n_samples = int(
@@ -401,7 +402,8 @@ class HybridDereverb:
 
             _plm_dereverb = _get_plm_drv()
             _plm_dereverb.set_active(_plm_model_name, True)
-        except Exception:
+        except Exception as e:
+            logger.warning("hybrid_dereverb.py::_apply_dccrn fallback: %s", e)
             pass
 
         try:
@@ -504,7 +506,8 @@ class HybridDereverb:
             if _plm_dereverb is not None:
                 try:
                     _plm_dereverb.set_active(_plm_model_name, False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("hybrid_dereverb.py::unknown fallback: %s", e)
                     pass
 
     def _estimate_reverb_level(self, audio: np.ndarray, sample_rate: int) -> float:

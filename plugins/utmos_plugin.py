@@ -460,7 +460,8 @@ class UTMOSPlugin:
 
             _plm = get_plugin_lifecycle_manager()
             _plm.set_active("UTMOSv2", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("utmos_plugin.py::_estimate_utmos fallback", exc_info=True)
             pass
         try:
             # Resample auf 16 kHz (UTMOS-intern)
@@ -503,7 +504,8 @@ class UTMOSPlugin:
             if _plm is not None:
                 try:
                     _plm.set_active("UTMOSv2", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("utmos_plugin.py::_estimate_utmos fallback", exc_info=True)
                     pass
 
     # ------------------------------------------------------------------

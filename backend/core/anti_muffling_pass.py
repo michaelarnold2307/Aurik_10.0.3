@@ -210,7 +210,8 @@ class AntiMufflingPass:
                         result[ch] = ch_result[:len(result[ch])]
                     else:
                         result = ch_result[:len(result)].astype(np.float32)
-            except Exception:
+            except Exception as e:
+                logger.warning("anti_muffling_pass.py::unknown fallback: %s", e)
                 pass
 
         # ── Clamp ──

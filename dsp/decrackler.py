@@ -201,7 +201,8 @@ class AiDecrackler:
 
             return pred
 
-        except Exception:
+        except Exception as e:
+            logger.warning("decrackler.py::_ar_predict_forward fallback", exc_info=True)
             return AiDecrackler._cubic_fallback(context, n_predict)
 
     @staticmethod
@@ -279,7 +280,8 @@ class AiDecrackler:
             # Return AR coefficients a[1..order]
             return a[1:].astype(np.float64)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("decrackler.py::_burg_ar fallback", exc_info=True)
             return None
 
     def process(self, audio: np.ndarray, sr: int) -> np.ndarray:

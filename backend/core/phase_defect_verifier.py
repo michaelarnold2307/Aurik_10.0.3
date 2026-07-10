@@ -187,7 +187,8 @@ def _proxy_impulse_ratio(audio: np.ndarray) -> float:
         rms = float(np.sqrt(np.mean(mono**2)) + 1e-9)
         p999 = float(np.percentile(np.abs(mono), 99.9))
         return float(p999 / rms)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_impulse_ratio fallback: %s", e)
         return 1.0
 
 
@@ -217,7 +218,8 @@ def _proxy_hf_noise_floor(audio: np.ndarray, sr: int) -> float:
             if quiet_energies:
                 return float(np.percentile(quiet_energies, 5))
             return float(np.percentile(frame_energies, 5))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_hf_noise_floor fallback: %s", e)
         pass
     return 0.0
 
@@ -260,7 +262,8 @@ def _compute_hf_noise_audibility(audio: np.ndarray, sr: int) -> float:
         if not audible_scores:
             return 0.0
         return float(np.clip(np.percentile(audible_scores, 80), 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_compute_hf_noise_audibility fallback: %s", e)
         return 0.0
 
 
@@ -300,7 +303,8 @@ def _compute_transient_harshness(audio: np.ndarray, sr: int) -> float:
         burst = float(np.percentile(jumps, 95))
         ratio = burst / ref
         return float(np.clip(ratio / 6.0, 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_compute_transient_harshness fallback: %s", e)
         return 0.0
 
 
@@ -334,7 +338,8 @@ def _compute_quasi_peak_burstiness(audio: np.ndarray, sr: int) -> float:
         med = float(np.percentile(qp, 50) + 1e-9)
         ratio = p95 / med
         return float(np.clip((ratio - 1.0) / 8.0, 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_compute_quasi_peak_burstiness fallback: %s", e)
         return 0.0
 
 
@@ -368,7 +373,8 @@ def _compute_modulation_roughness(audio: np.ndarray, sr: int) -> float:
         jitter = float(np.percentile(d, 90))
         ratio = jitter / ref
         return float(np.clip(ratio / 0.35, 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_compute_modulation_roughness fallback: %s", e)
         return 0.0
 
 
@@ -483,7 +489,8 @@ def _proxy_hum_energy(audio: np.ndarray, sr: int) -> float:
                 for b in range(max(0, b_center - 1), min(b_center + 2, len(mag))):
                     energy += float(mag[b])
         return float(energy)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_hum_energy fallback: %s", e)
         return 0.0
 
 
@@ -496,7 +503,8 @@ def _proxy_low_freq_energy(audio: np.ndarray, sr: int) -> float:
         bin_80 = int(80 * n / sr)
         if bin_80 > 0 and bin_80 < len(mag):
             return float(np.mean(mag[:bin_80]))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_low_freq_energy fallback: %s", e)
         pass
     return 0.0
 
@@ -506,7 +514,8 @@ def _proxy_dc_offset(audio: np.ndarray) -> float:
     try:
         mono = _as_mono(audio)
         return float(abs(np.mean(mono)))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_dc_offset fallback: %s", e)
         return 0.0
 
 
@@ -526,7 +535,8 @@ def _proxy_dropout_ratio(audio: np.ndarray, sr: int) -> float:
             if rms < threshold:
                 silent += 1
         return float(silent / n_frames)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_dropout_ratio fallback: %s", e)
         return 0.0
 
 
@@ -541,7 +551,8 @@ def _proxy_mono_compat(audio: np.ndarray) -> float:
         mid_rms = float(np.sqrt(np.mean(mid**2)) + 1e-12)
         side_rms = float(np.sqrt(np.mean(side**2)) + 1e-12)
         return float(np.clip(mid_rms / (mid_rms + side_rms + 1e-12), 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_defect_verifier.py::_proxy_mono_compat fallback: %s", e)
         return 1.0
 
 
@@ -898,7 +909,8 @@ class PhaseDefectVerifier:
                             "goal_target_keys": sorted(goal_targets.keys()) if isinstance(goal_targets, dict) else [],
                         }
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("phase_defect_verifier.py::unknown fallback: %s", e)
                     pass
 
             return audio_before if rollback else audio_after
@@ -918,7 +930,8 @@ class PhaseDefectVerifier:
                         "rollback": result.rollback_triggered,
                     }
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_defect_verifier.py::_record_telemetry fallback: %s", e)
             pass
 
     def get_session_summary(self) -> dict:
@@ -935,7 +948,8 @@ class PhaseDefectVerifier:
                 "rollback_phases": [e["phase_id"] for e in rollbacks],
                 "miss_phases": [e["phase_id"] for e in misses],
             }
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_defect_verifier.py::get_session_summary fallback: %s", e)
             return {}
 
     def reset_session(self) -> None:

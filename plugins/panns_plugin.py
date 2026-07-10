@@ -156,7 +156,8 @@ class PANNsPlugin:
                 logger.info("PANNs GPU: CUDA erkannt (Compute Capability %s), fp16=%s",
                             torch.cuda.get_device_capability(0), fp16_ok)
                 return device, fp16_ok
-        except Exception:
+        except Exception as e:
+            logger.warning("panns_plugin.py::_detect_gpu fallback", exc_info=True)
             pass
 
         try:
@@ -167,7 +168,8 @@ class PANNsPlugin:
             if hasattr(torch, 'hip') and torch.hip.is_available():
                 logger.info("PANNs GPU: ROCm/HIP erkannt")
                 return "cuda", True  # ROCm GPUs support fp16 well
-        except Exception:
+        except Exception as e:
+            logger.warning("panns_plugin.py::_detect_gpu fallback", exc_info=True)
             pass
 
         logger.info("PANNs GPU: Keine GPU erkannt — CPU-Inferenz")

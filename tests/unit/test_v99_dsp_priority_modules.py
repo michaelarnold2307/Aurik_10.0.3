@@ -282,7 +282,8 @@ class TestAdaptiveSTFT:
         try:
             result = obj.stft(AUDIO_SINE, SR)
             assert result is not None
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Methode heißt ggf. anders
 
     def test_04_istft_roundtrip(self):
@@ -296,7 +297,8 @@ class TestAdaptiveSTFT:
             reconstructed = obj.istft(spec, sr=SR)
             assert isinstance(reconstructed, np.ndarray)
             assert len(reconstructed) > 0
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # STFT-Methode heißt ggf. anders
 
     def test_05_auto_optimize_no_crash(self):
@@ -305,7 +307,8 @@ class TestAdaptiveSTFT:
         obj = AdaptiveSTFT()
         try:
             obj.auto_optimize(AUDIO_SINE, SR)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
 
@@ -1059,7 +1062,8 @@ class TestAiStereoEnhancer:
         try:
             result = AiStereoEnhancer().process(AUDIO_STEREO, SR)
             assert isinstance(result, np.ndarray)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Mono-Eingabe möglicherweise nicht unterstützt
 
     def test_04_process_mono_no_crash(self):
@@ -1068,7 +1072,8 @@ class TestAiStereoEnhancer:
         try:
             result = AiStereoEnhancer().process(AUDIO_SINE, SR)
             assert isinstance(result, np.ndarray)
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass  # Mono ggf. nicht unterstützt
 
     def test_05_stereo_finite(self):
@@ -1077,7 +1082,8 @@ class TestAiStereoEnhancer:
         try:
             result = AiStereoEnhancer().process(AUDIO_STEREO, SR)
             assert np.isfinite(result).all()
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
 

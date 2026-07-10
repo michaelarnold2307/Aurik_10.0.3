@@ -267,7 +267,8 @@ def convert_file(path: Path, dry_run: bool = False) -> int:
     """Convert all logger f-strings in a file. Returns number of conversions."""
     try:
         source = path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as e:
+        logger.warning("_fix_fstring_loggers.py::convert_file fallback", exc_info=True)
         return 0
 
     lines = source.splitlines(keepends=True)

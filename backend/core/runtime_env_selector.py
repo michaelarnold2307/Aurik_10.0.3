@@ -32,7 +32,8 @@ try:
     result["torch_import"] = True
     result["torch_cuda_available"] = bool(torch.cuda.is_available())
     result["torch_hip"] = getattr(getattr(torch, "version", None), "hip", None)
-except Exception:
+except Exception as e:
+    logger.warning("runtime_env_selector.py::unknown fallback: %s", e)
     pass
 
 try:
@@ -40,7 +41,8 @@ try:
 
     result["onnxruntime_import"] = True
     result["ort_providers"] = list(ort.get_available_providers())
-except Exception:
+except Exception as e:
+    logger.warning("runtime_env_selector.py::unknown fallback: %s", e)
     pass
 
 sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
@@ -90,7 +92,8 @@ def probe_python_runtime(python_path: Path) -> RuntimeProbe | None:
             text=True,
             timeout=12,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("runtime_env_selector.py::probe_python_runtime fallback: %s", e)
         return None
 
     try:

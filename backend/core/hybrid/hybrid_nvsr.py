@@ -112,7 +112,8 @@ class HybridNVSR:
             import gc
 
             import psutil
-        except Exception:
+        except Exception as e:
+            logger.warning("hybrid_nvsr.py::_has_sufficient_ml_headroom fallback: %s", e)
             return True
 
         n_samples = int(
@@ -432,7 +433,8 @@ class HybridNVSR:
 
             _plm_nvsr = _get_plm_nvsr()
             _plm_nvsr.set_active("AudioSR", True)
-        except Exception:
+        except Exception as e:
+            logger.warning("hybrid_nvsr.py::_run_audiosr fallback: %s", e)
             pass
         try:
             return plugin.process(audio, sample_rate, target_sr=self.config.audiosr_target_sr)  # type: ignore[no-any-return]
@@ -440,7 +442,8 @@ class HybridNVSR:
             if _plm_nvsr is not None:
                 try:
                     _plm_nvsr.set_active("AudioSR", False)
-                except Exception:
+                except Exception as e:
+                    logger.warning("hybrid_nvsr.py::_run_audiosr fallback: %s", e)
                     pass
 
     def _blend_audio(

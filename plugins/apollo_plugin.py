@@ -204,7 +204,8 @@ class ApolloPlugin:
                         ):
                             logger.info("Apollo: VRAM-Budget erschöpft — CPU-Load")
                             _dev = "cpu"
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("apollo_plugin.py::_try_load_model fallback", exc_info=True)
                         pass
                 self._torch_model = torch.jit.load(str(model_path), map_location=_dev)
                 self._torch_model.eval()
@@ -462,7 +463,8 @@ class ApolloPlugin:
                     try:
                         if _ml_device_manager is not None:
                             _ml_device_manager.get_ml_device_manager().report_gpu_error("ApolloPlugin", exc)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("apollo_plugin.py::unknown fallback", exc_info=True)
                         pass
                 except Exception as _mv_exc:
                     logger.debug("Apollo GPU→CPU move fehlgeschlagen: %s", _mv_exc)

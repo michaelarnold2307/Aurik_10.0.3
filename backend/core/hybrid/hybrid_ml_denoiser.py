@@ -180,7 +180,8 @@ class HybridMLDenoiser:
                 )
 
                 _resemble_budget_ok = _ml_try_allocate("ResembleEnhance", size_gb=0.5)
-            except Exception:
+            except Exception as e:
+                logger.warning("hybrid_ml_denoiser.py::denoise fallback: %s", e)
                 pass
             if (
                 _resemble_budget_ok
@@ -401,7 +402,8 @@ class HybridMLDenoiser:
             import gc  # pylint: disable=import-outside-toplevel
 
             import psutil  # pylint: disable=import-outside-toplevel
-        except Exception:
+        except Exception as e:
+            logger.warning("hybrid_ml_denoiser.py::_has_sufficient_ml_headroom fallback: %s", e)
             return True
 
         n_samples = int(

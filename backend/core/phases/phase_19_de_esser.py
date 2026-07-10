@@ -561,7 +561,8 @@ class DeEsserPhase(PhaseInterface):
                 kwargs["strength"] = _pim["de_ess_strength"]
             if "correction_strength" in kwargs:
                 kwargs["correction_strength"] = _pim["de_ess_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_19_de_esser.py::process fallback: %s", e)
             pass
         material = material_type  # alias: method body uses 'material' throughout
         start_time = time.time()
@@ -586,7 +587,8 @@ class DeEsserPhase(PhaseInterface):
                 _n_total = audio.shape[1] if audio.ndim == 2 else len(audio)
                 _env_val = get_section_strength_at(_envelope, 0, _n_total)
                 _effective_strength = float(np.clip(_effective_strength * _env_val, 0.0, 1.0))
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_19_de_esser.py::process fallback: %s", e)
                 pass  # Envelope-Fehler → unmoduliert weiter
 
         if _effective_strength <= 0.0:
@@ -2381,7 +2383,8 @@ def _estimate_vibrato_from_pyin(
 
         return vib_rate, vib_depth_cents
 
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_19_de_esser.py::_estimate_vibrato_from_pyin fallback: %s", e)
         return None, None
 
     # §SOTA #4: Autocorrelation-Fallback — robuster als FFT bei Rauschen
@@ -2400,7 +2403,8 @@ def _estimate_vibrato_from_pyin(
         rate = float(sample_rate / (pk * hop_length))
         depth = float(1200.0 * np.log2((np.median(f0_v) + np.std(f0_c)) / np.median(f0_v)))
         return (rate, depth) if 15 < depth < 600 else (rate, None)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_19_de_esser.py::unknown fallback: %s", e)
         return None, None
 
 
@@ -2510,7 +2514,8 @@ def _compute_spectral_tilt(audio: np.ndarray, sample_rate: int) -> float | None:
         log_s = 20.0 * np.log10(spec[mask] + 1e-10)
         slope, _ = np.polyfit(log_f, log_s, 1)
         return float(slope)
-    except Exception:
+    except Exception as e:
+        logger.warning("phase_19_de_esser.py::_compute_spectral_tilt fallback: %s", e)
         return None
 
 

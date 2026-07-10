@@ -34,7 +34,8 @@ class DenoiserModel:
             if len(y) >= n:
                 return y[:n].astype(audio.dtype)  # type: ignore[no-any-return]
             return np.pad(y, (0, n - len(y))).astype(audio.dtype)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("dummy_models.py::process fallback: %s", e)
             return audio
 
 
@@ -49,7 +50,8 @@ class SibilantModel:
             sr = int(context.get("sr", 44100))
             de_esser = MLDeEsser(reduction_db=reduction_db)
             return de_esser.process(audio, sr).astype(audio.dtype)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("dummy_models.py::process fallback: %s", e)
             return audio
 
 
@@ -67,5 +69,6 @@ class AuthenticityModel:
             # Subtiler Mix: 80% Original + 20% Sättigung
             mix = float(context.get("mix", 0.2))
             return (audio * (1.0 - mix) + saturated * mix).astype(audio.dtype)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("dummy_models.py::process fallback: %s", e)
             return audio

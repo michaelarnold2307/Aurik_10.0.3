@@ -210,7 +210,8 @@ def test_precomputed_plan_bypasses_select_phases(sr, short_audio):
     ):
         try:
             uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=plan))
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
         mock_select.assert_not_called()
 
@@ -241,7 +242,8 @@ def test_precomputed_plan_bypasses_optimize_intelligence(sr, short_audio):
     ):
         try:
             uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=plan))
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
         mock_opt.assert_not_called()
 
@@ -274,7 +276,8 @@ def test_precomputed_plan_disables_phase_skipping(sr, short_audio):
         ):
             try:
                 uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=plan))
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass
     finally:
         tgt.removeHandler(handler)
@@ -325,7 +328,8 @@ def test_precomputed_plan_resets_stale_material_priority_phases(sr, short_audio)
     ):
         try:
             uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=plan))
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     if captured:
@@ -368,7 +372,8 @@ def test_precomputed_plan_empty_uses_legacy_select(sr, short_audio):
         try:
             # Kein precomputed_phase_plan => Legacy-Pfad
             uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=None))
-        except Exception:
+        except Exception as e:
+            logger.warning("test fallback", exc_info=True)
             pass
 
     assert len(call_count) >= 1, (
@@ -404,7 +409,8 @@ def test_precomputed_plan_pid_plan_log_contains_phase_count(sr, short_audio):
         ):
             try:
                 uv3.restore(short_audio, sr=sr, **_fast_restore_kwargs(plan=plan))
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass
     finally:
         tgt.removeHandler(handler)

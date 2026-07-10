@@ -461,7 +461,8 @@ class TestGoalExplainer:
                 desc = ge.generate_explanation()
                 ge.stop_tracking()
                 assert desc is not None
-            except Exception:
+            except Exception as e:
+                logger.warning("test fallback", exc_info=True)
                 pass  # "Need at least original + 1 processed step" ist OK
 
 

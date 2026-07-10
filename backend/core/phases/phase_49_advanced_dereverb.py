@@ -254,7 +254,8 @@ class AdvancedDereverbPhase(PhaseInterface):
             for _key in ("noise_reduction_strength", "nr_strength", "strength", "wet"):
                 if _key in kwargs:
                     kwargs[_key] = _pim["nr_strength"]
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_49_advanced_dereverb.py::process fallback: %s", e)
             pass
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         self.validate_input(audio)
@@ -270,7 +271,8 @@ class AdvancedDereverbPhase(PhaseInterface):
             )
 
             _get_plm_evict49().evict_for_phase("phase_49_advanced_dereverb")
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_49_advanced_dereverb.py::process fallback: %s", e)
             pass
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
@@ -391,7 +393,8 @@ class AdvancedDereverbPhase(PhaseInterface):
                 _f1_pre_49 = (
                     float(_get_lfc_49().track(_ft_in_49.astype(np.float32), sample_rate).get("f1_mean", 0.0)) or None
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_49_advanced_dereverb.py::unknown fallback: %s", e)
                 pass
 
         # §2.20 Genre-adaptive dereverb hardcap (defense-in-depth — SongCal is primary guard).
@@ -532,7 +535,8 @@ class AdvancedDereverbPhase(PhaseInterface):
                     if _plm49 is not None:
                         try:
                             _plm49.touch_plugin("SGMSE+")  # type: ignore[attr-defined]
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("phase_49_advanced_dereverb.py::unknown fallback: %s", e)
                             pass
                     _sgmse_result = _sgmse_factory_49().enhance(
                         audio,
@@ -560,7 +564,8 @@ class AdvancedDereverbPhase(PhaseInterface):
                     if _plm49 is not None:
                         try:
                             _plm49.set_active("SGMSE+", False)
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("phase_49_advanced_dereverb.py::unknown fallback: %s", e)
                             pass
                     _release_49("SGMSE+_phase49")
         except Exception as _imp_err:
@@ -835,7 +840,8 @@ class AdvancedDereverbPhase(PhaseInterface):
                         abs(_f1_post_49 - _f1_pre_49),
                     )
                     processed = audio.copy()
-            except Exception:
+            except Exception as e:
+                logger.warning("phase_49_advanced_dereverb.py::unknown fallback: %s", e)
                 pass
 
         # §Gap3 PhraseBoundaryGuard — taper artifacts at phrase transitions (§0p Vocal-Supremacy)

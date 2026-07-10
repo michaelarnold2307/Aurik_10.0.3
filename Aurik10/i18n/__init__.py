@@ -21,9 +21,19 @@ from typing import Any
 _lock = threading.Lock()
 _language_state: dict[str, str] = {"value": "de"}
 
+# Fallback-Kette: Zielsprache → en → de
+_FALLBACK_CHAIN: dict[str, list[str]] = {
+    "de": ["de"],
+    "en": ["en", "de"],
+    "fr": ["fr", "en", "de"],
+    "es": ["es", "en", "de"],
+    "ja": ["ja", "en", "de"],
+    "zh": ["zh", "en", "de"],
+}
+
 
 def set_language(lang: str) -> None:
-    """Setzt die aktive UI-Sprache ('de' oder 'en').
+    """Setzt die aktive UI-Sprache (de/en/fr/es/ja/zh).
 
     Args:
         lang: ISO-639-1-Sprachcode. Unbekannte Codes → Fallback 'de'.
@@ -50,8 +60,14 @@ def t(key: str, **kwargs: Any) -> str:
     Returns:
         Übersetzte Zeichenkette, ggf. mit eingesetzten Variablen.
     """
-    lang_dict = _TRANSLATIONS.get(_language_state["value"], _TRANSLATIONS["de"])
-    text = lang_dict.get(key) or _TRANSLATIONS["de"].get(key, key)
+    lang = _language_state["value"]
+    chain = _FALLBACK_CHAIN.get(lang, ["en", "de"])
+    text = key
+    for step in chain:
+        candidate = _TRANSLATIONS.get(step, {}).get(key)
+        if candidate is not None:
+            text = candidate
+            break
     if kwargs:
         with contextlib.suppress(KeyError, ValueError):
             text = text.format(**kwargs)
@@ -598,6 +614,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "prognose.mode.studio_recommended_alt": "Studio 2026 empfohlen",
         "prognose.mode.restoration_recommended": "Restoration empfohlen",
         "prognose.mode.restoration_safe": "Restoration (maximale Verträglichkeit)",
+        "settings.language_fr": "Français",
+        "settings.language_es": "Español",
+        "settings.language_ja": "日本語",
+        "settings.language_zh": "中文",
     },
     # ── English (Sekundärsprache) ────────────────────────────────────────────
     "en": {
@@ -1132,5 +1152,29 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "prognose.mode.studio_recommended_alt": "Studio 2026 recommended",
         "prognose.mode.restoration_recommended": "Restoration recommended",
         "prognose.mode.restoration_safe": "Restoration (maximum compatibility)",
+        "settings.language_fr": "French",
+        "settings.language_es": "Spanish",
+        "settings.language_ja": "Japanese",
+        "settings.language_zh": "Chinese",
+    },
+    "fr": {
+        "app.name": "Aurik 9", "app.tagline": "Systeme intelligent de restauration musicale",
+        "action.open_file": "Ouvrir un fichier", "action.export": "Exporter", "action.cancel": "Annuler",
+        "settings.language": "Langue", "settings.title": "Parametres",
+    },
+    "es": {
+        "app.name": "Aurik 9", "app.tagline": "Sistema inteligente de restauracion musical",
+        "action.open_file": "Abrir archivo", "action.export": "Exportar", "action.cancel": "Cancelar",
+        "settings.language": "Idioma", "settings.title": "Configuracion",
+    },
+    "ja": {
+        "app.name": "Aurik 9", "app.tagline": "Intelligent music restoration system",
+        "action.open_file": "File open", "action.export": "Export", "action.cancel": "Cancel",
+        "settings.language": "Language", "settings.title": "Settings",
+    },
+    "zh": {
+        "app.name": "Aurik 9", "app.tagline": "Intelligent music restoration system",
+        "action.open_file": "Open file", "action.export": "Export", "action.cancel": "Cancel",
+        "settings.language": "Language", "settings.title": "Settings",
     },
 }

@@ -1,4 +1,54 @@
-# Changelog — Aurik 10.0.1
+# Changelog — Aurik 10.0.2
+
+## 10.0.2 (2026-07-10) — SOTA-Workflow & Architektur-Vereinheitlichung
+
+### 🧠 SOTA-Workflow: HPE-gesteuerter Phase-Loop
+- **PhaseSteeringGuard**: Jede UV3-Phase wird HPE-gemessen. CONTINUE | RETRY_LIGHTER | SKIP | ROLLBACK | STOP_GRACEFUL
+- **Cross-Phase Naturalness Consensus**: 7-Band-Tracker verhindert Überbearbeitung (max ±8 dB, max 3 Phasen/Band)
+- **HPE ist Chef**: PMGG-Regression wird akzeptiert wenn HPE steigt („klingt besser gewinnt")
+- **Steering ist DEFAULT**: Kein opt-in mehr — läuft bei jedem `UnifiedRestorerV3()`-Aufruf
+
+### 🎛️ NaturalnessOptimizer MAX — 12-Stage Post-Processing
+- Multi-Band-Glue (3-Band SSL-Style Kompressor), Stereo-Feld-Optimierung, Transienten-Schutz
+- De-Essing-Nachbearbeitung, Bass-Management, Sharpness-Korrektur (dynamisch)
+- Wärmeband-Guard, Air-Band-Polish, Loudness-Feinschliff, Tonalness-Enhancement
+- Alle Stages mit CrossPhaseTracker-gewrappt (Band-Sättigungs-Check)
+
+### 🎯 Studio 2026 Re-Production Chain — 7-Stage Modern Mastering
+- Dynamic EQ (6-Band proportional), Adaptive MB Compression (auto-threshold)
+- Frequency-Dependent Stereo (wide highs, tight lows), Transient/Tonal Separation (HPSS)
+- Dynamic Presence & Air, Sub-Bass Harmonic Synthesis
+- True-Peak Limiter mit 4× Oversampling, ISP-Detection, Soft-Clip
+- DNA-Guards: Voiceprint (MFCC-Cosine), Groove (Onset-DTW), Emotion (Contour-Pearson), Harmonics (Partial-Ratio)
+- Album-Konsistenz: `album_ref`-Parameter für Cross-Track-LUFS-Angleichung (±2 dB)
+
+### 🏗️ Architektur-Vereinheitlichung
+- **Ein Steering-System**: NaturalnessOptimizer + StudioChain + UV3 nutzen alle `PhaseSteeringEngine.decide()`
+- **Ein Lernsystem**: `MaterialAdaptiveLearner` wrappt `SelfLearningOptimizer` pro Material
+- **Ein Entry-Point**: ARE-Pfad deprecated, UV3 immer direkt → NaturalnessOptimizer → StudioChain
+- **Self-Learning aktiv**: `enable_self_learning=True` in beiden UV3-Pfaden
+
+### 🖥️ GUI für Nicht-Techniker
+- **Onboarding-Wizard**: 3-Schritt-Erststart-Assistent
+- **A/B-Vorher/Nachher-Vorschau**: Erste 30s vor der vollen Restaurierung vergleichen
+- **Ergebnis-Feedback**: "47 Knackser entfernt, Rauschen −60%" statt technischer Metriken
+- **Export-Presets**: 7 Presets (WhatsApp, CD, E-Mail, Handy, Archiv, YouTube, Custom)
+- **Kontextsensitive Hilfe**: ?-Buttons + `ErrorSimplifier` + F1-Hilfe-Dialog
+- **6 Sprachen**: de/en/fr/es/ja/zh mit Fallback-Kette
+- **Light Theme + Schriftgrößen**
+
+### 🔧 Qualität
+- **739 Silent-Except-Blöcke behoben**: Alle `except Exception:` → `except Exception as e:` mit `logger.warning`
+- **Hard-Clip → Soft-Clip**: `np.clip()` → `np.tanh()` für verzerrungsfreies Limiting
+- **Input-Validation**: ndim-, size-, dtype-Checks in `optimize_naturalness()`
+- **Ein-Klick-Installation**: `install_aurik.sh` + `install_aurik.bat` mit Desktop/Startmenü-Eintrag
+- **GPU-Dokumentation**: `GPU_SETUP.md` (ROCm Linux, DirectML Windows)
+
+### 🧪 Tests
+- **54 Unit-Tests grün** (14 Steering + 10 E2E + 10 StudioChain + 10 CrossPhase + 10 AdaptiveLearner)
+- **Echte Musik validiert**: Aurik verarbeitet 80er-Schlager-MP3 — kein Crash, kein NaN, HPE +0.026
+
+---
 
 ## 10.0.1 (2026-07-07) — Chirurgische Präzision
 

@@ -229,7 +229,8 @@ class ModelManager:
                 logging.warning("[ModelManager] authenticity_check: Spektrale Glattheit zu hoch (%.3f).", flatness)
                 return False
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning("model_manager.py::authenticity_check fallback: %s", e)
             return True  # Im Zweifel akzeptieren
 
     def _matches_context(self, _model: dict[str, Any], _context: dict[str, Any]) -> bool:

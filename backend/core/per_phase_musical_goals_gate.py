@@ -1263,7 +1263,8 @@ def _get_all_verifier_phases() -> frozenset[str]:
     try:
         from backend.core.cassette_defect_verifier import _PHASE_CATEGORIES
         return frozenset(_PHASE_CATEGORIES.keys())
-    except Exception:
+    except Exception as e:
+        logger.warning("per_phase_musical_goals_gate.py::_get_all_verifier_phases fallback: %s", e)
         return _CASSETTE_VERIFIER_PHASES
 
 
@@ -1655,7 +1656,8 @@ def _resolve_team_context_policy(phase_id: str, phase_kwargs: dict[str, Any] | N
             _policy["strength_cap"] = min(float(_policy["strength_cap"]), float(_tp.get("strength_cap", 1.0)))
             if not _policy["reason"]:
                 _policy["reason"] = str(_tp.get("reason", ""))
-    except Exception:
+    except Exception as e:
+        logger.warning("per_phase_musical_goals_gate.py::unknown fallback: %s", e)
         pass
 
     # Team rule: if prior phases already restored HF content, phase_50 should
@@ -1709,7 +1711,8 @@ def _phase20_is_ml_active() -> bool:
         from backend.core.ml_memory_budget import get_status
 
         return "SGMSE+" in get_status().get("models", {})
-    except Exception:
+    except Exception as e:
+        logger.warning("per_phase_musical_goals_gate.py::_phase20_is_ml_active fallback: %s", e)
         return False  # Safe default: DSP path — must re-run
 
 
@@ -1834,7 +1837,8 @@ def _safe_pearson(a: np.ndarray, b: np.ndarray) -> float:
         _nb = float(np.linalg.norm(_b))
         r = float(np.dot(_a, _b) / (_na * _nb + 1e-10))
         return r if math.isfinite(r) else 0.0
-    except Exception:
+    except Exception as e:
+        logger.warning("per_phase_musical_goals_gate.py::_safe_pearson fallback: %s", e)
         return 0.0
 
 
@@ -3245,7 +3249,8 @@ def _content_integrity_penalty(
         _corr_pen = 0.0 if skip_corr_check else max(0.0, min(1.0, (0.55 - _corr) / 0.55))
         _penalty = float(max(_drop_pen, _corr_pen))
         return _penalty, {"rms_drop_db": _rms_drop_db, "corr": _corr}
-    except Exception:
+    except Exception as e:
+        logger.warning("per_phase_musical_goals_gate.py::unknown fallback: %s", e)
         return 0.0, {"rms_drop_db": 0.0, "corr": 1.0}
 
 
@@ -4860,7 +4865,8 @@ class PerPhaseMusicalGoalsGate:
                     "akzeptiert mit ultra-reduzierter Stärke %.2f.",
                     phase_id, _hpe_delta, _ultra_strength)
                 return best_audio, best_scores, "hpe_ultra_low", _ultra_strength
-        except Exception:
+        except Exception as e:
+            logger.warning("per_phase_musical_goals_gate.py::unknown fallback: %s", e)
             pass
 
         # §0l Team-Net-Delta-Tracking: Besten Versuch anhand von Team-Score UND
@@ -5597,7 +5603,8 @@ class PerPhaseMusicalGoalsGate:
         try:
             meta = phase.get_metadata()
             return getattr(meta, "phase_id", type(phase).__name__)
-        except Exception:
+        except Exception as e:
+            logger.warning("per_phase_musical_goals_gate.py::_get_phase_id fallback: %s", e)
             return type(phase).__name__
 
     @staticmethod

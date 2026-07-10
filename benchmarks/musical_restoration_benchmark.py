@@ -940,7 +940,8 @@ class MusicalRestorationBenchmark:
             try:
                 corr = float(np.clip(np.corrcoef(ref, test)[0, 1], -1.0, 1.0))
                 return float(np.clip(50.0 * (1.0 + corr), 0.0, 100.0)), True
-            except Exception:
+            except Exception as e:
+                logger.warning("musical_restoration_benchmark.py::_mushra_score fallback", exc_info=True)
                 return 50.0, True
 
     def _mushra_proxy_score(self, ref: np.ndarray, test: np.ndarray, sr: int):
@@ -1009,7 +1010,8 @@ class MusicalRestorationBenchmark:
             similarity = 0.7 * float(np.median(frame_cos)) + 0.3 * float(np.mean(frame_cos))
             mos = 1.0 + 4.0 * float(np.clip((similarity + 1.0) * 0.5, 0.0, 1.0))
             return float(np.clip(mos, 1.0, 5.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_restoration_benchmark.py::_quick_pqs fallback", exc_info=True)
             return 3.0
 
     @staticmethod
@@ -1047,7 +1049,8 @@ class MusicalRestorationBenchmark:
             )
 
             return get_checker().measure_all(audio, sr, reference=reference, material_type=material_type)
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_restoration_benchmark.py::_musical_goals fallback", exc_info=True)
             return {}
 
     @staticmethod

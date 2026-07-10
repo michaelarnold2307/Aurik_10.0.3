@@ -832,7 +832,8 @@ class MLDeviceManager:
                     name = line.split("=", 1)[1].strip()
                     if name:
                         return name
-        except Exception:
+        except Exception as e:
+            logger.warning("ml_device_manager.py::_query_gpu_name_windows fallback: %s", e)
             pass
         return ""
 
@@ -843,7 +844,8 @@ class MLDeviceManager:
 
             free_bytes, _ = torch.cuda.mem_get_info(0)
             return round(free_bytes / (1024**3), 2)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("ml_device_manager.py::_query_vram_free_rocm fallback: %s", e)
             return self._vram_total_gb  # assume empty on query failure
 
     def _query_vram_directml(self) -> float:
@@ -863,7 +865,8 @@ class MLDeviceManager:
                     raw = line.split("=", 1)[1].strip()
                     if raw.isdigit():
                         return round(int(raw) / (1024**3), 2)
-        except Exception:
+        except Exception as e:
+            logger.warning("ml_device_manager.py::_query_vram_directml fallback: %s", e)
             pass
         return 4.0  # conservative default when WMIC is unavailable
 

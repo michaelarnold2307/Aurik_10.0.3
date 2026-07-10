@@ -179,7 +179,8 @@ class PhonemeDetector:
             cut = max(1, int(cutoff_frac * len(spec)))
             hf = float(np.sum(spec[cut:] ** 2))
             return min(1.0, hf / total)
-        except Exception:
+        except Exception as e:
+            logger.warning("phoneme_detector.py::_hf_energy_ratio fallback", exc_info=True)
             return 0.0
 
     def _estimate_confidence(self, audio: np.ndarray) -> float:
@@ -187,7 +188,8 @@ class PhonemeDetector:
         try:
             rms = float(np.sqrt(np.mean(audio**2)))
             return float(np.clip(rms * 10.0, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("phoneme_detector.py::_estimate_confidence fallback", exc_info=True)
             return 0.0
 
 

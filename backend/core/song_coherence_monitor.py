@@ -182,7 +182,8 @@ class SongCoherenceMonitor:
 
             mfcc = _lb.feature.mfcc(y=seg, sr=sr, n_mfcc=_N_MFCC, n_fft=2048, hop_length=512)
             return mfcc.mean(axis=1).astype(np.float32)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
+            logger.warning("song_coherence_monitor.py::_mfcc_mean fallback: %s", e)
             pass
 
         # Lightweight fallback: log-energy in 13 mel-like bands

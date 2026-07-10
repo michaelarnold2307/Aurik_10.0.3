@@ -411,7 +411,8 @@ class PerceptualValidator:
 
                 _plm_ast = _get_plm_ast()
                 _plm_ast.set_active("ASTPerceptualONNX", True)
-            except Exception:
+            except Exception as e:
+                logger.warning("perceptual_validator.py::_predict_psychoacoustic_score fallback: %s", e)
                 pass
             try:
                 _inp = self._prepare_ast_onnx_input(audio, sr)
@@ -424,7 +425,8 @@ class PerceptualValidator:
                 if _plm_ast is not None:
                     try:
                         _plm_ast.set_active("ASTPerceptualONNX", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("perceptual_validator.py::_predict_psychoacoustic_score fallback: %s", e)
                         pass
 
         if self.model is None:

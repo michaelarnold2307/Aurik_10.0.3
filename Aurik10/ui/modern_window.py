@@ -1618,7 +1618,8 @@ class BatchProcessingThread(QThread):
                 mode=self._emergency_mode,
                 defect_result=None,
             )
-        except Exception:
+        except Exception as e:
+            logger.debug("fallback in modern_window.py", exc_info=True)
             pass  # best-effort in signal handler — no logging
 
     def run(self):
@@ -2882,7 +2883,8 @@ class BatchProcessingThread(QThread):
                                 _v = float(_mos_raw)
                                 _f = min(5, max(1, round(_v)))
                                 return "★" * _f + "☆" * (5 - _f)
-                            except Exception:
+                            except Exception as e:
+                                logger.debug("fallback in modern_window.py", exc_info=True)
                                 return "★★★"
 
                         _vranking = "  ›  ".join(
@@ -11899,6 +11901,15 @@ class ModernMainWindow(QMainWindow):
         # Auto-Update-Check: vorerst deaktiviert
         # QTimer.singleShot(5000, self._check_for_update_startup)
 
+        # Onboarding wizard (first run only)
+        try:
+            from Aurik10.ui.onboarding import should_show_onboarding, OnboardingWizard
+            if should_show_onboarding():
+                QTimer.singleShot(800, lambda: OnboardingWizard(self).exec_())
+        except Exception as e:
+            logger.debug("fallback in modern_window.py", exc_info=True)
+            pass
+
         # Runtime-adaptive UI: reacts to resize and monitor DPI/screen changes.
         self._responsive_sig: tuple[float, int, int] | None = None
         self._responsive_timer = QTimer(self)
@@ -11959,7 +11970,8 @@ class ModernMainWindow(QMainWindow):
             geo = screen.availableGeometry()
             w = int(geo.width())
             h = int(geo.height())
-        except Exception:
+        except Exception as e:
+            logger.debug("fallback in modern_window.py", exc_info=True)
             return 1.0
 
         scale = max(1.0, min(1.28, dpi / 96.0))
@@ -14577,6 +14589,9 @@ class ModernMainWindow(QMainWindow):
         # F1: Shortcut-Übersicht
         _bind_shortcut(Qt.Key.Key_F1, self._show_shortcut_help)
 
+        # F1 Help System — dedicated help search shortcut
+        QtWidgets.QShortcut(QtGui.QKeySequence("F1"), self).activated.connect(self._show_help)
+
     # ── System Tray + Notifications ──────────────────────────────────────────
 
     def _setup_system_tray(self) -> None:
@@ -15284,6 +15299,14 @@ class ModernMainWindow(QMainWindow):
         layout.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignCenter)
         dlg.exec_()
 
+    def _show_help(self):
+        """F1: Open the help search dialog for documentation lookup."""
+        try:
+            from Aurik10.ui.help_system import HelpSearchDialog
+            HelpSearchDialog(self).exec_()
+        except Exception:
+            logger.debug("Help system unavailable", exc_info=True)
+
     def _request_processing_stop(self, reason: str, timeout_s: float = 5.0) -> bool:
         """Request async stop of active worker threads without blocking UI thread."""
         _bt = getattr(self, "batch_thread", None)
@@ -15959,6 +15982,26 @@ class ModernMainWindow(QMainWindow):
 
         # Export-Dialog jetzt MODAL und BLOCKIEREND vor jeglicher Verarbeitung
         logger.debug("_on_file_loaded: opening ExportConfigDialog (modal)")
+
+        # Export Preset dialog — try preset selection first
+        try:
+            from Aurik10.ui.export_presets import ExportPresetDialog
+            preset_dlg = ExportPresetDialog(self)
+            if preset_dlg.exec_() == QDialog.DialogCode.Accepted:
+                self._export_config = preset_dlg.get_config()
+                _cfg_out_dir = str(self._export_config.get("output_dir", "") or "").strip()
+                if _cfg_out_dir:
+                    self._output_dir = _cfg_out_dir
+                if hasattr(self, "progress_bar"):
+                    self.progress_bar.setVisible(False)
+                    self.progress_bar.setValue(0)
+                self._continue_file_loaded(audio, sr, file_path, carrier_label, carrier_score, load_token=load_token)
+                return
+        except Exception as e:
+            logger.debug("fallback in modern_window.py", exc_info=True)
+            pass
+        # Fall through to existing ExportConfigDialog
+
         _dlg = ExportConfigDialog(file_path, parent=self)
         if _dlg.exec() != QDialog.DialogCode.Accepted:
             if hasattr(self, "progress_bar"):
@@ -16001,6 +16044,21 @@ class ModernMainWindow(QMainWindow):
             # Live-Preview zurücksetzen — kein Zwischenstand vom vorherigen Song
             self._live_preview_audio = None
             self._live_preview_sr = 48000
+
+            # A/B Preview widget: show after file loaded, initially hidden
+            try:
+                from Aurik10.ui.ab_preview import ABPreviewWidget
+                if not hasattr(self, '_ab_preview_widget') or self._ab_preview_widget is None:
+                    self._ab_preview_widget = ABPreviewWidget(self)
+                    self._ab_preview_widget.restoration_requested.connect(
+                        lambda mode: self._process_with_mode(mode)
+                    )
+                    if hasattr(self, '_main_area_layout'):
+                        self._main_area_layout.addWidget(self._ab_preview_widget)
+                self._ab_preview_widget.setVisible(True)
+            except Exception as e:
+                logger.debug("fallback in modern_window.py", exc_info=True)
+                pass
 
             # Playback pre-warmup: resample to device SR in background so the
             # first play-click is stutter-free.  Invalidate any previous cache.
@@ -19044,6 +19102,26 @@ class ModernMainWindow(QMainWindow):
         # §2.38 KMV Stufe 2: Wenn deferred_phases vorhanden → ML-Veredelungs-Thread starten
         self._maybe_start_kmv_refinement(item, restoration_result)
         self._refresh_defect_summary_height()
+
+        # Results Summary dialog after successful processing
+        try:
+            from Aurik10.ui.results_summary import ResultsSummaryDialog, build_results_data
+            _file_name = Path(item.input_file).name if item and item.input_file else ""
+            data = build_results_data(
+                file_name=_file_name,
+                quality_before=None,
+                quality_after=None,
+                restoration_result=restoration_result,
+            )
+            dlg = ResultsSummaryDialog(data, self)
+            dlg.play_requested.connect(lambda: self._play_restored_or_preview())
+            dlg.open_folder_requested.connect(
+                lambda p: _open_with_system_default(p) if p else None
+            )
+            QTimer.singleShot(400, dlg.exec_)
+        except Exception as e:
+            logger.debug("fallback in modern_window.py", exc_info=True)
+            pass
 
     def _on_item_error(self, item_id, error_msg):
         """Verarbeitet item error — zeigt deutsche Fehlermeldung im UI (Spec §11.4)."""
@@ -23282,6 +23360,10 @@ class ModernMainWindow(QMainWindow):
         lang_combo = QComboBox()
         lang_combo.addItem(t("settings.language_de"), "de")
         lang_combo.addItem(t("settings.language_en"), "en")
+        lang_combo.addItem(t("settings.language_fr"), "fr")
+        lang_combo.addItem(t("settings.language_es"), "es")
+        lang_combo.addItem(t("settings.language_ja"), "ja")
+        lang_combo.addItem(t("settings.language_zh"), "zh")
         current_lang = get_language()
         idx = max(0, lang_combo.findData(current_lang))
         lang_combo.setCurrentIndex(idx)
@@ -23296,6 +23378,30 @@ class ModernMainWindow(QMainWindow):
         form.addRow(t("settings.theme"), theme_combo)
 
         layout.addLayout(form)
+
+        # ── Updates section ──────────────────────────────────────────────
+        _updates_label = QLabel(f"<b>{t('settings.updates', default='Updates')}</b>")
+        layout.addWidget(_updates_label)
+
+        _updates_row = QHBoxLayout()
+        _updates_info = QLabel(t('settings.updates_info', default='Check for available updates.'))
+        _updates_info.setStyleSheet("color: rgba(180,190,210,0.8); font-size: 9pt;")
+        _updates_row.addWidget(_updates_info, 1)
+
+        _check_btn = QPushButton(t('settings.check_updates_btn', default='Check for updates'))
+        _check_btn.setFixedHeight(30)
+        _check_btn.setStyleSheet(
+            "QPushButton { background: rgba(102,126,234,0.30); border: 1px solid rgba(102,126,234,0.5);"
+            " border-radius: 6px; color: #c8d8ff; padding: 4px 14px; font-size: 9pt; }"
+            " QPushButton:hover { background: rgba(102,126,234,0.55); }"
+        )
+        _check_btn.clicked.connect(
+            lambda: self._check_for_update_manual()
+            if hasattr(self, '_check_for_update_manual')
+            else None
+        )
+        _updates_row.addWidget(_check_btn)
+        layout.addLayout(_updates_row)
 
         buttons = QDialogButtonBox(parent=dlg)
         buttons.setStandardButtons(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)

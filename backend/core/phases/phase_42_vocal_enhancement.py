@@ -339,7 +339,8 @@ class VocalEnhancement(PhaseInterface):
             from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_evict42
 
             _get_plm_evict42().evict_for_phase("phase_42_vocal_enhancement")
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_42_vocal_enhancement.py::process fallback: %s", e)
             pass
 
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
@@ -1138,7 +1139,8 @@ class VocalEnhancement(PhaseInterface):
 
             score = 0.55 * fric_score + 0.45 * plosive_score
             return float(np.clip(score, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("phase_42_vocal_enhancement.py::_measure_vocal_intimacy fallback: %s", e)
             return 0.5
 
     @staticmethod
@@ -1319,7 +1321,8 @@ class VocalEnhancement(PhaseInterface):
                 if _plm42_rof is not None:
                     try:
                         _plm42_rof.touch_plugin("MelBandRoformer")  # type: ignore[attr-defined]
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_42_vocal_enhancement.py::_try_stem_separation fallback: %s", e)
                         pass
                 sep = roformer.separate(audio_mono, sr, stems=["vocals"])
                 if sep is not None and "vocals" in sep.stems:
@@ -1353,7 +1356,8 @@ class VocalEnhancement(PhaseInterface):
                 if _plm42_rof is not None:
                     try:
                         _plm42_rof.set_active("MelBandRoformer", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_42_vocal_enhancement.py::unknown fallback: %s", e)
                         pass
 
         # ── 2: HTDemucs 6s fallback (nur live/crowd + native Session) ───────
@@ -1422,14 +1426,16 @@ class VocalEnhancement(PhaseInterface):
                     try:
                         _plm42_mdx.touch_plugin("MDX23C_vocals")  # type: ignore[attr-defined]
                         _plm42_mdx.touch_plugin("MDX23C_inst")  # type: ignore[attr-defined]
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_42_vocal_enhancement.py::unknown fallback: %s", e)
                         pass
                 voc_mono = mdx.process(audio_mono, sr, stem="vocals")
                 if _plm42_mdx is not None:
                     try:
                         _plm42_mdx.touch_plugin("MDX23C_vocals")  # type: ignore[attr-defined]
                         _plm42_mdx.touch_plugin("MDX23C_inst")  # type: ignore[attr-defined]
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_42_vocal_enhancement.py::unknown fallback: %s", e)
                         pass
                 inst_mono = mdx.process(audio_mono, sr, stem="inst")
                 n = min(len(audio_mono), len(voc_mono), len(inst_mono))
@@ -1447,7 +1453,8 @@ class VocalEnhancement(PhaseInterface):
                     try:
                         _plm42_mdx.set_active("MDX23C_vocals", False)
                         _plm42_mdx.set_active("MDX23C_inst", False)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("phase_42_vocal_enhancement.py::unknown fallback: %s", e)
                         pass
 
         # ── 4: NMF-β Fallback (§2.47 ML-Failure-Degradationskascade: NMF-β→HPSS) ──
@@ -1704,7 +1711,8 @@ class VocalEnhancement(PhaseInterface):
                     band = signal.sosfilt(sos, sig)
                     rms = float(np.sqrt(np.mean(band**2) + 1e-12))
                     return float(20.0 * np.log10(rms + 1e-12))
-                except Exception:
+                except Exception as e:
+                    logger.warning("phase_42_vocal_enhancement.py::_formant_energy_dbfs fallback: %s", e)
                     return -80.0
 
             def _bell_eq_filtfilt(sig: np.ndarray, center_hz: int, gain_db: float, q: float) -> np.ndarray:

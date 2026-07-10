@@ -243,7 +243,8 @@ class HarmonicContextAnalyzer:
                 return librosa.feature.chroma_cqt(y=mono, sr=sr, hop_length=self.HOP_LENGTH, bins_per_octave=36).astype(  # type: ignore[no-any-return]
                     np.float32
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("harmonic_context_analyzer.py::_compute_chroma fallback: %s", e)
             pass
         # Fallback: STFT chroma
         return self._stft_chroma(mono, sr)

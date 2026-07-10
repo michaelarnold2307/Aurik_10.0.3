@@ -3,6 +3,14 @@
 > **Spec-Referenz**: §2.1 Kernmodule · §2.2 Kanonische Pipeline · §3.2 Singleton-Pattern ·
 > §6.6 Tonträgerketten-Erkennung · §9.5 Performance-Budget
 
+### Namenskonvention
+
+Der `denker/`-Layer verwendet **bewusst deutsche Namen** (`restauriere()`, `_konvertiere()`, `denke()`) —
+er ist Auriks „Denkschicht", die kognitive Entscheidungen trifft. Die `backend/core/`-Engine
+verwendet **englische Namen** (`optimize_naturalness()`, `reprocess_studio2026()`). Diese Trennung
+ist kein Zufall, sondern Design: Denker = Deutsch (kognitive Semantik), Engine = Englisch
+(technische Semantik).
+
 ---
 
 ## Übersicht

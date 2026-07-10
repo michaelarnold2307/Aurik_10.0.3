@@ -210,7 +210,8 @@ def _process_file(path: Path, apply: bool) -> int:
     """Process one file.  Returns number of lines changed."""
     try:
         original = path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as e:
+        logger.warning("fix_fstring_loggers.py::_process_file fallback", exc_info=True)
         return 0
 
     lines = original.splitlines(keepends=True)

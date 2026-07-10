@@ -122,7 +122,8 @@ class PipelineCheckpoint:
                 if f.suffix == ".pkl":
                     return str(f)
             return None
-        except Exception:
+        except Exception as e:
+            logger.warning("pipeline_resilience.py::find_latest fallback: %s", e)
             return None
 
     @staticmethod
@@ -135,7 +136,8 @@ class PipelineCheckpoint:
                 f.unlink(missing_ok=True)
                 count += 1
             return count
-        except Exception:
+        except Exception as e:
+            logger.warning("pipeline_resilience.py::cleanup fallback: %s", e)
             return 0
 
 

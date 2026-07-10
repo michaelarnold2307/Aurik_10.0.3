@@ -112,7 +112,8 @@ def _get_compute_iacc_callable() -> Any:
         _stereo_guard = importlib.import_module("backend.core.dsp.stereo_guard")
 
         return getattr(_stereo_guard, "compute_iacc", _COMPUTE_IACC)
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_goals_metrics.py::_get_compute_iacc_callable fallback: %s", e)
         return _COMPUTE_IACC
 
 
@@ -192,7 +193,8 @@ def _get_mert_plugin_loader() -> Any:
         _loader = getattr(_mert_mod, "get_mert_plugin", None)
         if callable(_loader):
             return _loader
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_goals_metrics.py::_get_mert_plugin_loader fallback: %s", e)
         pass
     return _GET_MERT_PLUGIN
 
@@ -205,7 +207,8 @@ def _get_loaded_mert_plugin_loader() -> Any:
         _loader = getattr(_mert_mod, "get_loaded_mert_plugin", None)
         if callable(_loader):
             return _loader
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_goals_metrics.py::_get_loaded_mert_plugin_loader fallback: %s", e)
         pass
     return _GET_LOADED_MERT_PLUGIN
 
@@ -246,7 +249,8 @@ def _compute_mert_similarity(original: np.ndarray, restored: np.ndarray, sr: int
         tonal_sim = 1.0 - abs(t1 - t2)
         flux_sim = 1.0 - abs(f1 - f2)
         return float(np.clip(0.40 * harm_sim + 0.40 * tonal_sim + 0.20 * flux_sim, 0.0, 1.0))
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_goals_metrics.py::_compute_mert_similarity fallback: %s", e)
         pass
 
     # Spektral-Korrelations-Proxy (Fallback ohne ML-Modell)
@@ -392,7 +396,8 @@ def _get_crepe():
         if _GET_CREPE_PLUGIN is None:
             return None
         return _GET_CREPE_PLUGIN()
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_goals_metrics.py::_get_crepe fallback: %s", e)
         return None
 
 
@@ -404,7 +409,8 @@ def _get_versa():
         if _GET_VERSA_PLUGIN is None:
             return None
         return _GET_VERSA_PLUGIN()
-    except Exception:
+    except Exception as e:
+        logger.warning("musical_goals_metrics.py::_get_versa fallback: %s", e)
         return None
 
 
@@ -1690,7 +1696,8 @@ class _VATEmotionEstimator:
             total = best_major + best_minor + 1e-8
             valence = float((best_major + 1e-8) / total)
             return float(np.clip(valence, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_goals_metrics.py::_compute_valence fallback: %s", e)
             return 0.5
 
     def _compute_arousal(self, audio: np.ndarray, sr: int) -> float:
@@ -1708,7 +1715,8 @@ class _VATEmotionEstimator:
                 tempo_arr = _tempo_fn(onset_envelope=onset_env, sr=sr)
                 raw_tempo = float(tempo_arr[0]) if hasattr(tempo_arr, "__len__") else float(tempo_arr)
                 tempo_val = float(np.clip((raw_tempo - 40.0) / 160.0, 0.0, 1.0))
-            except Exception:
+            except Exception as e:
+                logger.warning("musical_goals_metrics.py::_compute_arousal fallback: %s", e)
                 pass
 
             # Attack-Time: durchschnittliche Anstiegszeit von Onset-Peaks
@@ -1722,7 +1730,8 @@ class _VATEmotionEstimator:
                 attack_score = float(np.clip(1.0 - (mean_gap_s - 0.1) / 2.0, 0.0, 1.0))
 
             return float(0.60 * tempo_val + 0.40 * attack_score)
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_goals_metrics.py::_compute_arousal fallback: %s", e)
             return 0.5
 
     def _compute_tension(self, audio: np.ndarray, sr: int) -> float:
@@ -1750,7 +1759,8 @@ class _VATEmotionEstimator:
             tension_irr = float(np.clip(irregularity / 0.5, 0.0, 1.0))
 
             return float(np.clip(0.60 * tension_irr + 0.40 * rms_score, 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_goals_metrics.py::_compute_tension fallback: %s", e)
             return 0.5
 
 
@@ -2016,7 +2026,8 @@ class TransparenzMetric:
             else:
                 fft_mag = np.abs(np.fft.rfft(audio.astype(np.float32), n=_N_FFT_TR)).astype(np.float32)
             freqs_t = np.fft.rfftfreq(_N_FFT_TR, d=1.0 / sr).astype(np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_goals_metrics.py::measure fallback: %s", e)
             return 0.5
 
         # §6.2c BW-adaptive Bänder: Wenn kaum HF vorhanden (sehr_schmale_bandbreite),
@@ -2170,7 +2181,8 @@ class GrooveMetric:
                     _sub_peak = float(np.max(_ac[_sub_lo:_sub_hi]))
                     _sub_score = float(np.clip(_sub_peak * 1.5, 0.0, 0.10))
                     score = min(1.0, score + _sub_score)
-            except Exception:
+            except Exception as e:
+                logger.warning("musical_goals_metrics.py::unknown fallback: %s", e)
                 pass
 
         except Exception as exc:
@@ -2331,7 +2343,8 @@ class GrooveMetric:
             _p = _p - float(np.mean(_p))
             _corr = float(np.dot(_o, _p) / (np.linalg.norm(_o) * np.linalg.norm(_p) + 1e-8))
             return float(np.clip(0.5 * (_corr + 1.0), 0.0, 1.0))
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_goals_metrics.py::_onset_env_similarity fallback: %s", e)
             return 0.5
 
     def compare(self, original: np.ndarray, processed: np.ndarray, sr: int) -> tuple[float, float]:
@@ -2837,7 +2850,8 @@ class TimbralAuthenticityMetric:
                 emb = spec[:64]
                 norm = float(np.linalg.norm(emb) + 1e-12)
                 return np.asarray(emb / norm, dtype=np.float32)
-            except Exception:
+            except Exception as e:
+                logger.warning("musical_goals_metrics.py::_compute_ecapa_embedding fallback: %s", e)
                 return None
 
         try:
@@ -2911,7 +2925,8 @@ class TimbralAuthenticityMetric:
                 emb = np.pad(emb, (0, 64 - len(emb)))
             norm = float(np.linalg.norm(emb) + 1e-12)
             return np.asarray(emb / norm, dtype=np.float32)
-        except Exception:
+        except Exception as e:
+            logger.warning("musical_goals_metrics.py::_delta fallback: %s", e)
             return None
 
     def _compare(self, ref: np.ndarray, deg: np.ndarray, sr: int) -> float:
@@ -3177,7 +3192,8 @@ class TonalCenterMetric:
                     raise ImportError("scipy.signal butter/sosfiltfilt unavailable")
                 _sos_lp = _SCIPY_BUTTER(4, 4000.0 / _nyq, btype="low", output="sos")
                 audio_mono = _SCIPY_SOSFILTFILT(_sos_lp, audio_mono).astype(np.float32)
-            except Exception:
+            except Exception as e:
+                logger.warning("musical_goals_metrics.py::_chroma fallback: %s", e)
                 pass  # Filter unavailable — continue with full-bandwidth chroma (conservative)
         try:
             n_fft = _safe_fft_size(len(audio_mono), target=2048, minimum=64)
