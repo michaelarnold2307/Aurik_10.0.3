@@ -216,7 +216,28 @@ def optimize_naturalness(
         improvements.append("Tonale Anteile sanft verstärkt")
         applied.append("tonalness_boost")
 
-    # ── 13. Studio 2026 Re-Production Chain (§v10.5) ───────────────────
+    # ── 13. Restoration: Masterband-Qualität (§v10.6) ──────────────────
+    # Nur RESTORATION. Jede Stage analysiert zuerst, ob sie nötig ist.
+    if mode == "RESTORATION":
+        if _detect_noise_floor(orig, sr):
+            _r13a = arr.copy()
+            arr = _noise_floor_gate(arr, sr, orig)
+            arr, _ = _guarded_stage("noise_floor_gate", _r13a, arr)
+            applied.append("noise_floor_gate")
+
+        if _detect_spectral_imbalance(orig, sr):
+            _r13b = arr.copy()
+            arr = _spectral_balance(arr, sr)
+            arr, _ = _guarded_stage("spectral_balance", _r13b, arr)
+            applied.append("spectral_balance")
+
+        if is_stereo and _detect_diffuse_center(arr, sr):
+            _r13c = arr.copy()
+            arr = _stereo_focus(arr, sr)
+            arr, _ = _guarded_stage("stereo_focus", _r13c, arr)
+            applied.append("stereo_focus")
+
+    # ── 14. Studio 2026 Re-Production Chain (§v10.5) ───────────────────
     if mode == "STUDIO_2026":
         _s13_pre = arr.copy()
         try:
@@ -699,6 +720,152 @@ def _fallback_hpe(audio: np.ndarray) -> float:
     return float(min(1.0, max(0.0, 0.5 * (1.0 - abs(crest - 4.0) / 8.0) + 0.5 * (1.0 - abs(20.0*np.log10(rms) + 18) / 20))))
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Restoration: Masterband-Qualität (§v10.6)
+# Diese Stages laufen NUR in RESTORATION — nicht in Studio 2026.
+# Ziel: Klingt wie frisch vom Masterband, in CD-Qualität.
+# Kein EQ-Boost, keine Kompression, kein Widening.
+# Nur: Rauschen in Pausen senken, Frequenzbalance glätten, Phantom-Mitte.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _noise_floor_gate(audio: np.ndarray, sr: int, original: np.ndarray) -> np.ndarray:
+    """Sanftes Noise-Gate: Rauschpegel in Signalpausen um 2-3 dB senken.
+
+    Nur aktiv wenn Signal-Pegel < −30 dB (Pause).
+    Max −3 dB Reduktion, Attack 5 ms, Release 50 ms.
+    Das Original-Audio wird nicht angetastet — nur die Rauschfahne.
+    """
+    try:
+        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+
+        # RMS in 10ms-Fenstern
+        win = int(0.010 * sr)
+        n_win = len(mono) // win
+        rms = np.array([float(np.sqrt(np.mean(mono[i*win:(i+1)*win]**2)) + 1e-12)
+                        for i in range(n_win)])
+        rms_db = 20.0 * np.log10(rms)
+
+        # Schwelle: −30 dB (alles darunter ist Pause/Rauschen)
+        threshold_db = -30.0
+        is_noise = rms_db < threshold_db
+
+        # Smooth Gate: Attack 5ms, Release 50ms
+        att = np.exp(-1.0 / (0.005 * sr / win))
+        rel = np.exp(-1.0 / (0.050 * sr / win))
+
+        gate = np.ones(n_win, dtype=np.float32)
+        state = 1.0
+        for i in range(n_win):
+            target = 0.7 if is_noise[i] else 1.0  # −3 dB max
+            coef = att if target < state else rel
+            state = coef * state + (1.0 - coef) * target
+            gate[i] = state
+
+        # Apply per-sample
+        upsampled = np.interp(np.arange(len(mono)), np.arange(n_win) * win, gate)
+        if audio.ndim == 2:
+            return (audio * upsampled[:, np.newaxis]).astype(np.float32)
+        return (audio * upsampled).astype(np.float32)
+    except Exception as e:
+        logger.warning("_noise_floor_gate: %s", e)
+        return audio
+
+
+def _spectral_balance(audio: np.ndarray, sr: int) -> np.ndarray:
+    """Spektrale Balance: Bänder >3 dB vom Neutral → sanft korrigieren.
+
+    Misst RMS pro 1/3-Oktav-Band. Wenn ein Band >3 dB vom
+    gleitenden Mittel abweicht, ziehe es um 40% Richtung Mittel.
+    Nur CUTS (keine Boosts) — konservativ, nicht aggressiv.
+    """
+    try:
+        from scipy.signal import butter, sosfiltfilt
+        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        nyq = sr / 2
+
+        # 9 Bänder (Bark-Skala, vereinfacht)
+        bands = [(20,60),(60,200),(200,400),(400,800),(800,1500),
+                 (1500,3000),(3000,6000),(6000,10000),(10000,18000)]
+        
+        band_energies = []
+        for lo, hi in bands:
+            if hi >= nyq * 0.95: hi = nyq * 0.95
+            if lo >= hi: continue
+            sos = butter(2, [lo/nyq, hi/nyq], btype="band", output="sos")
+            filtered = sosfiltfilt(sos, mono)
+            rms = float(np.sqrt(np.mean(filtered**2)) + 1e-12)
+            rms_db = 20.0 * np.log10(rms)
+            band_energies.append(rms_db)
+
+        if len(band_energies) < 3:
+            return audio
+
+        # Gleitender Mittel über 3 Bänder
+        smoothed = np.convolve(band_energies, [1/3]*3, mode='same')
+
+        result = mono.copy()
+        for i, (lo, hi) in enumerate(bands):
+            if i >= len(smoothed): continue
+            delta = band_energies[i] - smoothed[i]
+            if abs(delta) > 3.0 and delta > 0:  # Nur CUTS, kein Boost
+                correction = -delta * 0.4  # 40% Richtung Mittel
+                correction = np.clip(correction, -4.0, 0.0)
+                if hi >= nyq * 0.95: hi = nyq * 0.95
+                sos = butter(2, [lo/nyq, hi/nyq], btype="band", output="sos")
+                band_sig = sosfiltfilt(sos, mono)
+                gain = 10.0 ** (correction / 20.0)
+                result = result + band_sig * (gain - 1.0)
+
+        if audio.ndim == 2:
+            ratio = np.clip(result / (mono + 1e-12), 0.85, 1.05)
+            return (audio * ratio[:, np.newaxis]).astype(np.float32)
+        return result.astype(np.float32)
+    except Exception as e:
+        logger.warning("_spectral_balance: %s", e)
+        return audio
+
+
+def _stereo_focus(audio: np.ndarray, sr: int) -> np.ndarray:
+    """Stereo-Fokus: Phantom-Mitte in 300-3000 Hz stabilisieren.
+
+    Analysiert die Mid/Side-Korrelation im Sprach-/Gesangsbereich.
+    Reduziert Side-Anteil um 5-10% wenn die Mitte diffus ist.
+    Betrifft NICHT Höhen (>6 kHz) — dort bleibt die Breite erhalten.
+    """
+    if audio.ndim < 2 or audio.shape[1] < 2:
+        return audio
+    try:
+        from scipy.signal import butter, sosfiltfilt
+        L, R = audio[:, 0], audio[:, 1]
+        M, S = (L + R) / 2.0, (L - R) / 2.0
+        nyq = sr / 2
+
+        # Nur 300-3000 Hz (Sprach-/Gesangsbereich)
+        sos_mid_lo = butter(2, 300/nyq, btype="high", output="sos")
+        sos_mid_hi = butter(2, 3000/nyq, btype="low", output="sos")
+        
+        S_mid = sosfiltfilt(sos_mid_hi, sosfiltfilt(sos_mid_lo, S))
+
+        # Wenn Side-Energie > 25% der Mid-Energie → Zentrum etwas straffen
+        rms_M = float(np.sqrt(np.mean(M**2)) + 1e-12)
+        rms_S_mid = float(np.sqrt(np.mean(S_mid**2)) + 1e-12)
+        if rms_S_mid / (rms_M + 1e-12) > 0.25:
+            S_mid *= 0.90  # −10% Side im Gesangsbereich
+
+        # Rekombinieren: Höhen bleiben breit, Mitten werden fokussiert
+        sos_hi = butter(2, 3000/nyq, btype="high", output="sos")
+        S_hi = sosfiltfilt(sos_hi, S)
+        sos_lo = butter(2, 300/nyq, btype="low", output="sos")
+        S_lo = sosfiltfilt(sos_lo, S)
+
+        S_new = S_lo + S_mid + S_hi
+        L_out, R_out = M + S_new, M - S_new
+        return np.stack([L_out, R_out], axis=1).astype(np.float32)
+    except Exception as e:
+        logger.warning("_stereo_focus: %s", e)
+        return audio
+
+
 def compare_naturalness(original: np.ndarray, restored: np.ndarray,
                         sr: int) -> dict[str, Any]:
     hpe_orig = _compute_hpe_full(original, sr)
@@ -724,3 +891,67 @@ def compare_naturalness(original: np.ndarray, restored: np.ndarray,
         "original_roughness": round(hpe_orig["roughness_asper"], 2),
         "restored_roughness": round(hpe_rest["roughness_asper"], 2),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Detection Helpers: Analysieren ob Masterband-Stages nötig sind (§v10.6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _detect_noise_floor(audio: np.ndarray, sr: int) -> bool:
+    """Detektiert ob ein hörbarer Rausch-Teppich in Signalpausen existiert."""
+    try:
+        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        win = int(0.050 * sr)
+        n_win = len(mono) // win
+        if n_win < 10:
+            return False
+        rms = np.array([float(np.sqrt(np.mean(mono[i*win:(i+1)*win]**2)) + 1e-12)
+                        for i in range(n_win)])
+        rms_db = 20.0 * np.log10(rms)
+        noise_floor = float(np.percentile(rms_db, 10))
+        return noise_floor > -50.0
+    except Exception:
+        return False
+
+
+def _detect_spectral_imbalance(audio: np.ndarray, sr: int) -> bool:
+    """Detektiert ob die spektrale Balance signifikant unausgeglichen ist."""
+    try:
+        from scipy.signal import butter, sosfiltfilt
+        mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+        nyq = sr / 2
+        bands = [(20,60),(60,200),(200,400),(400,800),(800,1500),
+                 (1500,3000),(3000,6000),(6000,10000),(10000,18000)]
+        energies = []
+        for lo, hi in bands:
+            if hi >= nyq * 0.95: hi = nyq * 0.95
+            if lo >= hi: continue
+            sos = butter(2, [lo/nyq, hi/nyq], btype="band", output="sos")
+            rms = float(np.sqrt(np.mean(sosfiltfilt(sos, mono)**2)) + 1e-12)
+            energies.append(20.0 * np.log10(rms))
+        if len(energies) < 5:
+            return False
+        median = float(np.median(energies))
+        return any(abs(e - median) > 6.0 for e in energies)
+    except Exception:
+        return False
+
+
+def _detect_diffuse_center(audio: np.ndarray, sr: int) -> bool:
+    """Detektiert ob die Phantom-Mitte im Gesangsbereich diffus ist."""
+    if audio.ndim < 2 or audio.shape[1] < 2:
+        return False
+    try:
+        from scipy.signal import butter, sosfiltfilt
+        L, R = audio[:, 0], audio[:, 1]
+        M, S = (L+R)/2, (L-R)/2
+        nyq = sr / 2
+        sos_lo = butter(2, 300/nyq, btype="high", output="sos")
+        sos_hi = butter(2, 3000/nyq, btype="low", output="sos")
+        S_mid = sosfiltfilt(sos_hi, sosfiltfilt(sos_lo, S))
+        M_mid = sosfiltfilt(sos_hi, sosfiltfilt(sos_lo, M))
+        rms_S = float(np.sqrt(np.mean(S_mid**2)) + 1e-12)
+        rms_M = float(np.sqrt(np.mean(M_mid**2)) + 1e-12)
+        return rms_S / (rms_M + 1e-12) > 0.35
+    except Exception:
+        return False
