@@ -264,10 +264,15 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
             n_total / max(1, sr),
         )
 
-        # §2.45a Wall-time-Budget: pro Song max 900 s (15 min CPU) für alle AudioSR-Zonen.
-        # Überschreitung → restliche Zonen als Passthrough (Original-Audio unverändert).
-        # Verhindert unkontrollierten Block auf großen Dateien (z.B. 225 s = 23 Zonen × ~50s CPU).
-        _AUDIOSR_WALL_BUDGET_S: float = 900.0
+        # §2.45a Wall-time-Budget: adaptiv nach GPU-Verfügbarkeit.
+        # GPU: 900 s (15 min). CPU-only: 3600 s (60 min, DDIM ist CPU-intensiv).
+        try:
+            from backend.core.ml_device_manager import get_device_manager
+            _is_gpu = get_device_manager().gpu_available
+        except Exception:
+            _is_gpu = False
+        _AUDIOSR_WALL_BUDGET_S: float = 900.0 if _is_gpu else 3600.0
+        _audiosr_ddim_steps: int = 50 if _is_gpu else 25
         _audiosr_t0: float = time.monotonic()
 
         zone_results: list[np.ndarray] = []
@@ -321,7 +326,7 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                         z_result_raw = model.generate_batch(  # type: ignore[attr-defined]
                             batch,
                             unconditional_guidance_scale=3.5,
-                            ddim_steps=50,
+                            ddim_steps=_audiosr_ddim_steps,
                             duration=_asr_duration,
                         )
                     # §AUDIOSR-NANFIX: generate_batch kann NaN in der Waveform-Rekonstruktion
@@ -352,7 +357,7 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                     _wav_bytes = os.path.getsize(tmp_path)
                     if _wav_bytes < 44:
                         raise OSError(f"AudioSR WAV zu klein: {_wav_bytes} B")
-                    z_result_raw = super_resolution(model, tmp_path, seed=42, ddim_steps=50, guidance_scale=3.5)
+                    z_result_raw = super_resolution(model, tmp_path, seed=42, ddim_steps=_audiosr_ddim_steps, guidance_scale=3.5)
                 finally:
                     Path(tmp_path).unlink(missing_ok=True)
             del zone_wav  # Freigabe vor GC

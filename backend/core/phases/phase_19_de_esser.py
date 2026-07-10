@@ -2319,6 +2319,24 @@ class DeEsserPhase(PhaseInterface):
             self.SIBILANCE_BANDS = original_bands
 
         return result, gender_adaptive_bands
+    def get_metadata(self) -> "PhaseMetadata":
+        """Gibt Metadaten für Phase 19 v4.0 zurück."""
+        from .phase_interface import PhaseMetadata, PhaseCategory
+        return PhaseMetadata(
+            phase_id="phase_19_de_esser",
+            name="World-Class Gender-Aware De-Esser v4.0 Professional",
+            category=PhaseCategory.DYNAMICS,
+            priority=4,
+            dependencies=["04_eq_correction"],
+            estimated_time_factor=0.06,
+            version="4.1.0",
+            memory_requirement_mb=50,
+            is_cpu_intensive=True,
+            is_io_intensive=False,
+            quality_impact=0.92,
+            description="World-Class Gender-Aware De-Esser v4.0: Multi-Band De-Esser",
+        )
+
 
 
 def _estimate_vibrato_from_pyin(
@@ -3113,6 +3131,10 @@ def _build_union_vocal_profile(genders: list[str]) -> dict:
                 "Sibilance Bands. Quality: 0.92 (weltklasse de-essing), Performance: ~0.6× realtime."
             ),
         )
+
+
+# §FIX: get_metadata ist als Modul-Level-Funktion definiert (außerhalb der Klasse).
+# Monkey-Patch in die Klasse, damit abstractmethod-Constraint erfüllt ist.
 
 
 def _run_test() -> None:
