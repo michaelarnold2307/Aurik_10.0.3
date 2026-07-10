@@ -417,6 +417,9 @@ def check_formant_shift_db(
         pre_m = _to_mono(audio_pre)
         post_m = _to_mono(audio_post)
         n = min(len(pre_m), len(post_m))
+        # §DSP: trim to same length to prevent shape mismatch
+        pre_m = pre_m[:n]
+        post_m = post_m[:n]
         if n < int(0.1 * sr):
             return False, 0.0  # too short — skip
 
