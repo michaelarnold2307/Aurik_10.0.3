@@ -4846,7 +4846,7 @@ class PerPhaseMusicalGoalsGate:
         try:
             from backend.core.human_pleasantness_estimator import compare_pleasantness
             _hpe_cmp = compare_pleasantness(
-                np.asarray(audio_in, dtype=np.float32),
+                np.asarray(audio, dtype=np.float32),
                 np.asarray(best_audio, dtype=np.float32),
                 48000)
             _hpe_delta = float(_hpe_cmp.get("delta_score", 0.0))
@@ -4856,7 +4856,7 @@ class PerPhaseMusicalGoalsGate:
                     "§v10 HPE-GATE: Phase %s HPE %+.3f < -0.03 — "
                     "Phase verworfen, Pre-Phase-Audio wiederhergestellt.",
                     phase_id, _hpe_delta)
-                return audio_in, effective_scores_before, "hpe_skip", 0.0
+                return audio, effective_scores_before, "hpe_skip", 0.0
 
             if -0.03 <= _hpe_delta < 0.0:
                 _ultra_strength = max(0.03, best_strength * 0.30)
