@@ -165,9 +165,9 @@ class PerceptualExportOptimizer:
             import scipy.signal as sp_sig
             for filter_type, freq, gain_db, q in profile:
                 if filter_type == "highshelf":
-                    sos = sp_sig.butter(2, freq / (sr / 2), btype="highshelf", output="sos")
+                    sos = sp_sig.iirfilter(2, freq / (sr / 2), btype="high", ftype="shelf", output="sos")
                 elif filter_type == "lowshelf":
-                    sos = sp_sig.butter(2, freq / (sr / 2), btype="lowshelf", output="sos")
+                    sos = sp_sig.iirfilter(2, freq / (sr / 2), btype="low", ftype="shelf", output="sos")
                 else:
                     continue
                 gain = 10 ** (gain_db / 40.0)

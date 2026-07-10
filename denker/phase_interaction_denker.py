@@ -676,7 +676,7 @@ class PhaseInteractionDenker:
                 "snr_db": signal_signature.get("snr_db"),
                 "panns_singing": signal_signature.get("panns_singing", 0.0),
                 "bandwidth_hz": signal_signature.get("bandwidth_hz"),
-                "era_decade": era,
+                "era_decade": signal_signature.get("era_decade", 1970) if signal_signature else 1970,
                 "material_type": str(material).lower() if material else "unknown",
                 "restorability": restorability_score / 100.0 if restorability_score else 0.5,
                 "defect_severity": signal_signature.get("severity", 0.5),
