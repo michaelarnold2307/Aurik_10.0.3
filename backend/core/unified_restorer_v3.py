@@ -11913,8 +11913,12 @@ class UnifiedRestorerV3:
                                     )
                                     _total_repaired += len(_time_ranges)
                                     _surgical_done[_phase_id] = len(_time_ranges)
-                                except Exception:
+                                except Exception as _surg_exc:
                                     _total_failed += len(_time_ranges)
+                                    logger.debug(
+                                        "Surgical zone repair failed for %s: %s",
+                                        _phase_id, str(_surg_exc)[:120],
+                                    )
                             _plan_types = ", ".join(f"{t}={c}" for t, c in sorted(_surgical_plan.items()))
                             if _total_repaired > 0 and _total_failed == 0:
                                 logger.info(
@@ -11925,8 +11929,8 @@ class UnifiedRestorerV3:
                                     _plan_types,
                                 )
                             elif _total_repaired > 0:
-                                logger.warning(
-                                    "⚠️ CHIRURGIE-PHASEN: %d/%d Zonen, %d failed → %s",
+                                logger.info(
+                                    "🔬 CHIRURGIE-PHASEN: %d/%d Zonen, %d failed → %s",
                                     _total_repaired,
                                     _total_repaired + _total_failed,
                                     _total_failed,
