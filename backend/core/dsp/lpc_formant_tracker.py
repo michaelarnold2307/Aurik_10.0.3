@@ -18,6 +18,7 @@ import threading
 from typing import Any
 
 import numpy as np
+from scipy.signal import butter, sosfiltfilt
 
 logger = logging.getLogger(__name__)
 
@@ -439,18 +440,10 @@ def check_formant_shift_db(
         pre_seg = pre_seg[:_min_len]
         post_seg = post_seg[:_min_len]
         if ds > 1:
-            try:
-                from scipy.signal import butter as _butter_lpc  # pylint: disable=import-outside-toplevel
-                from scipy.signal import sosfiltfilt as _sosfiltfilt_lpc
-
-                _aa_nyq = sr / (2.0 * ds) * 0.90  # 90 % der Nyquist-Frequenz nach Dezimation
-                _aa_sos = _butter_lpc(4, _aa_nyq, btype="low", fs=sr, output="sos")
-                # Kopien filtern — Original-Arrays pre_seg/post_seg für FFT intakt lassen
-                _pre_seg_lpc = _sosfiltfilt_lpc(_aa_sos, pre_seg.copy())
-                _sosfiltfilt_lpc(_aa_sos, post_seg.copy())
-            except Exception as e:
-                logger.debug("lpc_formant_tracker.py::_to_mono AA-filter: %s", e)
-                pass  # non-blocking — Dezimation ohne AA ist besser als Absturz
+            _aa_nyq = sr / (2.0 * ds) * 0.90  # 90 % der Nyquist-Frequenz nach Dezimation
+            _aa_sos = butter(4, _aa_nyq, btype="low", fs=sr, output="sos")
+            _pre_seg_lpc = sosfiltfilt(_aa_sos, pre_seg.copy())
+            sosfiltfilt(_aa_sos, post_seg.copy())
         pre_ds = _pre_seg_lpc[::ds]
         sr_ds = sr // ds
 
@@ -553,14 +546,8 @@ class _LPCFormantTracker:
             ds = max(1, sr // 16000)
             _mono_aa = mono_win
             if ds > 1:
-                try:
-                    from scipy.signal import butter as _butter_t  # pylint: disable=import-outside-toplevel
-                    from scipy.signal import sosfiltfilt as _sosfiltfilt_t
-
-                    _aa_sos_t = _butter_t(4, (sr / (2.0 * ds)) * 0.90, btype="low", fs=sr, output="sos")
-                    _mono_aa = _sosfiltfilt_t(_aa_sos_t, mono_win.astype(np.float64))
-                except Exception as e:
-                    logger.debug("lpc_formant_tracker.py::track AA-filter: %s", e)
+                _aa_sos_t = butter(4, (sr / (2.0 * ds)) * 0.90, btype="low", fs=sr, output="sos")
+                _mono_aa = sosfiltfilt(_aa_sos_t, mono_win.astype(np.float64))
             mono_ds = _mono_aa[::ds].astype(np.float64)
             sr_ds = max(1, sr // ds)
             if mono_ds.size <= (_LPC_ORDER + 1):
