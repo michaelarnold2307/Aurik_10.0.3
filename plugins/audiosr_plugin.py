@@ -326,8 +326,8 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                     # §SOTA: DDIM-Diffusion auf GPU, Vocoder auf CPU (via Patch beim Modell-Load)
                     # model.cpu() NICHT aufrufen — das würde GPU-DDIM zerstören.
                     # Der HiFi-GAN-Vocoder ist bereits via _patched_mel2wav/_patched_decode auf CPU.
-                    if hasattr(batch, "cpu"):
-                        batch = batch.cpu()
+                    if hasattr(batch, "to") and hasattr(model, "device"):
+                        batch = batch.to(model.device)
                     with _asr_torch.no_grad():
                         z_result_raw = model.generate_batch(  # type: ignore[attr-defined]
                             batch,
@@ -357,7 +357,7 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                         str(_direct_exc),
                     )
                     try:
-                        _model_cpu = _model_ref
+                        _model_cpu = model
                         if hasattr(_model_cpu, "cpu"):
                             _model_cpu = _model_cpu.cpu()
                         z_result_raw = asr_obj.super_resolution(
