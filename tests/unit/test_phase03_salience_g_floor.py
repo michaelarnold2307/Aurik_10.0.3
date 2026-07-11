@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for §A salience-adaptive G_floor in phase_03_denoise.
 
 Scientific basis:
@@ -6,7 +8,6 @@ Scientific basis:
     Quiet frames: higher G_floor (signal fragile; protect from over-suppression).
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

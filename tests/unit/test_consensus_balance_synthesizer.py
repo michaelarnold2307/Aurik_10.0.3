@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für consensus_balance_synthesizer.py (§DGWCS).
 
 Invarianten:
@@ -9,7 +11,6 @@ Invarianten:
   - compute_updated_vector_after_dgwcs ist konsistent mit gap_closure_per_dim.
 """
 
-from __future__ import annotations
 
 import math
 

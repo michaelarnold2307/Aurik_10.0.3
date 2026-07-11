@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_ml_hybrid_regression.py
 =========================================
@@ -34,7 +36,6 @@ Invarianten:
     timeout=30 s per Test (pytest.ini)
 """
 
-from __future__ import annotations
 
 import importlib
 import time

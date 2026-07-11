@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für temporale locations in DefectScanner (§C — Aurik v9.10.45).
@@ -12,7 +14,6 @@ Prüft zeitliche Verortung aller location-fähigen Detektoren:
 sowie Konsistenz zwischen Severity und locations bei global/segmentalen Detektoren.
 """
 
-from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING

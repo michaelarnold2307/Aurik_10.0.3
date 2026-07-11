@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_safe_execution.py — §v10 Structured Error Reporting Tests
 ==============================================================
@@ -6,7 +8,6 @@ Verifiziert, dass SafeExecutionContext Exceptions korrekt protokolliert,
 Fehler-Statistiken führt und Rate-Limiting funktioniert.
 """
 
-from __future__ import annotations
 
 import pytest
 

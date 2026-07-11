@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_p1_p10_changes.py — Verifikation der P1–P10 Audit-Implementierungen
 
@@ -16,7 +18,6 @@ Alle Tests: synthetische Signale, kein reales Audio, kein Netzwerk.
 Laufzeit-Budget: < 30 s gesamt.
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

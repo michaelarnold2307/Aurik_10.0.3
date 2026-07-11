@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """
 tests/unit/test_intentional_artifact_classifier.py
 Aurik 9 — Spec §6.5 Tests: IntentionalArtifactClassifier
 """
 
-from __future__ import annotations
 
 import pytest
 

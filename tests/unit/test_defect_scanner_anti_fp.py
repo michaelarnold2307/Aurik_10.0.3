@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Anti-False-Positive-Tests für DefectScanner (§6.3 — Aurik v9.10.57).
@@ -7,7 +9,6 @@ _detect_crackle, _detect_compression_artifacts) do NOT produce false
 positives on clean/musical signals while still detecting real defects.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_ml_stability.py — Muster 2: ML-Stack-Stabilität
 =====================================================
@@ -8,7 +10,6 @@ Verifiziert, dass:
 3. Keine ML-Module die pytest-Collection crashen
 """
 
-from __future__ import annotations
 
 import pytest
 

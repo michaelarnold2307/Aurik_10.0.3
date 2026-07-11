@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_transport_bump_perceptual.py — HPE/Pleasantness-Check nach Reparatur
 =========================================================================
@@ -9,7 +11,6 @@ Schließt die verbleibenden P2-Gaps:
 Spec: §v10 Pleasantness-First, §0h Music-Death-Shield
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

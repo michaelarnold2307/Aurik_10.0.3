@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """[RELEASE_MUST] Automatischer Spec-Konsistenz-Validator (v9.12.0)
@@ -37,7 +39,6 @@ Spec-Referenzen:
     .github/specs/06_phases_system.md (kanonische Phase-/Ursachen-Tabelle)
 """
 
-from __future__ import annotations
 
 import re
 import sys

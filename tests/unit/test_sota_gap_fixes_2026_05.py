@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für die SOTA-Gap-Fixes (Session Mai 2026):
 - noise_texture_resynth.restore_carrier_noise_texture  (Gap 3)
 - nvsr_plugin.NvsrPlugin.process                       (Gap 2)
@@ -5,7 +7,6 @@
 - tonal_reference_profile.get_studio_console_curve     (Gap 5)
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 

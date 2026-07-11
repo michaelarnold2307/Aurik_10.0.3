@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_versa_plugin.py — Tests für VERSA 2024 MOS-Plugin (§4.4)
 
@@ -11,7 +13,6 @@ Invarianten (§3.1, §3.2):
     - CPU-only (§9.5)
 """
 
-from __future__ import annotations
 
 import math
 import warnings

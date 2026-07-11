@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Unit-Tests für carrier_transfer_characteristics.py (§4.8, §6.2b, §6.2c)."""
 
-from __future__ import annotations
 
 import pytest
 

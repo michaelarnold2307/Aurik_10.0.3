@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Pipeline-Integration-Tests (DSP-only, kein ML-Modell-Load erforderlich).
 
@@ -19,7 +21,6 @@ Spec-Referenzen:
     §14 E2E-Integrationstests, §11.7a Denker-Rollendifferenzierung
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field

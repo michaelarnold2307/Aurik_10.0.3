@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Tests für backend/core/dsp/pre_echo_detector.py (§4.11)."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

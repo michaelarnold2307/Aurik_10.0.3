@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Regression-Tests fuer Phase-12 C3-Notfallpfad."""
 
-from __future__ import annotations
 
 import numpy as np
 

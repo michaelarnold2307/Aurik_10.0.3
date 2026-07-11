@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for 12 new defect types added in v9.10.x.
 
 Covers: DefectType enum presence, MATERIAL_SENSITIVITY entries,
@@ -8,7 +10,6 @@ and the 6 new repair phases (59–64).
 ≥ 35 tests across enum, detection, causal reasoning, and phase modules.
 """
 
-from __future__ import annotations
 
 import importlib
 import os

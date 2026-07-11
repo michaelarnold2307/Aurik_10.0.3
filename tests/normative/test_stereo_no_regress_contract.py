@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §2.49b Stereo-No-Regress Contract.
 
 Sichert den post-pipeline kumulativen Stereo-Collapse-Guard gegen Regression ab.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

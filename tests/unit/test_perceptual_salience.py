@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests for PerceptualSalienceEstimator (§9.1c).
@@ -13,7 +15,6 @@ Validations:
 - Singleton pattern
 """
 
-from __future__ import annotations
 
 import numpy as np
 

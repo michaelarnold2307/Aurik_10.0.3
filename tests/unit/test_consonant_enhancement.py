@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_consonant_enhancement.py
 =========================================
@@ -16,7 +18,6 @@ Prüft §2.8 Step 5b/5c:
 Alle Tests verwenden synthetische Signale (keine realen Audiodateien), §5.4.
 """
 
-from __future__ import annotations
 
 import math
 import threading

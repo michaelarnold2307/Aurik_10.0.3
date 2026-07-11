@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative §2.56 FeedbackChain Goal-Weights Contract.
 
 Verifies the key invariant from spec §2.56:
@@ -13,7 +15,6 @@ Also verifies:
 These are spec-level contractual tests that must pass in CI.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

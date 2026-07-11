@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """§4.6c Bidirektionale Sync-Invariante: _PHASE_REQUIRED_MODELS ↔ try_allocate()-Aufrufe.
 
 Ensures that:
@@ -8,7 +10,6 @@ Ensures that:
 3. Phase_23 maps Apollo (not just AudioSR) — regression test for the v9.11.14 crash.
 """
 
-from __future__ import annotations
 
 import re
 from pathlib import Path

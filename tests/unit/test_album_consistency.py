@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests: backend/core/album_consistency.py
 
 Tests cover:
@@ -12,7 +14,6 @@ Tests cover:
 - Singleton accessor
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_denker/test_denker_init.py
 ==========================================
@@ -8,7 +10,6 @@ aus dem öffentlichen ``__init__.py``-Namespace importierbar sind.
 ≥ 20 Tests.
 """
 
-from __future__ import annotations
 
 import pytest
 

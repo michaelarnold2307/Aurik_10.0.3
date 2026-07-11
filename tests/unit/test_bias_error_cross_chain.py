@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für BIAS_ERROR Cross-Chain-Fallback und ALIASING Cross-Chain-Fallback.
@@ -11,7 +13,6 @@ Prüft:
   - _should_keep_cross_material_aliasing(): Schwellwerte korrekt
 """
 
-from __future__ import annotations
 
 import numpy as np
 

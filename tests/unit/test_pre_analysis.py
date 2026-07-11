@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for backend.core.pre_analysis — PreAnalysisResult + run_pre_analysis.
 
 Test-IDs: test_pre_analysis_*
@@ -7,7 +9,6 @@ Coverage targets:
   - UV3 pre_analysis_result kwarg unpacking
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch

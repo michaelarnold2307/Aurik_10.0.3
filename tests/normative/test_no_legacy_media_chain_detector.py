@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative guard: legacy MediaChainDetector must not reappear in active code paths.
 
 Spec intent:
@@ -5,7 +7,6 @@ Spec intent:
 - No second, parallel legacy detector path should exist.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

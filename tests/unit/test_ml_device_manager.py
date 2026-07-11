@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für backend.core.ml_device_manager.
 
 Tests decken ab:
@@ -11,7 +13,6 @@ Tests decken ab:
   - Fehlertoleranz (kein Absturz bei fehlenden Abhängigkeiten)
 """
 
-from __future__ import annotations
 
 import pathlib
 import threading

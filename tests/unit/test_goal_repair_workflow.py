@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_goal_repair_workflow.py
 ========================================
@@ -10,7 +12,6 @@ Normative tests for the goal-achievement workflow optimizations (v9.11.1):
 All tests are fast unit tests (no ML, no heavy DSP) using tiny synthetic audio.
 """
 
-from __future__ import annotations
 
 import math
 import unittest.mock as mock

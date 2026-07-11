@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -17,7 +19,6 @@ Testet:
   • human_verdict()-Texte
 """
 
-from __future__ import annotations
 
 import json
 import math

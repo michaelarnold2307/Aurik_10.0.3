@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für die Musikalische Harmonisierung (v9.10.64)
 =====================================================
@@ -15,7 +17,6 @@ Invarianten:
   - 0.15 ≤ severity_factor ≤ 1.0 für Repair-Phasen
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

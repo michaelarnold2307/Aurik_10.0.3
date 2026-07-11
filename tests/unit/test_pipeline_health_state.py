@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit tests for shared pipeline health state helpers."""
 
-from __future__ import annotations
 
 from backend.core.pipeline_health_state import (
     PipelineHealthState,

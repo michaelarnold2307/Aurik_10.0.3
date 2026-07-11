@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for Hebel 1–4 intelligence levers (v9.11.0).
 
 Tests:
@@ -7,7 +9,6 @@ Tests:
   Hebel 4 — Carrier-Formant-Decay-Inversion in Phase 42
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

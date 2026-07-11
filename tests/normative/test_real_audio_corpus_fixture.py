@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Normative Real-Audio-Korpus-Fixture fuer R5-R12-Folgegates."""
 
-from __future__ import annotations
 
 import json
 import os

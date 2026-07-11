@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_vinyl_tape_mp3_chain_detection.py
 ===================================================
@@ -14,7 +16,6 @@ Stellt sicher, dass:
      'tape' in transfer_chain steht.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

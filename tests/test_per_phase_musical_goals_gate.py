@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/test_per_phase_musical_goals_gate.py
 ==========================================
@@ -20,7 +22,6 @@ ARCHITEKTURBEFUND (grep _run_phase):
 Alle Signale: synthetisch, np.random.seed(42), SR = 48 000 Hz.
 """
 
-from __future__ import annotations
 
 import threading
 from typing import Any

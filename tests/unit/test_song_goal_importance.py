@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit tests for §2.56 Song-Goal-Importance (backend/core/song_goal_importance.py).
 
@@ -18,7 +20,6 @@ Tests cover:
   - GoalPriorityProtocol weighted abort
 """
 
-from __future__ import annotations
 
 import pytest
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """P2-1 + P2-2 Normative CI-Gates.
 
 P2-1 (AMRB Auditierbarkeit):
@@ -11,7 +13,6 @@ P2-2 (Produkt-/Forschungsmodus):
     - Normative Invariante: kein Produktionsaufruf erzwingt RESEARCH-Modus
 """
 
-from __future__ import annotations
 
 import pytest
 

@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Tests fuer das phasenspezifische Strength-Orakel (§2.56b)."""
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 

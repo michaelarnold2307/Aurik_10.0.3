@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -18,7 +20,6 @@ Abdeckung:
 Alle Tests synthetisch (keine echten Audio-Dateien, keine ML-Modelle).
 """
 
-from __future__ import annotations
 
 import types
 from typing import Any

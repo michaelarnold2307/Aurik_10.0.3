@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für backend/core/gp_parameter_optimizer.py.
 
 Spec §2.5: Gaussianischer Prozess-Optimierer mit UCB-Akquisition, MOO Pareto-Front,
@@ -5,7 +7,6 @@ materialspezifisches Gedächtnis. ≥ 35 Tests: Import, ParameterProposal-Shape,
 NaN-Guard in update(), Singleton, propose(), propose_pareto(), forget(), normalisation.
 """
 
-from __future__ import annotations
 
 import math
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AMRB CI-Gate — blockiert Merge wenn OS-Führerschaft-Schwelle nicht erfüllt.
 
 Spec §8.1 (copilot-instructions.md):
@@ -9,7 +11,6 @@ Ausführung: pytest tests/normative/test_amrb_ci_gate.py -m amrb --timeout=600 -
 Ausschluss: pytest -m "not amrb"  (für schnelle Unit-Test-Läufe)
 """
 
-from __future__ import annotations
 
 import logging
 from types import SimpleNamespace

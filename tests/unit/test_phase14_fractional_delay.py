@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests for phase_14 Phase Correction — L: Fractional Delay Correction.
 
@@ -11,7 +13,6 @@ Scientific references:
     Smith (2011) "Spectral Audio Signal Processing" §3.4.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

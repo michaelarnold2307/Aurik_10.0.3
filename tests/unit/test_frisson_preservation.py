@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_frisson_preservation.py — §0i Gänsehaut-Erhaltung Verifikation
 ====================================================================
@@ -12,7 +14,6 @@ Stellt sicher, dass:
 Spec: §0i Perceptual Transparency, §VFA Frisson-Schutz-Caps (0.30)
 """
 
-from __future__ import annotations
 
 import pytest
 

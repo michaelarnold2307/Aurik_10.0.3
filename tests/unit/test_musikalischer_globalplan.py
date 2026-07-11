@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_musikalischer_globalplan.py
 ==========================================
@@ -17,7 +19,6 @@ Prüft:
 - Sinnhaftigkeit der Cross-Phase-Koordination (NR vs. Multiband)
 """
 
-from __future__ import annotations
 
 import threading
 

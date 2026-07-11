@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Unit-Tests für DacPlugin (Descript Audio Codec ONNX).
 
 Tests laufen ohne echte ONNX-Modelle (Fallback-Pfad valide).
 ML-Tests (echter Encoder/Decoder) sind mit @pytest.mark.ml markiert.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

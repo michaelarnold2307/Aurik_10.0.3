@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """tests/unit/test_ml_plugin_load_and_cleanup.py
 ================================================
 Stellt sicher, dass alle ML-Plugins:
@@ -25,7 +27,6 @@ Anforderungen erfüllt durch diese Datei:
   Checkliste neues Kernmodul: ml_memory_budget.release() in allen Fehler-Paths
 """
 
-from __future__ import annotations
 
 import gc
 import os

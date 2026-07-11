@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Normative fault-injection tests for primary/fallback/blocked release modes."""
 
-from __future__ import annotations
 
 import pytest
 

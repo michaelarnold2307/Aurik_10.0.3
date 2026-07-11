@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_v9_phase_43_ml_deesser.py
 ==========================================
@@ -17,7 +19,6 @@ Abgedeckte Invarianten:
   - Geschwindigkeits-Budget (≤ 5× Echtzeit)
 """
 
-from __future__ import annotations
 
 import time
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Quality-first contract audit across all 64 phases.
@@ -7,7 +9,6 @@ This test enforces two invariants:
 2) Known time-gate patterns must be paired with a quality-first gate marker.
 """
 
-from __future__ import annotations
 
 import re
 from pathlib import Path

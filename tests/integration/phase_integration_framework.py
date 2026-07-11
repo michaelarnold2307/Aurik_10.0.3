@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 §2.59 Integrationstest-Framework für Phasen (2026-07-09)
 
@@ -14,7 +16,6 @@ Usage:
             assert result is not None
 """
 
-from __future__ import annotations
 
 import importlib
 import time

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für Tier 2 Defekt-Detektoren.
 
 Prüft:
@@ -11,7 +13,6 @@ Prüft:
 - Keine False-Positives auf sauberem Audio
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

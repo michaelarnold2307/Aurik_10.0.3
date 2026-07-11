@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for TAPE_HEAD_LEVEL_DIP detection and Phase 12 Tape Level Stabilizer.
 
 Tests:
@@ -9,7 +11,6 @@ Tests:
   - Material gating (only tape/reel_tape/wire_recording trigger detection)
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

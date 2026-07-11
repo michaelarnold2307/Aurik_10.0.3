@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für core/perceptual_quality_scorer.py — PerceptualQualityScorer.
@@ -7,7 +9,6 @@ Niemals PESQ/DNSMOS/NISQA als Musik-Metrik (§4.4).
 ≥ 14 Tests: MOS-Bounds, NSIM, MCD, Shape, Mono/Stereo, Singleton, NaN-Guard.
 """
 
-from __future__ import annotations
 
 import math
 

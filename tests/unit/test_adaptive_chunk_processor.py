@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für backend/core/adaptive_chunk_processor.py — §7.6 Severity-adaptive Chunks.
@@ -5,7 +7,6 @@ import pytest
 ≥ 20 Tests: Chunk-Größen, Crossfade, Stereo, NaN-Guard, Silence, Edge-Cases.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

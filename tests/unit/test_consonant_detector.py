@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_consonant_detector.py — Testsuite für ConsonantDetector (§2.8 Step 5b)
 ========================================================================================
@@ -8,7 +10,6 @@ Konsistenz, Singleton-Identität, Thread-Safety.
 np.random.seed(42) für Reproduzierbarkeit (§5.4).
 """
 
-from __future__ import annotations
 
 import concurrent.futures
 import math

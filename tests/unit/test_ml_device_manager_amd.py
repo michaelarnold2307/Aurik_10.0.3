@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests — ml_device_manager AMD ROCm performance extensions.
 
 Verifies:
@@ -9,7 +11,6 @@ Verifies:
   - _FP16_ELIGIBLE_PLUGINS is a non-empty frozenset
 """
 
-from __future__ import annotations
 
 import sys
 from unittest.mock import patch

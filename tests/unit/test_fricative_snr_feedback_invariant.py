@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_fricative_snr_feedback_invariant.py
 =====================================================
@@ -17,7 +19,6 @@ Neue Funktionen / Erweiterungen:
 Alle Tests nutzen ausschließlich synthetische Signale (§5.4).
 """
 
-from __future__ import annotations
 
 import math
 

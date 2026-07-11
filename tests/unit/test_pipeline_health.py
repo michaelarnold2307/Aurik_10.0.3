@@ -1,12 +1,13 @@
+from __future__ import annotations
+
+
+
 """
 test_pipeline_health.py — Pre-Pipeline Health Check Tests
 ==========================================================
 
 Verifiziert, dass run_health_checks() funktioniert und alle C1-C5 Checks durchführt.
 """
-
-from __future__ import annotations
-
 
 
 class TestPipelineHealthCheck:

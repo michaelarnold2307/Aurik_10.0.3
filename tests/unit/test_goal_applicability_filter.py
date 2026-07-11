@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für core/goal_applicability_filter.py — Spec §2.32.
@@ -5,7 +7,6 @@ import pytest
 ≥ 25 Unit-Tests: Shape/Bounds, NaN-Safety, Edge-Cases, Invarianten.
 """
 
-from __future__ import annotations
 
 import math
 import threading

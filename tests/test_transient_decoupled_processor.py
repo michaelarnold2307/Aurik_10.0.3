@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -7,7 +9,6 @@ Tests für TransientDecoupledProcessing (TDP) — §2.27
 Keine echten Audiodateien. np.random.seed(42) für Reproduzierbarkeit.
 """
 
-from __future__ import annotations
 
 import threading
 

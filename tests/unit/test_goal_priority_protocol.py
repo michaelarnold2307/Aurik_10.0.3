@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für core/goal_priority_protocol.py — Spec §2.34.
@@ -6,7 +8,6 @@ import pytest
 Singleton-Thread-Safety, alle 15 Goals abgedeckt.
 """
 
-from __future__ import annotations
 
 import threading
 

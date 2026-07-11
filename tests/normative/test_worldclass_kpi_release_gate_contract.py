@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative Contracts fuer Worldclass-KPI-Dashboard und Release-Gate.
 
 Ziel:
@@ -5,7 +7,6 @@ Ziel:
 - Sicherstellen, dass Dashboard + Release-Gate die 5 Kernmetriken erzwingen.
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

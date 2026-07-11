@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """tests/unit/test_denker/test_tontraeger_denker.py
@@ -5,7 +7,6 @@ import pytest
 Tests für TontraegerDenker — Trägermaterial-Erkennung.
 """
 
-from __future__ import annotations
 
 import dataclasses
 import math

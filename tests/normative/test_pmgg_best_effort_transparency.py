@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative test: §0c Recovery-Lite — best_effort PMGG actions must propagate
 transparent recovery metadata into PhaseGateLogEntry.metadata.
 
@@ -7,7 +9,6 @@ best_possible_reached=True so downstream components (UV3, bridge, export_workflo
 can distinguish a full pass from a tolerated recovery.
 """
 
-from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock, patch

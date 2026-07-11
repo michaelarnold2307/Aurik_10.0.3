@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §8.6b Worldclass Composite Score Gate.
 
 Prueft die WCS-Berechnung und Gate-Entscheidung inkl. Artifact-Veto.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

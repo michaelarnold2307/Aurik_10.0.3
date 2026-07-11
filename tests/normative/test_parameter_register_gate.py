@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """[RELEASE_MUST] §8.5 Globales Parameterregister — automatischer CI-Gate-Test (v9.11.14)
@@ -18,8 +20,6 @@ Kategorien:
 
 Aufruf: pytest tests/normative/test_parameter_register_gate.py -v --timeout=30
 """
-
-from __future__ import annotations
 
 import re
 

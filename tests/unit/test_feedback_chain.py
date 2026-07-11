@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Unit-Tests für core/feedback_chain.py — FeedbackChain.
 
 Spec §2.16: Iterative Qualitätsschleife mit konservativer Konvergenz.
 ≥ 12 Tests: Konvergenz, Max-Iterations, NaN-Guard, Rollback, Mono/Stereo.
 """
 
-from __future__ import annotations
 
 import math
 from types import SimpleNamespace

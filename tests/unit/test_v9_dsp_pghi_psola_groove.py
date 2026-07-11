@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für dsp/pghi.py, dsp/psola.py und dsp/dtw_groove.py
 
@@ -12,7 +14,6 @@ Tests folgen §5.1–§5.4:
 Konvention: np.random.seed(42) in jedem Test, nur synthetische Signale.
 """
 
-from __future__ import annotations
 
 import math
 import threading

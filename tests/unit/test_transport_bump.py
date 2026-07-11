@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für TRANSPORT_BUMP – Erkennung, kausales Reasoning und Reparatur.
@@ -12,7 +14,6 @@ Prüft:
   - Edge-Cases: Stille, kurze Dateien, Stereo, NaN/Inf-Guards
 """
 
-from __future__ import annotations
 
 import numpy as np
 

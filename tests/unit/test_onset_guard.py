@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Unit-Tests für §ATI (V26) onset_guard.py.
 
 Testet apply_onset_protection_mask() und Hilfsfunktionen.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

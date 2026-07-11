@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """§2.8 Vokal-Restaurierungskette — Pflicht-Invarianten.
 
 Nur synthetische Signale. Kein reales Audio, kein ML-Modell-Download.
@@ -6,7 +8,6 @@ fehlende Abhängigkeiten einen gezielten xfail erzeugen statt den ganzen
 Modul-Import zu blockieren.
 """
 
-from __future__ import annotations
 
 import math
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Gap Closure Tests für v9.12.10 — EraVocalProfile, Pre-Echo, RestorationMemory.
@@ -8,7 +10,6 @@ Unit-Tests für die geschlossenen Lücken:
 3. RestorationMemory-Kalibrierung (telemetrie-tracking)
 """
 
-from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch

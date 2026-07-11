@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """
 tests/unit/test_riaa_curve_classifier.py
 Aurik 9 — Spec §6.6 Tests: RIAA-Kurven-Klassifikation
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

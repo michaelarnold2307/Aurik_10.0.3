@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """Smoke tests for the canonical CLI entrypoint replacing the legacy orchestrator script."""
 
-from __future__ import annotations
 
 import subprocess
 import sys

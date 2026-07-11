@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for TFS Preservation Guard (backend/core/tfs_preservation_guard.py).
 
 Covers:
@@ -12,7 +14,6 @@ Covers:
 - Frequency-band selectivity
 """
 
-from __future__ import annotations
 
 import threading
 

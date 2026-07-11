@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für backend/core/causal_defect_reasoner.py.
 
 Spec §2.4: Bayesianische Ursachendiagnose. 11 Ursachen, materialspezifische
@@ -6,7 +8,6 @@ Priors, Posterior-Normierung, CAUSE_TO_PHASES-Mapping, soft_saturation-Sonderreg
 Materialien, Posterior-Summe, soft_saturation→leere Phasen, Singleton, etc.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

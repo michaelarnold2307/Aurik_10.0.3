@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Tests für backend/core/musical_goals/transient_energy_metric.py (§1.4.6)."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für §4.5b-Instrumental g_floor-Schutz in phase_03_denoise.
 
 Prüft, dass rein instrumentales Material (PANNs Singing < 0.10) einen um +0.05
@@ -6,7 +8,6 @@ erhöhten OMLSA g_floor erhält — Oberton-Schutz für Streicher/Bläser/Piano.
 Spec: §4.5b-Instrumental (Spec 04 §4.5b), copilot-instructions.md VERBOTEN-Tabelle
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Externes Mini-MUSHRA-Artefakt-Kontrakt — [RELEASE_MUST] (§8.4 / §5.7 spec 07, v9.10.79)
 
 Spec §8.4 / §5.7 (copilot-instructions.md, spec 07 §5.7):
@@ -24,7 +26,6 @@ Gate-Tabelle (copilot-instructions.md):
 Ausführung: pytest tests/normative/test_external_mushra_artifact_contract.py --timeout=30 -v
 """
 
-from __future__ import annotations
 
 import json
 import math

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """Normative multi-material invariant matrix for critical late-pipeline phases.
 
@@ -9,7 +11,6 @@ Goal:
 This gate is intentionally phase-focused and complements heavier e2e suites.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests for VOCAL_HARSHNESS DefectType — detection, routing, and remediation (v9.10.77).
@@ -12,7 +14,6 @@ Validates:
 7. Material-adaptive thresholds present for all MaterialTypes
 """
 
-from __future__ import annotations
 
 import numpy as np
 

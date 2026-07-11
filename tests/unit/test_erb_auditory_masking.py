@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for ERB Auditory Masking Model (backend/core/erb_auditory_masking.py).
 
 Covers:
@@ -14,7 +16,6 @@ Covers:
 - Mono and stereo input handling
 """
 
-from __future__ import annotations
 
 import threading
 

@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """tests/unit/test_denker/test_strategie_denker.py
 
 Tests für StrategieDenker — Restaurierungsplanung & Phasenauswahl.
 """
 
-from __future__ import annotations
 
 import math
 from unittest.mock import MagicMock

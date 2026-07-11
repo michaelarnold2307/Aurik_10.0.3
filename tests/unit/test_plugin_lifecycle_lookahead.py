@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für §Perf Look-Ahead-Eviction im PluginLifecycleManager.
 
 Validiert, dass die Look-Ahead-Logik Reload-Thrashing eliminiert, indem Modelle
@@ -8,7 +10,6 @@ Die Tests bauen den Manager direkt (kein Singleton-Interferenz) mit Fake-Plugins
 deren unload_fn nur ein Flag setzt — keine echten ML-Modelle, keine Audio-Verarbeitung.
 """
 
-from __future__ import annotations
 
 import pytest
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für core/emotional_arc_preservation.py — EmotionalArcPreservationMetric.
@@ -6,7 +8,6 @@ Spec §8.2 Punkt 12: Emotionaler Dynamik-Bogen, Arousal/Valence Pearson, Klimax-
 ≥ 20 Tests.
 """
 
-from __future__ import annotations
 
 import math
 

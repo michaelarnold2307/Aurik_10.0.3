@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 """
 Tests für VocalFocusAnalyzer (§0p — v9.12.1).
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

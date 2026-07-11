@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Normative tests for recovery-gated export behavior."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

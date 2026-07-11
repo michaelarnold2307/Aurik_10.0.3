@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """tests/unit/test_medium_detector_short_clip.py
@@ -15,7 +17,6 @@ als nicht beobachtet behandelt (→ alle Materialien erhalten gleiche
 Log-Likelihood für dieses Feature → andere Features entscheiden).
 """
 
-from __future__ import annotations
 
 import numpy as np
 

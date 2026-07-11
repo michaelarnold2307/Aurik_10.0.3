@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_denker/test_reparatur_denker.py
 ================================================
@@ -8,7 +10,6 @@ Mock-Patch-Ziel: „denker.reparatur_denker.<Name>", create=True.
 SR-Konstante: 48 000 Hz.
 """
 
-from __future__ import annotations
 
 import math
 import threading

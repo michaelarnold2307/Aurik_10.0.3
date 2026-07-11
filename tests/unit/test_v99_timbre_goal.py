@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit-Tests für TimbralAuthenticityMetric (10. Musical Goal) – ≥ 35 Tests.
 
@@ -17,7 +19,6 @@ Konventionen:
   - @pytest.mark.timeout implizit via pytest.ini --timeout=30
 """
 
-from __future__ import annotations
 
 import math
 import threading

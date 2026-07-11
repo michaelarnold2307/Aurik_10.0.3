@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """tests/unit/test_adaptive_goal_thresholds.py
 
 Pflicht-Testsuite für das AdaptiveGoalThresholds-System (§2.31 Spec).
@@ -14,7 +16,6 @@ Testet:
 - Konsistenz-Tests (gleiche Eingabe → gleiches Ergebnis)
 """
 
-from __future__ import annotations
 
 import math
 

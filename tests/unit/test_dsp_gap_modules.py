@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit-Tests für die 4 neuen DSP-Lücken-Module (v9.12.x)
 =========================================================
@@ -13,7 +15,6 @@ Abgedeckt:
 - era_carrier_target        (Lücke EraTarget)
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

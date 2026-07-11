@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Normative guard: UI layer must not import core/dsp/plugin modules directly.
 
 Frontend modules under Aurik10 must communicate with backend internals via
 backend.api.bridge only (Spec 08 §11).
 """
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path

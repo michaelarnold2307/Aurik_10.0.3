@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für StructuralSilenceIsolationProtocol (SSIP) — §2.68g [RELEASE_MUST]
 ============================================================================
@@ -6,7 +8,6 @@ Spec: 02_pipeline_architecture.md §2.68g (v9.12.0)
 VERBOTEN-Regeln: V14, V15, V16, V17, V18
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

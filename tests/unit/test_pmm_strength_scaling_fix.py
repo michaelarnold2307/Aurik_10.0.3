@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für Fix 10/11/12: PMM Gain-Skalierung und Phase-18-Blend-Ordering.
 
 Fix 10 – §2.45a / §2.54: phase_29 Psychoacoustic Masking Gain-Clamp muss bei
@@ -14,7 +16,6 @@ Fix 12 – §2.45a / §2.53: phase_18 Blend-Ordering: Wet/Dry-Blend muss VOR
          (nicht den 100%-Wet-Zwischenwert vor dem Blend).
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

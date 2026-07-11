@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_v100_core_modules.py
 
@@ -17,7 +19,6 @@ Alle Tests:
     - Bounds-geprüft
 """
 
-from __future__ import annotations
 
 import math
 import tempfile

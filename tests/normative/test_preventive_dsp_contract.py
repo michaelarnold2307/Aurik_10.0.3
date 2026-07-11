@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative CI-Contract: preventive DSP guards must exist in critical timing phases.
 
 Purpose:
@@ -15,7 +17,6 @@ Scope (v2):
 - phase_48_stereo_width_enhancer: IACC guard + percentile peak guard
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

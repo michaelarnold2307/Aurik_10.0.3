@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Core tests for §2.36 LyricsGuidedEnhancement production path.
@@ -7,7 +9,6 @@ This test file intentionally validates only the authoritative production module:
 Legacy modules under `backend.lyrics_guided` are obsolete for production tests.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

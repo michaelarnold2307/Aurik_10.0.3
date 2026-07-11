@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_differentiators.py
 ===================================
@@ -11,7 +13,6 @@ Testet:
   5. ARE Integration — Alle Differenzierer im ARE-Workflow
 """
 
-from __future__ import annotations
 
 import json
 

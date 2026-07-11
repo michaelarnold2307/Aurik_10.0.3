@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests fuer §2.53b Denker-Plan-Determinismus in UnifiedRestorerV3.
 
 Normative Anforderungen (§2.53b):
@@ -8,7 +10,6 @@ Normative Anforderungen (§2.53b):
 - _last_material_priority_phases darf keinen Stale-State aus vorherigen Laeufen halten.
 """
 
-from __future__ import annotations
 
 import logging
 import logging.handlers

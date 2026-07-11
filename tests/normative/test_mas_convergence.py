@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] MAS-Konvergenz-CI-Gate (v9.12.1)
 
 CI-Gate das normativ prüft:
@@ -20,7 +22,6 @@ Spec-Referenzen:
     §09.11 MAS Formale Definition + PHYSICAL_CEILING
 """
 
-from __future__ import annotations
 
 import math
 

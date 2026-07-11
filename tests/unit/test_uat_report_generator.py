@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit tests for UAT report generator marker parsing."""
 
-from __future__ import annotations
 
 from pathlib import Path
 

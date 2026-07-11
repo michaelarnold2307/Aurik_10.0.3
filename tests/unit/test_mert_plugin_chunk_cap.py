@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Regression guard: MERT analyze() must crop audio to ≤ 10 s before HF inference.
 
 30 s was the old cap that caused >180 s CPU inference (O(n²) attention on 2250
 tokens). This test ensures the crop stays at 10 s to prevent future regressions.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

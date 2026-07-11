@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """tests/unit/test_material_key_normalization.py
 =================================================
 Unit-Tests für §6.1 [RELEASE_MUST] Material-Key-Normalisierung.
@@ -10,7 +12,6 @@ Spec-Referenz:
   - copilot-instructions.md: Fix X6 Material-Mapping
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

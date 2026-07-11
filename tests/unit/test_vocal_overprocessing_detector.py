@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for backend.core.vocal_overprocessing_detector.
 
 Tests:
@@ -9,7 +11,6 @@ Tests:
 - Edge cases: silence, NaN, short audio
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

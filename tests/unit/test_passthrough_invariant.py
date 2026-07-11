@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_passthrough_invariant.py
 =========================================
@@ -17,7 +19,6 @@ Referenz: §8.2, §8.2 (Punkt 7 — Pass-Through-Invariante)
 Pflicht-Test: tests/unit/test_passthrough_invariant.py
 """
 
-from __future__ import annotations
 
 import math
 from typing import cast

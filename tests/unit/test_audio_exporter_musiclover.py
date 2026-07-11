@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Unit-Tests für musiclover-Exportoptimierung im AudioExporter.
 
 Testet _apply_musiclover_export_optimizations direkt — keine sf.write-Mocks nötig.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

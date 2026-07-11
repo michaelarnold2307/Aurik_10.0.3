@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """tests/unit/test_denker/test_aurik_denker.py
 
 Tests für AurikDenker — Orchestrator aller Domänen-Denker.
@@ -6,7 +8,6 @@ kein echter Restorer-Aufruf, kein CDPAMPlugin, kein CrepePlugin.
 np.random.seed(42) für Reproduzierbarkeit.
 """
 
-from __future__ import annotations
 
 import ast
 import math

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §8.6a Hybrid-Engineer-Vector Contract.
 
 Sichert den normativen Vertrag fuer den Human-Talent-Emulation-Vektor (HTEV):
@@ -6,7 +8,6 @@ Sichert den normativen Vertrag fuer den Human-Talent-Emulation-Vektor (HTEV):
 - Vektor ist vollstaendig, normiert und deterministisch
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

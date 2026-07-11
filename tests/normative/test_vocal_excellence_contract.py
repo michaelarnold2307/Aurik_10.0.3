@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Normativer Gesangsexzellenz-Contract.
 
 Dieser CI-Test bündelt die wichtigsten Gesangs-Invarianten aus Spec 01/§2.35d,
@@ -12,7 +14,6 @@ Der Test prüft bewusst Code- und Spec-Artefakte gemeinsam, um Drift zwischen
 normativer Aussage und tatsächlicher Pipeline-Verdrahtung früh zu erkennen.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

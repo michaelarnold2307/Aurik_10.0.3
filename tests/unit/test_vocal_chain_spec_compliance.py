@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """§2.8 Vokal-Restaurierungskette — SPEC-COMPLIANCE All 10 Steps (copilot-instructions.md).
 
 Testet alle 10 geforderten Schritte der Vocal-Pipeline:
@@ -16,7 +18,6 @@ Testet alle 10 geforderten Schritte der Vocal-Pipeline:
 Nur synthetische Signale. Inline-Imports für gezielten xfail bei fehlenden Modulen.
 """
 
-from __future__ import annotations
 
 import math
 

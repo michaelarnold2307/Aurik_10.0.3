@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Regressionstests fuer gemeinsamen De-Esser-Intensitaetsrechner und Phasen-Integration."""
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import cast

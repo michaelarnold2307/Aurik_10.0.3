@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests for universal usability improvements (v9.10.x).
@@ -12,7 +14,6 @@ Covers:
 7. Vibrato-aware Vocal-Gating
 """
 
-from __future__ import annotations
 
 import types
 from dataclasses import dataclass, field

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Batch-Contract fuer Worldclass-/Hybrid-Metadaten.
 
 Sichert, dass der Batch-Pfad die Worldclass-/Hybrid-Metadaten
@@ -5,7 +7,6 @@ Sichert, dass der Batch-Pfad die Worldclass-/Hybrid-Metadaten
 im Ergebnisobjekt fuehrt.
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

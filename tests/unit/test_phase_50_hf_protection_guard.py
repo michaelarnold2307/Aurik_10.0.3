@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for Phase 50 §PriorPhase-Guard — HF-bin protection from Pass-1 spike detection.
 
 Root-cause: Phase_50 uses a per-frequency local-average spike detector (11-bin window).
@@ -10,7 +12,6 @@ Fix: `hf_protected_bin_start` parameter in `_repair_channel` excludes bins above
 material's natural rolloff from Pass 1.  Pass 2 (frame energy dropout) is NOT affected.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

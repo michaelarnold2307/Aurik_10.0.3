@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 AurikDenker E2E Integration Test (DSP-only, kein echter ML-Modell-Load nötig).
 
@@ -14,7 +16,6 @@ Spec-Referenzen:
     - §6.5: assert sr == 48000 am Eingang
 """
 
-from __future__ import annotations
 
 import math
 

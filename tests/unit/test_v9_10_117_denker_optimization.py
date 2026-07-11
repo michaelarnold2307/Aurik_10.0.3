@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -18,7 +20,6 @@ era_decade, material) to Repair + Reconstruction stages.
 - Backward compatibility (no new params = old behavior)
 """
 
-from __future__ import annotations
 
 from unittest.mock import patch
 

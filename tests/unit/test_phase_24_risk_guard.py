@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_phase_24_risk_guard.py — Phase-24-Pruning + Defekt-Reparatur-Garantie
 ==========================================================================
@@ -10,7 +12,6 @@ Stellt sicher, dass:
 Spec: CAUSE_TO_PHASES, §v10 Pleasantness-First
 """
 
-from __future__ import annotations
 
 import pytest
 

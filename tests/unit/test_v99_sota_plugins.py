@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit-Tests für die 6 SOTA-Plugins — Aurik 9
 
@@ -23,7 +25,6 @@ Klassen:
 Total: 55 Tests
 """
 
-from __future__ import annotations
 
 import math
 

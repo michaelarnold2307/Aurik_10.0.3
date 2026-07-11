@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Unit tests for BasicPitch plugin.
 
 Non-ML tests validate fallback robustness without requiring ONNX model files.
 ML tests are marked and can be enabled with heavy test flags.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

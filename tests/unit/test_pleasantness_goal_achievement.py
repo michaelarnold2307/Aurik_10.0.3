@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_pleasantness_goal_achievement.py — §v10 Pleasantness-First Verifikation
 =============================================================================
@@ -14,7 +16,6 @@ Testet:
 Spec-Referenz: §v10 HPE-GATE, §0h Music-Death-Shield
 """
 
-from __future__ import annotations
 
 import pytest
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit tests — §2.47 Phase_29 SNR > 35 dB Dry-Signal Bypass.
@@ -7,7 +9,6 @@ the unmodified audio when the estimated SNR exceeds 35 dB.  This is the
 §2.47 RELEASE_MUST 'clean signal → dry bypass' invariant.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

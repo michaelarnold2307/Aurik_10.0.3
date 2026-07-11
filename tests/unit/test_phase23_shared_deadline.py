@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests §Phase-level wall-time deadline shared across M/S MRSA sub-calls.
@@ -8,7 +10,6 @@ Fix: a shared _phase_deadline is passed into both _repair_channel() calls so
 total MRSA time is bounded by min(300s, max(90s, 1.3 × dur_s)).
 """
 
-from __future__ import annotations
 
 import numpy as np
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit-Tests für core/medium_classifier.py (≥ 35 Tests).
 
@@ -14,7 +16,6 @@ Konventionen gem. Aurik-Spec §5.4:
   - Keine realen Audio-Dateien
 """
 
-from __future__ import annotations
 
 import math
 import threading

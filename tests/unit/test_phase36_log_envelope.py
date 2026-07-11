@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests for phase_36 Transient Shaper — K: Log-Domain Envelope Follower.
 
@@ -11,7 +13,6 @@ Scientific reference:
     Zölzer (2011) DAFX §6.1.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

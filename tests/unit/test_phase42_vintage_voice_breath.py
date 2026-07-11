@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für §4.10-VintageVoice Vintage-Stimm-Identitätsschutz in phase_42.
@@ -9,7 +11,6 @@ breath_preservation-Boden auf mindestens 0.78 gesetzt wird.
 Spec: §4.10-VintageVoice (Spec 04), copilot-instructions.md VERBOTEN-Tabelle
 """
 
-from __future__ import annotations
 
 import numpy as np
 

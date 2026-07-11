@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Smoke-Test: Erzwingt alle Code-Pfade mit psutil-Guards.
 
 §Schutzschicht-2: Stellt sicher, dass `import psutil`-Fehlerpfade
@@ -7,7 +9,6 @@ Testet die 3 bekannten psutil-Guard-Stellen in unified_restorer_v3.
 Autor: Aurik 10 — 11. Juli 2026
 """
 
-from __future__ import annotations
 
 import builtins
 import sys

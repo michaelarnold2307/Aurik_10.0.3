@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Integration-Contracts für Musical-Goals-Verdrahtung (Low-Effort, High-Signal).
 
 Diese Tests sichern gezielt die reparierten Integrationspunkte ab:
@@ -7,7 +9,6 @@ Diese Tests sichern gezielt die reparierten Integrationspunkte ab:
 - UnifiedRestorerV3 GoalApplicability/AdaptiveThresholds-Verdrahtung
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

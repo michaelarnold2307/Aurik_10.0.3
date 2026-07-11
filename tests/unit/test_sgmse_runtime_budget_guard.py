@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Runtime budget guard tests for SGMSE+ chunked inference.
 
 Ensures long ML paths degrade safely to WPE fallback instead of hanging.
 """
 
-from __future__ import annotations
 
 import time
 from pathlib import Path

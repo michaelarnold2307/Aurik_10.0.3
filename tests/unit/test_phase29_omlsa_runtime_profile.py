@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Tests für _compute_omlsa_runtime_profile (§2.54 Phase 29)."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

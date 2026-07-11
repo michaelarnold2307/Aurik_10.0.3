@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_watchdog_graceful_stop.py — §0c Watchdog Graceful-Stop-Verifikation
 =========================================================================
@@ -11,7 +13,6 @@ Stellt sicher, dass der Watchdog KEIN klangblinder Killer ist, sondern:
 Spec-Referenz: §0c, §11.4 (Watchdog-Timer)
 """
 
-from __future__ import annotations
 
 import importlib.util
 

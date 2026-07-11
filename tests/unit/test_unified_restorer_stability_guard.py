@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Stability guard tests for bounded-but-non-edge behavior.
@@ -6,7 +8,6 @@ Ensures calibration scalars and implicit phase strengths are pulled away from
 hard bounds while explicit caller strengths remain untouched.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

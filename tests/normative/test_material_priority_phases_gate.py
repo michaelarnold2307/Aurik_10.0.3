@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """§6.2a [RELEASE_MUST] Material-Pflicht-Phasen + Phase-Ordering Gate.
 
 Validates:
@@ -7,7 +9,6 @@ Validates:
      the scientifically correct signal processing chain.
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock

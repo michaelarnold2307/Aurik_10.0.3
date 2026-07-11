@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -9,7 +11,6 @@ Bugs fixed (see CHANGELOG.md):
   - No tie-breaking rule for FEMALE vs CHILD when f0 < 350 Hz
 """
 
-from __future__ import annotations
 
 import numpy as np
 

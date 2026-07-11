@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests for §2.46b Spectral-Tilt-Preservation-Invariante in phase_06.
 
@@ -10,7 +12,6 @@ Normative reference:
 - For shellac: tolerance is ±3.0 dB/oct.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_export_roundtrip.py — Export-Roundtrip-Tests für Aurik 9.
 
@@ -5,7 +7,6 @@ Prüft dass Audio-Daten nach Export (FLAC, WAV, MP3) verlustfrei oder
 mit definiertem max. Verlust zurückgelesen werden können.
 """
 
-from __future__ import annotations
 
 import importlib.util
 import math

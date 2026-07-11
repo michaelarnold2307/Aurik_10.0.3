@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """V12 [RELEASE_MUST] — CAUSE_TO_PHASES bidirektionale Sync-Invariante (§2.59)
 
 Spec: jede Ursache in CAUSES muss einen CAUSE_TO_PHASES-Eintrag haben,
@@ -10,7 +12,6 @@ Diese Tests werden im CI via pytest ausgeführt UND im aurik_verboten_linter.py
 als V12-Modul-Level-Check referenziert.
 """
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path

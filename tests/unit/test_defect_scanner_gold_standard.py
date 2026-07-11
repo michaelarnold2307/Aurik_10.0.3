@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_defect_scanner_gold_standard.py
 ================================================
@@ -25,7 +27,6 @@ Achtung: DefecrScanner läuft ohne ML-Modelle (AURIK_DISABLE_CREPE=1).
 Alle Tests < 30 s Timeout, kein I/O.
 """
 
-from __future__ import annotations
 
 import math
 

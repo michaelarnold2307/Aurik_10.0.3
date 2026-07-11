@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für §0 BW-Cap-Invariante in phase_55_diffusion_inpainting.
 
@@ -9,7 +11,6 @@ Normative Anforderungen (§0 Primum non nocere, §2.55 VERBOTEN: Inpainting HF-H
 - VERBOTEN: AR/Diffusion ohne BW-Begrenzung für historische Träger.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

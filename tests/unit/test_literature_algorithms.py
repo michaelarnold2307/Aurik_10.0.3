@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests für literaturbasierte DSP-Algorithmen in Aurik 9.
 
 Bedeckt:
@@ -7,7 +9,6 @@ Bedeckt:
     (Siedenburg & Dörfler 2013, JASA)
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

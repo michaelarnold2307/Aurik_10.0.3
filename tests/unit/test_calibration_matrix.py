@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit tests for backend/core/calibration_matrix.py — §09.1/§09.2/§09.7.
@@ -8,7 +10,6 @@ Tests cover:
 - predict_quality_score: material-ceiling and restorability scaling
 """
 
-from __future__ import annotations
 
 import numpy as np
 

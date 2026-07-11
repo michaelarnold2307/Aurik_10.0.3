@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_denker_intelligence_trio.py
 ============================================
@@ -12,7 +14,6 @@ Unit-Tests für die drei neuen Denker-Intelligenz-APIs:
 Alle Tests sind Marker-frei (kein ml/slow/e2e) und laufen in der Standard-Suite.
 """
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock
 

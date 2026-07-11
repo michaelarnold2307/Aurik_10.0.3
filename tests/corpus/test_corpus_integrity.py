@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Corpus-Integritätstest — Prüft alle Manifests auf Konsistenz.
 
 §15.2: Validiert dass alle corpus/manifest.yaml-Dateien valide sind,
 Referenzen auf existierende Dateien zeigen und Checksummen stimmen.
 """
 
-from __future__ import annotations
 
 import hashlib
 from pathlib import Path

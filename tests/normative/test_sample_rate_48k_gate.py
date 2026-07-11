@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Normative guard: critical DSP tests must use 48 kHz fixture defaults."""
 
-from __future__ import annotations
 
 import re
 from pathlib import Path

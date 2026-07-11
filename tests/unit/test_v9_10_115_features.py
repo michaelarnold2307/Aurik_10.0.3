@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für v9.10.115 — Klangtreue zum Aufnahmetag (SourceFidelityReconstructor)
 ==============================================================================
@@ -21,7 +23,6 @@ Abgedeckte Änderungen (v9.10.115):
      - restoration_strength-Boost bei ≥ 3 Generationen
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

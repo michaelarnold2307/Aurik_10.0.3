@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/test_micro_dynamics_envelope_morphing.py
 ================================================
@@ -24,7 +26,6 @@ Konstanten (Spec §2.30):
 Alle Signale: synthetisch, np.random.seed(42), SR = 48 000 Hz.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

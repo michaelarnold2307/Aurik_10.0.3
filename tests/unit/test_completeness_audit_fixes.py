@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -12,7 +14,6 @@ Covers:
     §4.1b  UV3 Zwicker guard integration path
 """
 
-from __future__ import annotations
 
 import numpy as np
 

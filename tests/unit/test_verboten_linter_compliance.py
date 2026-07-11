@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Compliance-Auto-Verifikation [RELEASE_MUST] — Aurik VERBOTEN-Linter (V01–V33 Zielstand) im CI.
 
 Stellt sicher, dass kein Anti-Pattern-Scan-Ergebnis veraltet ist:
@@ -16,7 +18,6 @@ Abgedeckte Regeln (ERROR-Level):
     V12 CAUSE_TO_PHASES/CAUSES Bidirektional-Sync (§2.59)
 """
 
-from __future__ import annotations
 
 import subprocess
 import sys

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -11,7 +13,6 @@ Abdeckung:
   - VocalFocusAnalyzer._classify_singer_school: alle Schulen + Fallback
 """
 
-from __future__ import annotations
 
 import gc
 

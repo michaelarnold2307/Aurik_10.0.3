@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit-Tests: SongCal-Genre-Branches (§2.31a / §2.47)
 
@@ -11,7 +13,6 @@ Spec-Referenzen:
     §0     Klangwahrheit (Reggae/Gospel-Reverb = Authentizität)
 """
 
-from __future__ import annotations
 
 import pytest
 

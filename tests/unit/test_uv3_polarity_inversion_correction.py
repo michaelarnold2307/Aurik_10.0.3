@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für §POL-INV Polarity-Inversion-Korrektur in UV3 pre-pipeline.
 
 DefectScanner erkennt `polarity_inverted=True` wenn L/R Korrelation ≤ −0.9.
@@ -7,7 +9,6 @@ mit korrekter Stereo-Phase laufen.
 Spec: §POL-INV, copilot-instructions.md §0p Vocal-Supremacy
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

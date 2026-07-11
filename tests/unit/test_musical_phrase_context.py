@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Pflicht-Tests für MusicalPhraseContextExtractor (§2.12).
@@ -9,7 +11,6 @@ Testkonventionen:
     - Alle Tests ≤ 30 s Laufzeit
 """
 
-from __future__ import annotations
 
 import threading
 

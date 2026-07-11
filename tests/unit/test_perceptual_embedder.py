@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für backend/core/perceptual_embedder.py.
 
 Spec §2.9: PerceptualEmbedder — 5 Kanäle (Gammatone, Chroma, MFCC-ähnlich,
@@ -6,7 +8,6 @@ Perceptual Loudness, Spectral Flatness), 256-dim AudioEmbedding, Singleton.
 Distanz verschiedener Signale, Segment-Embedding, Edge-Cases.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

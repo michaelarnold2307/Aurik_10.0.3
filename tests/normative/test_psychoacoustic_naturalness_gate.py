@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §8.6g Psychoakustischer Natuerlichkeits-Guard.
 
 Sichert die nicht-klinische Klangprioritaet im Endgate: natuerlich, echt,
 psychoakustisch glaubwuerdig.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

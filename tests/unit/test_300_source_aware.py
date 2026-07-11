@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests für §3.0 Source-Aware-Restorer: Per-Stem-Phasenfilter, Remix, Fallback.
 
 Testet:
@@ -5,7 +7,6 @@ Testet:
 - ONNX-Fallback bei fehlendem Modell
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

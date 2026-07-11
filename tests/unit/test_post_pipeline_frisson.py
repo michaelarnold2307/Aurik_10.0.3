@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_post_pipeline_frisson.py — §0i Post-Pipeline Frisson-Verifikation
 ======================================================================
@@ -10,7 +12,6 @@ Beweist, dass Frisson-Zonen (Gänsehaut-Passagen) die Pipeline überleben:
 Spec: §0i Perceptual Transparency, §8.3 Gänsehaut-Prinzipien
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

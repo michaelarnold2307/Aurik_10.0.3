@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests fuer Spec-Upgrade Gate (§2.81 / §MG-UPG)."""
 
-from __future__ import annotations
 
 from backend.core.song_goal_importance import ALL_GOAL_NAMES
 from backend.core.spec_upgrade_gate import evaluate_spec_upgrade_candidate

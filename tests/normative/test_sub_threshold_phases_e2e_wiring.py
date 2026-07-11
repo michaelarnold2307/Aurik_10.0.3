@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 import pytest
 
 """
@@ -11,8 +14,6 @@ Normative Referenz:
 - §2.47b: sub_threshold_phases Telemetrie (RELEASE_MUST)
 - §2.53:  RestorationResult.metadata muss sub_threshold_phases enthalten
 """
-
-from __future__ import annotations
 
 
 @pytest.mark.unit

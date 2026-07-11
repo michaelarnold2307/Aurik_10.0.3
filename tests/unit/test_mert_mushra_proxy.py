@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for backend.core.mert_mushra_proxy — SOTA 22-component MUSHRA proxy evaluator.
 
 Tests cover:
@@ -24,7 +26,6 @@ Tests cover:
 - ISO 226 weighting function
 """
 
-from __future__ import annotations
 
 import math
 

@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Normative CI gate for §2.36 LyricsGuidedEnhancement invariants."""
 
-from __future__ import annotations
 
 from pathlib import Path
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative gates for newly introduced RELEASE_MUST invariants.
 
 Covers:
@@ -6,7 +8,6 @@ Covers:
 - [RELEASE_MUST] ROCm-TorchAudio-ABI-Invariante
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Normative GUI contract checks for ModernMainWindow.
 
 This test suite enforces a subset of hard GUI invariants defined in
 copilot-instructions/specs for the modern frontend path.
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Wissenschaftlicher Registry-Vertrag fuer Gate-Schwellen.
 
 Sichert, dass P1-Governance-Luecken (HPI/AFG/VQI/WCS) in Specs und Policy
 maschinenlesbar und mit wissenschaftlichen Quellenachsen verankert sind.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

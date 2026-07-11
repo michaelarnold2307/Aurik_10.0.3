@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Vollpipeline-Determinismus-Gate — [RELEASE_MUST] (§2.40 / §5.5 spec 07, v9.10.79)
 
 Spec §2.40 (copilot-instructions.md, spec 02 §2.40, spec 07 §5.5):
@@ -16,7 +18,6 @@ Regeln:
 Ausführung: pytest tests/normative/test_full_pipeline_determinism.py --timeout=30 -v
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field

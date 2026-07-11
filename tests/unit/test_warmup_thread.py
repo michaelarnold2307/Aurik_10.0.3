@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """test_warmup_thread.py — §9.7.4 Modell-Warmup im Hintergrund.
@@ -6,7 +8,6 @@ Pflicht-Tests (≥ 8) für _warmup_models_background() aus Aurik10/main.py.
 Alle Tests laufen ohne echte ML-Modelle (Stubs/Mocks).
 """
 
-from __future__ import annotations
 
 import threading
 import time

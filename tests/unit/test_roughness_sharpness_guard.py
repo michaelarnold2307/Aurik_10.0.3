@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests for §2.49c Roughness/Sharpness Guard in ArtifactFreedomGate.
 
@@ -8,7 +10,6 @@ Normative reference:
 - Guard does NOT apply to SUBTRACTIVE (noise removal reduces roughness intentionally).
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

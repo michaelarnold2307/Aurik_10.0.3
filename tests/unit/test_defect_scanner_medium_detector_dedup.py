@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Regression tests for medium detector deduplication in DefectScanner.scan()."""
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from unittest.mock import patch

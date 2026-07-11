@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für core/psychoacoustic_masking_model.py — PsychoacousticMaskingModel.
@@ -6,7 +8,6 @@ Spec §4.5: ISO 11172-3 Masking-Modell als Restaurierungs-Regler.
 ≥ 20 Tests.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

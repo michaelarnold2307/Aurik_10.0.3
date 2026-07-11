@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Unit tests for strict conflict adaptation from artifact-related phase events."""
 
-from __future__ import annotations
 
 import types
 

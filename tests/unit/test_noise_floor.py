@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_noise_floor.py
 ================================
@@ -15,7 +17,6 @@ Referenz:
 Pflicht-Test: tests/unit/test_noise_floor.py
 """
 
-from __future__ import annotations
 
 import math
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for §2.39 OOM-Recovery-Checkpoint-System.
 
 Verifies:
@@ -13,7 +15,6 @@ Verifies:
   - Checkpoint with empty/missing fields
 """
 
-from __future__ import annotations
 
 import json
 import os

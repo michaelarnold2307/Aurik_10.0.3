@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_offensive_goal_achievement.py — Sprint 2: Offensive Goal-Erreichung
 ========================================================================
@@ -11,7 +13,6 @@ Verschiebt den Test-Fokus von "Keine Verschlechterung" zu "Beweise Weltklasse":
 Spec: §8.1 AMRB, §8.2 Competitive, §v10 Pleasantness-First
 """
 
-from __future__ import annotations
 
 import pytest
 

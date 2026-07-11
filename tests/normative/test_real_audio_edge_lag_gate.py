@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Real-Audio Edge/Lag Gate.
 
 Blockiert Releases, wenn die Pipeline auf realem Audio
@@ -5,7 +7,6 @@ Blockiert Releases, wenn die Pipeline auf realem Audio
 2) neue L/R-Zeitverschiebung einführt.
 """
 
-from __future__ import annotations
 
 import multiprocessing as mp
 import os

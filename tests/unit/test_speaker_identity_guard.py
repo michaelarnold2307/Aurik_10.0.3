@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for backend.ml.speaker_identity_guard.
 
 Tests:
@@ -8,7 +10,6 @@ Tests:
 - Edge cases: silence, NaN, short audio
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_spec_09_p0_gaps.py — Sprint 3: Spec 09 P0-Gap-Testgerüst
 ===============================================================
@@ -11,7 +13,6 @@ Schließt die 4 kritischen Test-Lücken aus Spec 09:
 Spec: .github/specs/09_global_calibration_matrix.md
 """
 
-from __future__ import annotations
 
 import pytest
 

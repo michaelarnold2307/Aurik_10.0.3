@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für GENERATION_LOSS-Priors in CausalDefectReasoner.
@@ -9,7 +11,6 @@ Normativ: §2.47 Adaptive-Intelligence – Bayesianische Priors müssen reale
 Häufigkeitsverteilung von Multi-Generationen-Ketten abbilden.
 """
 
-from __future__ import annotations
 
 # ---------------------------------------------------------------------------
 # Helper

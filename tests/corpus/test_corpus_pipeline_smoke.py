@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Corpus Pipeline Smoke-Test — End-to-End ohne Crash.
 
 §15.2: Jede Corpus-Datei durchläuft die Aurik-Pipeline im Quick-Mode.
 Vorgabe: Kein Crash, kein NaN. Keine Qualitäts-Anforderungen.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

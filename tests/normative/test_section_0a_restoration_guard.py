@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §0a Restoration-Mode-Guard — normative CI-Gate (v9.12.0)
 
 Dieser Test schließt strukturell die Klasse von Bugs, die am 2026-05-05 gefunden wurden:
@@ -37,7 +39,6 @@ Spec-Referenz:
     .github/specs/06_phases_system.md Phasenfamilien-Tabelle (ENHANCEMENT)
 """
 
-from __future__ import annotations
 
 import ast
 import re

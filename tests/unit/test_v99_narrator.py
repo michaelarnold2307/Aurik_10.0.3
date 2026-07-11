@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -17,7 +19,6 @@ Testet alle Zeige des RestorationNarrators:
   • Convenience-Funktion narrate_restoration()
 """
 
-from __future__ import annotations
 
 import math
 import threading

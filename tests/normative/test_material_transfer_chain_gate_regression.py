@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Material × Transfer-Chain Gate-Regressionen.
 
 Ziel:
@@ -5,7 +7,6 @@ Ziel:
 - Regressionsschutz fuer Mehrgenerationsmaterial und konfliktkritische Phase-Caps.
 """
 
-from __future__ import annotations
 
 import pytest
 

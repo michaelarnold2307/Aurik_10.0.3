@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -18,7 +20,6 @@ Stellt sicher, dass die Defekt-basierte Ketten-Ergänzung:
 Normative Basis: §2.46a, §2.46b, §2.47, §6.2a
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock

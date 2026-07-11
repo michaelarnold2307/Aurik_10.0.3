@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Normative Tests fuer den Trusted Vocal Restoration Report."""
 
-from __future__ import annotations
 
 import csv
 import json

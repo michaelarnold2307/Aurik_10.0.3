@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §0d / §1.2a Carrier-Recovery-Referenzmodell — Contract-Gates.
 
 Diese Tests verankern das dreischichtige Referenzmodell als CI-Vertrag:
@@ -6,7 +8,6 @@ Diese Tests verankern das dreischichtige Referenzmodell als CI-Vertrag:
 3) Metadata-Pflichtfelder zur transparenten Auditierbarkeit
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

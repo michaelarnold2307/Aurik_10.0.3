@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §2.63 Edge/Lag No-Regress Contract.
 
 Sichert die strukturellen Invarianten gegen Re-Introduktion:
@@ -5,7 +7,6 @@ Sichert die strukturellen Invarianten gegen Re-Introduktion:
 - Kein neuer L/R-Lag durch kanalweise Drift im Phase-23-ML-Pfad.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

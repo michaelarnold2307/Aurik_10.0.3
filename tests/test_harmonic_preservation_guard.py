@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für HarmonicPreservationGuard (HPG) — §2.28
 ===================================================
@@ -5,7 +7,6 @@ Tests für HarmonicPreservationGuard (HPG) — §2.28
 Keine echten Audiodateien. np.random.seed(42) für Reproduzierbarkeit.
 """
 
-from __future__ import annotations
 
 import threading
 

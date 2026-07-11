@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_no_blind_trust.py — §v10 No-Blind-Trust-Invariante
 =========================================================
@@ -9,7 +11,6 @@ bevor Thresholds, EQ-Kurven oder Korrekturstärken festgelegt werden.
 Spec: §v10 Pleasantness-First, §0g Autonome Entscheidungen
 """
 
-from __future__ import annotations
 
 import importlib.util
 

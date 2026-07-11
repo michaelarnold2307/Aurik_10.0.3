@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -20,7 +22,6 @@ Tests verify:
   - Edge cases: 0-length audio, 1-sample audio, unknown phase_id
 """
 
-from __future__ import annotations
 
 import numpy as np
 

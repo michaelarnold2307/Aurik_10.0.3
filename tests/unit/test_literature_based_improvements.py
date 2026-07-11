@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -18,7 +20,6 @@ Testet drei wissenschaftlich fundierte Änderungen (April 2026):
    — SNR=0 dB → σ≈0.75; SNR=12 dB → σ=0.55; SNR=20 dB → σ≈0.39
 """
 
-from __future__ import annotations
 
 import numpy as np
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Regression tests for PMGG content-integrity guard.
@@ -7,7 +9,6 @@ Guard objective:
 - Stay inactive for mild, legitimate processing changes.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

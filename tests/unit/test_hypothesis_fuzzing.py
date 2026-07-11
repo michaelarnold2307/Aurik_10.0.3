@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_hypothesis_fuzzing.py — Property-Based Tests für Aurik 9 (§5.1).
 
@@ -7,7 +9,6 @@ Ziel: NaN/Inf-Safety, Bounds-Invarianten und Konsistenz bei beliebigen Eingaben.
 Ausführen: pytest tests/unit/test_hypothesis_fuzzing.py -v --timeout=60
 """
 
-from __future__ import annotations
 
 import math
 

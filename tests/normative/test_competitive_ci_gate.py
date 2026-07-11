@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Competitive CI-Gate — Aurik muss iZotope RX 11 in der Mehrheit der Szenarien schlagen.
 
 Spec §8.2 Punkt 11 (copilot-instructions.md):
@@ -21,7 +23,6 @@ Nightly-Modus (Spec: n_items ≥ 5 für statistische Robustheit):
     AURIK_NIGHTLY_ITEMS=5 pytest ... -m competitive
 """
 
-from __future__ import annotations
 
 import logging
 import multiprocessing as mp

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normativer Sync-Test fuer Performance-Budget zwischen Slim-Core und Spec 07.
 
 [RELEASE_MUST]
@@ -5,7 +7,6 @@
   .github/specs/07_quality_and_tests.md muessen identische Sekundenwerte haben.
 """
 
-from __future__ import annotations
 
 import re
 from pathlib import Path

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 §2.38 KMV Stufe-2 — Normative CI-Tests
 
@@ -10,7 +12,6 @@ Prüft:
 - refinement_complete / refinement_cancelled Endstatus
 """
 
-from __future__ import annotations
 
 from dataclasses import fields
 from pathlib import Path

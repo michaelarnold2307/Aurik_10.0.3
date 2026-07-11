@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Unit tests for phase_27_click_pop_removal._compute_click_repair_profile (§2.54)."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests fuer deterministische Fallback-Quality-Floor-Entscheidung (Paket 8).
 
 Scope:
@@ -5,7 +7,6 @@ Scope:
 - Keine Seiteneffekte auf Eingangsdaten.
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 

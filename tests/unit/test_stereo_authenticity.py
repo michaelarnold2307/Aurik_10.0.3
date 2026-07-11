@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Pflicht-Tests für StereoAuthenticitiyInvariant (§2.18).
@@ -11,7 +13,6 @@ Testkonventionen:
       der absichtlich beibehalten wird)
 """
 
-from __future__ import annotations
 
 import math
 import threading

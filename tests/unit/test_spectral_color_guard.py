@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Unit-Tests für §SCK (V24) spectral_color_guard.py.
 
 Testet check_spectral_color_preservation() und SpectralColorResult.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

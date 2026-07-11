@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests for material-adaptive phase initial strengths (§2.29 / §2.31).
 
@@ -8,7 +10,6 @@ Covers:
 - PMGG PerPhaseMusicalGoalsGate.wrap_phase() with initial_strength
 """
 
-from __future__ import annotations
 
 import types
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_spectral_band_gap_repair.py
 ============================================
@@ -9,7 +11,6 @@ Referenz:
     Fletcher (1964): Normal Vibration Frequencies of a Stiff Piano String
 """
 
-from __future__ import annotations
 
 import math
 

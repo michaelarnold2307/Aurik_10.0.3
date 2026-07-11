@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative guard: no Docker invocation in production code paths.
 
 Scope:
@@ -11,7 +13,6 @@ Rationale:
 Production runtime must remain offline and out-of-the-box without Docker.
 """
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path

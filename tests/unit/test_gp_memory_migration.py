@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -12,7 +14,6 @@ Prüft:
 - Thread-Sicherheit des Singletons
 """
 
-from __future__ import annotations
 
 import json
 import math

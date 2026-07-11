@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für backend/core/clipping_detection.py — §6.3 CLIPPING vs. SOFT_SATURATION.
@@ -23,7 +25,6 @@ import pytest
   - Performance-Bound (< 2 s bei 5 s Audio)
 """
 
-from __future__ import annotations
 
 import threading
 import time

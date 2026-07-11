@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Normative guard: tests must target current functionality/spec baseline.
 
 Blocks known stale test markers that indicate outdated references instead of
 current copilot-instructions/spec contracts.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

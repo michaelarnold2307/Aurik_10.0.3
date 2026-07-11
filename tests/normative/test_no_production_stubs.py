@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """CI-Guard: Keine echten Stubs in Produktionscode — §1.5, §3.1, §10.1.
 
 Erkennungslogik:
@@ -12,7 +14,6 @@ SOTA-Algorithmen für jeden Stub-Typ definiert. Neue Stubs werden mit einer Dead
 in ACCEPTED_STUBS registriert — nie still akzeptiert.
 """
 
-from __future__ import annotations
 
 import ast
 import pathlib

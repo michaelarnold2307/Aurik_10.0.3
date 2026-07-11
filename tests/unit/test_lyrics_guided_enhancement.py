@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für LyricsGuided Enhancement (§2.36 Aurik Spec v9.10.46b)
 =================================================================
@@ -16,7 +18,6 @@ Alle Tests nutzen synthetische Signale — keine realen Audiodateien (§5.4).
 np.random.seed(42) für Reproduzierbarkeit.
 """
 
-from __future__ import annotations
 
 import concurrent.futures
 import math

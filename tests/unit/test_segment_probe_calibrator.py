@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Tests für §2.82 SegmentProbeCalibrator.
 
 Testet: SegmentProbeResult-Dataclass, Kern-Algorithmus, Fallback-Pfade, Eligible-Phases-Set.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

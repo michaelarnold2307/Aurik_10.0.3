@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_phase_interaction_denker.py
 ============================================
@@ -19,7 +21,6 @@ Prüft:
   - AurikDenker-Stufe-5b: stage_notes enthält "phase_interaction" nach Aufruf
 """
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

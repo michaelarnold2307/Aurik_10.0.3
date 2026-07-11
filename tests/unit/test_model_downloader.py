@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """tests/unit/test_model_downloader.py — §13.3 Pflicht-Tests für ModelDownloader.
 
 Testet:
@@ -14,7 +16,6 @@ Alle Tests verwenden ausschließlich synthetische Daten (tmp_path).
 Seed: np.random.seed(42) / random.seed(42) wo zutreffend.
 """
 
-from __future__ import annotations
 
 import concurrent.futures
 import hashlib

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Ablation tests for PANNs-prior fusion in GenreClassifier (§open-set rescue).
 
 Three properties are verified:
@@ -8,7 +10,6 @@ Three properties are verified:
 Literature: Kong et al. (2020) PANNs; Won et al. (2020) – genre-tag correlation.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

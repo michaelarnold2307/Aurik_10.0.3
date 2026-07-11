@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Unit-Tests für core/temporal_quality_coherence.py — TemporalQualityCoherenceMetric.
 
 Spec §2.16: PQS-MOS-Konsistenz über Zeitachse, MOS-Spanne ≤ 0.30, σ ≤ 0.15.
 ≥ 20 Tests.
 """
 
-from __future__ import annotations
 
 import math
 

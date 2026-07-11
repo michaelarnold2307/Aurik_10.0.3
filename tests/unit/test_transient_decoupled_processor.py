@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für core/transient_decoupled_processor.py — TransientDecoupledProcessing.
@@ -6,7 +8,6 @@ Spec §2.27: HPSS-Trennung, separate(), recombine(), GrooveMetric-Invariante.
 ≥ 20 Tests.
 """
 
-from __future__ import annotations
 
 import numpy as np
 

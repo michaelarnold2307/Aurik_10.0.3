@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -6,7 +8,6 @@ tests/unit/test_i18n.py — Unit-Tests für das i18n-Framework (§3.5).
 Prüft set_language(), get_language(), t() und Thread-Sicherheit.
 """
 
-from __future__ import annotations
 
 import threading
 from typing import Any

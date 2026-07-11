@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests für core/audio_file_validator.py — AudioFileValidator (§10.5)
 
@@ -9,7 +11,6 @@ Prüft:
 - Korrekte Exception-Typen (AudioLoadError)
 """
 
-from __future__ import annotations
 
 import pathlib
 import struct

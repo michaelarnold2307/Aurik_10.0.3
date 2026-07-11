@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit tests for SOTA vocal enhancement improvements (v9.10.x):
 
@@ -20,7 +22,6 @@ Scientific basis:
   Sundberg (1987, 2015) — Singer's formant
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

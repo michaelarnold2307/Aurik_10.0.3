@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_v95_modules.py
 ==============================
@@ -16,7 +18,6 @@ Modul-Level-Imports):
 Aurik 9.5 — 2026
 """
 
-from __future__ import annotations
 
 import sys
 import warnings

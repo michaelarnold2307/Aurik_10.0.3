@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Tests für _compute_tape_saturation_profile (§2.54 Phase 22)."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

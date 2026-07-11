@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for phase_24_dropout_repair._compute_inpainting_runtime_profile (§2.54).
 
 Tests
@@ -9,7 +11,6 @@ Tests
 - Integration: process() returns metadata["inpainting_runtime_profile"]
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

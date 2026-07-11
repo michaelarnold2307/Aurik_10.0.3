@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Tests for Aurik10/core/settings_manager.py — persistent app settings."""
 
-from __future__ import annotations
 
 import pytest
 

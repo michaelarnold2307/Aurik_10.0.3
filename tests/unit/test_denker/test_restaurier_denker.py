@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """tests/unit/test_denker/test_restaurier_denker.py
@@ -5,7 +7,6 @@ import pytest
 Tests für RestaurierDenker — Hauptrestaurierung via UnifiedRestorerV3.
 """
 
-from __future__ import annotations
 
 import math
 from unittest.mock import patch

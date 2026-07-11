@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 test_worldclass_proof.py — Muster 1: Offensive Weltklasse-Beweise
 ==================================================================
@@ -15,7 +17,6 @@ Test-Matrix:
 Spec: §8.1, §8.2, §v10, §0h, §1.2c
 """
 
-from __future__ import annotations
 
 import os
 

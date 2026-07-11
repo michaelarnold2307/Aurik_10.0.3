@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Regression tests for MusicalQualityAssurance processing intensity handling."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

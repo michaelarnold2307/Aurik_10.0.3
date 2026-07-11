@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Magic-Button/Autopilot CI-Gate — [RELEASE_MUST] One-Button-Vertrag.
 
 Spec-Quelle: .github/copilot-instructions.md
@@ -6,7 +8,6 @@ Spec-Quelle: .github/copilot-instructions.md
   - Frontend-Einstieg muss über AurikDenker.denke() laufen (kein UV3-Bypass)
 """
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path

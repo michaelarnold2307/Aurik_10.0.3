@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für §8.1.1a [RELEASE_MUST] Studio-2026 OQS-Gate (v9.10.130).
@@ -10,7 +12,6 @@ Verifiziert:
 - OQS < 80 in Restoration → kein STUDIO_OQS_GATE_FAIL (anderer Gate-Typ)
 """
 
-from __future__ import annotations
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen

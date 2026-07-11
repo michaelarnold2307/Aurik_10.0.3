@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Tests für backend/core/feasibility_controller.py — §2.79 FeasibilityController.
 
 Testet: GoalFeasibility-Dataclass, estimate_goal_feasibility(), Erreichbarkeits-
 Logik, Konfidenz-Berechnung, Non-Blocking-Verhalten bei ungültigen Eingaben.
 """
 
-from __future__ import annotations
 
 import gc
 import math

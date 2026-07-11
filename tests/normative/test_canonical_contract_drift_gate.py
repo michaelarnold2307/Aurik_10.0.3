@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Canonical Contract Drift Gate.
 
 Dieses Gate verhindert Parallelpfade neben dem kanonischen Aurik-Vertrag:
 Import -> Pre-Analysis -> AurikDenker.denke -> Bridge/Exporter-Export.
 """
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path

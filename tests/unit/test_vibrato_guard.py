@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Unit-Tests für §2.72 vibrato_guard.py.
 
 Testet check_vibrato_depth_preservation() und VibratoDepthResult.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

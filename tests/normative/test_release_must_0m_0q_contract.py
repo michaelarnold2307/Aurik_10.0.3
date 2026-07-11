@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative Release-Must-Vertraege fuer §0m und §0q.
 
 Diese Tests sichern zwei Meta-Pflichten ab, die sonst leicht als reine
@@ -5,7 +7,6 @@ Dokumentation erscheinen: volle Defektintelligenz in beiden Modi und der
 Bug-Gap-Erkennungsworkflow inklusive Type-/Worldclass-Gates.
 """
 
-from __future__ import annotations
 
 import inspect
 from pathlib import Path

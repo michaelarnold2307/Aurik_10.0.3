@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für core/physical_ceiling_estimator.py — Spec §2.33.
@@ -6,7 +8,6 @@ import pytest
 further_optimization_worthwhile, NaN-Safety.
 """
 
-from __future__ import annotations
 
 import math
 import threading

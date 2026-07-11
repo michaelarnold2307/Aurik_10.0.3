@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests für Gap-Fixes G2, G3, G4 in unified_restorer_v3.py.
 
 G2: FallbackQualityFloor multi-candidate recovery (shape-compatibility cascade)
@@ -5,7 +7,6 @@ G3: SGI vollständig fehlgeschlagen → konservative Uniform-Weights statt None
 G4: PMGG best_effort Phasen → FeedbackChain _fc_max_iter boost
 """
 
-from __future__ import annotations
 
 from typing import Any
 

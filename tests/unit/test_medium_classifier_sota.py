@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """tests/unit/test_medium_classifier_sota.py
 Unit tests for three SOTA improvements to MediumClassifier (Aurik 9):
 
@@ -8,7 +10,6 @@ Unit tests for three SOTA improvements to MediumClassifier (Aurik 9):
 All tests use synthetic signals — no real audio files required.
 """
 
-from __future__ import annotations
 
 import math
 

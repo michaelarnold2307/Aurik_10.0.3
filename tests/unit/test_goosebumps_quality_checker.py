@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """
@@ -11,7 +13,6 @@ artifact penalty, musical goals blending, singleton pattern.
 Minimum: ≥ 35 unit tests (§Checkliste)
 """
 
-from __future__ import annotations
 
 import numpy as np
 

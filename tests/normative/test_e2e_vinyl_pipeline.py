@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """E2E-Pipeline-Test: Synthetisches Vinyl-Signal durch vollständige UV3-Pipeline.
 
 [RELEASE_MUST] §2.44 HPI > 0 nach Restaurierung.
@@ -12,7 +14,6 @@ Kein echtes Audio-File — synthetisches Vinyl-Signal mit simulierten Defekten:
 Marker: `not ml, not slow` — läuft in CI ohne GPU ohne externe Modelle.
 """
 
-from __future__ import annotations
 
 import math
 import types

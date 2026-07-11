@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] §8.6c Evidenzklassen-Metadatenvertrag.
 
 Prueft, dass Gate-Schwellen eine maschinenlesbare Evidenzklassifikation tragen.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

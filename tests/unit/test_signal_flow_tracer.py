@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 """
 Tests für backend/core/signal_flow_tracer.py
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

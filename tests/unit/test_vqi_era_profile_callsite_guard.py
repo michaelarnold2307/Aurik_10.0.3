@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Guard tests for EraVocalProfile propagation at critical VQI callsites.
@@ -6,7 +8,6 @@ These checks prevent regressions where historical-vocal paths call compute_vqi
 without era_profile, which would reintroduce false-negative VQI behavior.
 """
 
-from __future__ import annotations
 
 import pathlib
 import re

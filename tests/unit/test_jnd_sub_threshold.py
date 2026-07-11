@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tests for §2.47b JND Sub-Threshold Filter in PerPhaseMusicalGoalsGate.
 
@@ -8,7 +10,6 @@ Normative reference:
 - "sub_threshold_phases" list in metadata is populated.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

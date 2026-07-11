@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für MediumDetectionResult — neue Felder §6.7 (v9.11.14)."""
 
-from __future__ import annotations
 
 from forensics.medium_detector import MediumDetectionResult, SpectralFingerprint
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für core/remaster_detector.py — RemasterDetector (§2.14).
@@ -5,7 +7,6 @@ import pytest
 ≥ 17 Unit-Tests: alle synthetic, kein Audio-File, np.random.seed(42).
 """
 
-from __future__ import annotations
 
 import math
 import threading

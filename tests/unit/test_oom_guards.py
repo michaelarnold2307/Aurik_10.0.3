@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit tests for OOM guard hardening paths.
 
 Covers:
@@ -10,7 +12,6 @@ Covers:
 - EnsembleProcessor skip guard for long files
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 

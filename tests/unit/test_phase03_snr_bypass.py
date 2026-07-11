@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit tests — §2.47 Phase_03 SNR > 35 dB Dry-Signal Bypass."""
 
-from __future__ import annotations
 
 import numpy as np
 

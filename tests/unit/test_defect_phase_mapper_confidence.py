@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """tests/unit/test_defect_phase_mapper_confidence.py
@@ -5,7 +7,6 @@ import pytest
 Regression-Tests fuer confidence-aware Priorisierung im DefectPhaseMapper.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normative CI gate: combined ML model stack stays within budget invariants.
 
 Validates that:
@@ -11,7 +13,6 @@ Validates that:
 These tests are purely configuration / contract checks — no ML model loading occurs.
 """
 
-from __future__ import annotations
 
 import math
 import threading

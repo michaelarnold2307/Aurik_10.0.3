@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Hybrid-Release-Mode CI-Gate — [RELEASE_MUST] (copilot-instructions.md §2.37 / März 2026)
 
 Spec:
@@ -15,7 +17,6 @@ KI-Richtlinien-Gate-Tabelle:
 Aufruf: pytest tests/normative/test_hybrid_release_mode.py -v --timeout=30
 """
 
-from __future__ import annotations
 
 import importlib
 from pathlib import Path

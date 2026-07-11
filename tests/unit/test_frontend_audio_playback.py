@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Regression tests for frontend audio playback normalization."""
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

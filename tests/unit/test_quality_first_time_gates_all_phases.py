@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Quality-first policy guard for time-limited phase paths.
@@ -6,7 +8,6 @@ Ensures known runtime caps/skip guards are quality-gated in high-end modes
 (quality/maximum) so time factor does not silently reduce restoration quality.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

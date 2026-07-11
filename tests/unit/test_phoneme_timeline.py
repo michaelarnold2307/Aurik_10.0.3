@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_phoneme_timeline.py
 Aurik 9 — §2.36a PhonemeTimeline unit tests
@@ -19,7 +21,6 @@ Coverage:
   - Phase 24 phoneme_class → content_type override
 """
 
-from __future__ import annotations
 
 import threading
 from dataclasses import dataclass

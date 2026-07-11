@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Regression tests for long-audio event detection outside center crop.
 
 When scan() center-crops long audio to 60 s for performance, event defects
@@ -5,7 +7,6 @@ near intro/outro can be missed. These tests lock in the full-audio rescue pass
 for cheap event detectors (clicks, clipping).
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

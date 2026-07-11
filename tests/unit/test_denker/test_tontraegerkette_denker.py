@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_denker/test_tontraegerkette_denker.py
 ====================================================
@@ -14,7 +16,6 @@ KettenErgebnis-Felder:
 SR-Konstante: 48 000 Hz.
 """
 
-from __future__ import annotations
 
 import math
 import threading

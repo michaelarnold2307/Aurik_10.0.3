@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 E2E-Test für Aurik 9.10.41 — Kanonischer End-to-End-Test.
 
@@ -13,7 +15,6 @@ Anforderungen:
 Spec-Referenz: §0, §2.44, §2.45, §2.49, §8.1, §8.2 (copilot-instructions.md v9.11.x)
 """
 
-from __future__ import annotations
 
 import math
 import pathlib

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """§6.2d Bidirektionale Sync-Invariante: BW/DR-Ceiling-Dicts ↔ CARRIER_TRANSFER_CHARACTERISTICS.
 
 Ensures that:
@@ -7,7 +9,6 @@ Ensures that:
 4. Values are physically plausible (BW > 0, DR > 0).
 """
 
-from __future__ import annotations
 
 import pytest
 

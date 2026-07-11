@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unit-Tests für:
   - backend/core/dolby_nr_detector.py  (Erkennung, Inversion, Singleton)
@@ -8,7 +10,6 @@ Unit-Tests für:
 Testanzahl: ≥ 35 def test_
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

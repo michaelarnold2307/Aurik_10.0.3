@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests für backend/api/bridge.py — Aurik 9 API Bridge (§11 Spec 08).
 
 Prüft:
@@ -12,7 +14,6 @@ Prüft:
 - __all__ enthält alle Pflicht-Funktionen aus Spec §11
 """
 
-from __future__ import annotations
 
 import builtins
 import importlib

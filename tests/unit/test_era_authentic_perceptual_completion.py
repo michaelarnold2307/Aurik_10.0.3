@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für core/era_authentic_perceptual_completion.py — Spec §2.35.
@@ -6,7 +8,6 @@ import pytest
 NaN-Safety, Singleton-Thread-Safety.
 """
 
-from __future__ import annotations
 
 import math
 import threading

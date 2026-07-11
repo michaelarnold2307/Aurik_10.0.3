@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für core/excellence_optimizer.py — ExcellenceOptimizer.
@@ -7,7 +9,6 @@ Micro-Dynamic Re-injection, Harmonic Reinforcement, OLA Smoothing).
 ≥ 14 Tests: Shape, NaN, Mono/Stereo, Material-Profile, Context-Analyse.
 """
 
-from __future__ import annotations
 
 import math
 

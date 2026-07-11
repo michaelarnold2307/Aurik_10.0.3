@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Unit tests for Phase 07 _compute_harmonic_blend_profile (§2.54 adaptive constants)."""
 
-from __future__ import annotations
 
 import pytest
 

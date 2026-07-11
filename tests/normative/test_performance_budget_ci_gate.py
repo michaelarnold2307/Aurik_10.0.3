@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Normative CI gate for performance budget invariants.
 
 This test module enforces stable, machine-checkable constraints for
 performance budget configuration without running long ML-heavy pipelines.
 """
 
-from __future__ import annotations
 
 import pytest
 

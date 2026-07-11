@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_gap_reconstructor.py
 ======================================
@@ -12,7 +14,6 @@ Testet:
   - Edge Cases
 """
 
-from __future__ import annotations
 
 import numpy as np
 

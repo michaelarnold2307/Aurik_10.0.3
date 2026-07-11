@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Stratifiziertes Konkurrenz-Gate — [RELEASE_MUST] (§5.6 spec 07 / §2.40) v9.10.79
 
 Spec §5.6 (copilot-instructions.md, spec 07 §5.6):
@@ -21,7 +23,6 @@ Gate-Tabelle (copilot-instructions.md):
 Ausführung: pytest tests/normative/test_competitive_stratified_gate.py --timeout=30 -v
 """
 
-from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field

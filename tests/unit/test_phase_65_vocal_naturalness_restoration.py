@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import pytest
 
 """Tests für backend/core/phases/phase_65_vocal_naturalness_restoration.py (§7.10)."""
 
-from __future__ import annotations
 
 import numpy as np
 

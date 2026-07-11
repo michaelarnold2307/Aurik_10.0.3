@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_preserve_mask_propagation.py
 Aurik 9 — §2.44 §4.8a-ii: preserve_mask Erzeugung und Propagation.
@@ -10,7 +12,6 @@ Testet:
 - Werte im gültigen Bereich [0, 1]
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

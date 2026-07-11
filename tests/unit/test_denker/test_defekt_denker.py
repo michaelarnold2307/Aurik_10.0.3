@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """tests/unit/test_denker/test_defekt_denker.py
@@ -5,7 +7,6 @@ import pytest
 Tests für DefektDenker — Defekterkennung & -klassifikation.
 """
 
-from __future__ import annotations
 
 import math
 

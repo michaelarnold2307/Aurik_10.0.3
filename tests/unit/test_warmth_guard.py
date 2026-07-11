@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Unit-Tests für §WBG (V25) warmth_guard.py.
 
 Testet measure_warmth_band_delta() und WarmthBandResult.
 """
 
-from __future__ import annotations
 
 import numpy as np
 import pytest

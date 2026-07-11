@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unit-Tests für backend/core/unified_restorer_v3.py.
 
 Spec §2.1/§2.2: UnifiedRestorerV3 — Defect-First Restoration Engine.
@@ -7,7 +9,6 @@ NaN/Inf-Invariante, Shape-Korrektheit, Bounds und Edge-Cases.
 ≥ 35 Tests.
 """
 
-from __future__ import annotations
 
 import inspect
 import math

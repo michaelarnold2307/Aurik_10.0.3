@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 """Unit-Tests für backend/core/pipeline_main.py.
@@ -8,7 +10,6 @@ process()-Aufruf über gemockte Engine, Audit-Trail-Schreiben, Edge-Cases
 (Stille, NaN-Audio, Stereo), Singleton-Verhalten und prozess-Ausgabe-Format.
 """
 
-from __future__ import annotations
 
 import json
 import os

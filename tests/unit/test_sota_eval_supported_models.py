@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 """Regressionstest für importierbare SOTA-Model-Registry in benchmarks/sota_eval.py."""
 
-from __future__ import annotations
 
 import importlib.util
 

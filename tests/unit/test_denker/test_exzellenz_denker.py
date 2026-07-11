@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """tests/unit/test_denker/test_exzellenz_denker.py
 
 Tests für ExzellenzDenker — Excellence-Optimierung + Musical-Goals-Messung.
 Schwerpunkt: Vokal-KI-Zweig (material="vocal") und Nicht-Vokal-Pfad.
 """
 
-from __future__ import annotations
 
 import dataclasses
 import math

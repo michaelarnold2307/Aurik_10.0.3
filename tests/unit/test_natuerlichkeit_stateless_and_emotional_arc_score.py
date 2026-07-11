@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 tests/unit/test_natuerlichkeit_stateless_and_emotional_arc_score.py
 ====================================================================
@@ -15,7 +17,6 @@ FIXED v9.11 — Zwei kritische Bugs, die HPG-Integrität untergruben:
 Alle Tests laufen ohne ML-Modelle (AURIK_DISABLE_CREPE=1).
 """
 
-from __future__ import annotations
 
 import math
 

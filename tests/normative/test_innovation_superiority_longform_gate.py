@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """[RELEASE_MUST] Longform Real-Audio Gate for InnovationSuperiorityOrchestrator.
 
 Prüft auf realem, längerem Audiomaterial, dass die neue Innovationsschicht
 im UV3-Closed-Loop konsistent Telemetrie liefert (ohne Gate-Bypass).
 """
 
-from __future__ import annotations
 
 from typing import Any
 
