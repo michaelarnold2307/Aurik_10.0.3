@@ -281,7 +281,7 @@ class AutoReprocessingEngine:
             avg_improvement = np.mean([best_scores[g] - baseline_scores.get(g, 0.0) for g in best_scores])
 
             logger.warning(
-                f"Reprocessing did not pass all gates but achieved "
+                "Reprocessing did not pass all gates but achieved "
                 f"improvements: avg={avg_improvement:.3f}, "
                 f"strategy={best_strategy.value}"
             )

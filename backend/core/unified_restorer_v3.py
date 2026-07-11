@@ -7384,7 +7384,7 @@ class UnifiedRestorerV3:
             raise MemoryError(
                 f"Audio-Buffer ({_audio_bytes / (1024**3):.1f} GB) überschreitet "
                 f"das erlaubte Maximum von {_MAX_AUDIO_BUFFER_BYTES / (1024**3):.0f} GB (Spec §9). "
-                f"Bitte eine kürzere Datei verwenden."
+                "Bitte eine kürzere Datei verwenden."
             )
         # Physischer RAM-Preflight: mind. 3 GB + 5× Audio-Puffer frei
         try:
@@ -9305,7 +9305,7 @@ class UnifiedRestorerV3:
                     _mdc_warnings.append(
                         f"Analog material '{_mat_val}' but strong digital artifacts "
                         f"(digital_sev={_digital_sev:.2f}, analog_sev={_analog_sev:.2f}) "
-                        f"— possible misclassification"
+                        "— possible misclassification"
                     )
             if _mdc_warnings:
                 for _mdc_w in _mdc_warnings:
@@ -22002,7 +22002,7 @@ class UnifiedRestorerV3:
                             "error_code": "STUDIO_OQS_GATE_FAIL",
                             "message": (
                                 f"Studio 2026: OQS {_mushra_result.mushra_score:.1f} < {_mushra_threshold:.0f} "
-                                f"(§8.1.1a RELEASE_MUST — export blockiert)"
+                                "(§8.1.1a RELEASE_MUST — export blockiert)"
                             ),
                             "oqs_score": round(_mushra_result.mushra_score, 1),
                             "oqs_threshold": _mushra_threshold,

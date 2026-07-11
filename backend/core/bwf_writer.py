@@ -111,9 +111,9 @@ def _build_ixml_chunk(xml_data: str = "") -> bytes:
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             "<BWFXML>\n"
             "  <IXML_VERSION>1.55</IXML_VERSION>\n"
-            f"  <PROJECT>Aurik 10 Restoration</PROJECT>\n"
+            "  <PROJECT>Aurik 10 Restoration</PROJECT>\n"
             f"  <SCENE>Restored {time.strftime('%Y-%m-%d %H:%M:%S')}</SCENE>\n"
-            f"  <NOTE>Processed by Aurik 10 — Intelligent Music Restoration</NOTE>\n"
+            "  <NOTE>Processed by Aurik 10 — Intelligent Music Restoration</NOTE>\n"
             "</BWFXML>\n"
         )
 

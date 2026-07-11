@@ -545,7 +545,7 @@ def validate_export_quality(result: Any) -> tuple[bool, list[str]]:
         if float(score) < effective_thr:
             warnings.append(
                 f"KRITISCH: {goal_name} = {float(score):.3f} < {effective_thr:.2f} — "
-                f"P1/P2-Mindestziel unterschritten. Restaurierung hat Kernqualität verletzt."
+                "P1/P2-Mindestziel unterschritten. Restaurierung hat Kernqualität verletzt."
             )
             passed = False
 

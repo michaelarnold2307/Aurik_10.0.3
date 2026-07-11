@@ -248,14 +248,14 @@ class CrossPhaseAwareness:
                 self._warnings.append(
                     f"⚠️ {latest.phase_id}: Vorgänger-Phase {prev.phase_id} hat "
                     f"spektrale Balance um {prev.spectral_tilt_delta:.1f} dB verschoben. "
-                    f"De-Essing könnte überkompensieren."
+                    "De-Essing könnte überkompensieren."
                 )
             # Problem: Zwei Phasen haben beide die Loudness signifikant geändert
             if abs(prev.rms_delta_db) > 2.0 and abs(latest.rms_delta_db) > 2.0:
                 self._warnings.append(
                     f"⚠️ Kumulative Loudness-Änderung: {prev.phase_id}({prev.rms_delta_db:+.1f}dB) "
                     f"+ {latest.phase_id}({latest.rms_delta_db:+.1f}dB) — "
-                    f"Risiko von Loudness-Kaskade."
+                    "Risiko von Loudness-Kaskade."
                 )
 
     def get_warnings(self) -> list[str]:

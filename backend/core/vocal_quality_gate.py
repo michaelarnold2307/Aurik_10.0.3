@@ -462,7 +462,7 @@ class VocalQualityGate:
         if post_scores.breath_naturalness < 30:
             warnings.append(
                 f"Atem-Natürlichkeit kritisch: {post_scores.breath_naturalness:.0f}/100 "
-                f"(wahrscheinlich über-entrauscht)"
+                "(wahrscheinlich über-entrauscht)"
             )
             recommendations.append("Noise Reduction zurückschrauben")
 

@@ -184,7 +184,7 @@ class DemucsV5Separator:
 
         if nebenwirkungen["severity"] > 0.3:
             logger.warning(
-                f"Separation nebenwirkungen detected: "
+                "Separation nebenwirkungen detected: "
                 f"transient_smearing={nebenwirkungen['transient_smearing']:.2f}, "
                 f"phase_loss={nebenwirkungen['phase_loss']:.2f}"
             )

@@ -1124,7 +1124,7 @@ class WaveformPlausibilityGuard:
 
         # --- Both failed: §0 Primum non nocere — skip ---
         meta["skipped_reason"] = (
-            f"musical_goals_proxy_fail("
+            "musical_goals_proxy_fail("
             f"arc_before={arc_before:.3f},arc_after={arc_after:.3f},"
             f"dr_before={dr_before:.1f},dr_after={dr_after:.1f})"
         )

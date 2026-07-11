@@ -211,7 +211,7 @@ class ModuleParallelProcessor:
             if not ready:
                 # Circular dependency or invalid configuration
                 raise ValueError(
-                    f"Circular dependency detected or unsatisfied dependencies. "
+                    "Circular dependency detected or unsatisfied dependencies. "
                     f"Remaining: {remaining}, Satisfied: {satisfied}"
                 )
 

@@ -250,7 +250,7 @@ class HybridSpeedPitch:
         processing_time = time.time() - start_time
 
         logger.info(
-            f"Hybrid Speed/Pitch Detektion abgeschlossen: "
+            "Hybrid Speed/Pitch Detektion abgeschlossen: "
             f"pitch={final_pitch:.2f} Hz, confidence={final_confidence:.3f}, "
             f"strategy={strategy.value}, pYIN={pyin_applied}, CREPE={crepe_applied}, "
             f"time={processing_time:.2f}s"

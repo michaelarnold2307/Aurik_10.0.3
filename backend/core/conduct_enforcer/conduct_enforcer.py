@@ -187,7 +187,7 @@ class ConductEnforcer:
             return ValidationResult(
                 allowed=False,
                 reason=f"Epistemische Unsicherheit zu hoch (Confidence: {confidence:.2f} < {self.min_confidence}). "
-                f"Primum non nocere - Processing gestoppt.",
+                "Primum non nocere - Processing gestoppt.",
                 zone=zone,
                 confidence=confidence,
                 violated_principles=violated_principles,
@@ -316,7 +316,7 @@ class ConductEnforcer:
             # Warning, but don't block (heuristic, not hard stop)
             reason_warning = (
                 f"Warnung: Listener-perceivable Difference hoch ({listener_diff:.3f} > {self.listener_diff_max:.3f}). "
-                f"Könnte Hörer-Konsens gefährden."
+                "Könnte Hörer-Konsens gefährden."
             )
         else:
             reason_warning = None

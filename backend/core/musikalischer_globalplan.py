@@ -786,7 +786,7 @@ class MusikalischerGlobalplanDienst:
                 era_conf = max(era_conf, 0.55)
                 reasoning.append(
                     f"Lossy-Codec-Korrektur: Ära {_decade_before_fix9}er → 1975 "
-                    f"(MP3/AAC-Bandbreite ist codec-bedingt, kein Ära-Indikator; §Fix9)"
+                    "(MP3/AAC-Bandbreite ist codec-bedingt, kein Ära-Indikator; §Fix9)"
                 )
 
         if decade is not None:

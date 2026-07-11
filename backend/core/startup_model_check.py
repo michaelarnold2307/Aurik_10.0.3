@@ -191,7 +191,7 @@ def check_models(app_root: Path | None = None) -> ModelCheckResult:
         if mode == "DSP_ONLY":
             user_title_de = "⚠ KI-Modelle fehlen — Eingeschränkter Betrieb"
             user_message_de = (
-                f"Es wurden keine KI-Modell-Dateien gefunden "
+                "Es wurden keine KI-Modell-Dateien gefunden "
                 f"({n_total_missing} von {total_bundled} fehlen).\n\n"
                 "Die Restaurierungsqualität ist deutlich eingeschränkt — "
                 "KI-gestützte Methoden sind nicht verfügbar.\n\n"

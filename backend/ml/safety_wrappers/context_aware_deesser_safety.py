@@ -446,7 +446,7 @@ class ContextAwareDeEsserSafety:
 
         if after_sib_intensity >= before_sib_intensity * 0.95:
             warnings_list.append(
-                f"Minimal sibilance reduction: "
+                "Minimal sibilance reduction: "
                 f"{before_sib_intensity:.2f} → {after_sib_intensity:.2f}. "
                 "Consider more aggressive settings."
             )

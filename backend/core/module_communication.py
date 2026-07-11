@@ -607,7 +607,7 @@ class ModuleCommunicationBus:
         """String representation."""
         stats = self.get_statistics()
         return (
-            f"ModuleCommunicationBus("
+            "ModuleCommunicationBus("
             f"modules={stats['registered_modules']}, "
             f"subscriptions={stats['subscriptions']}, "
             f"messages_sent={stats['messages_sent']})"

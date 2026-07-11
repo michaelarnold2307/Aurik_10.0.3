@@ -542,18 +542,18 @@ class ContentAwareProcessor:
             return (
                 f"VOCAL-FOCUSED RESTORATION: {vocal_count} vocal segments "
                 f"({vocal_percentage:.0%} vocal). Apply gentle enhancement to vocals, "
-                f"preserve instrumental breaks naturally."
+                "preserve instrumental breaks naturally."
             )
         elif vocal_percentage > 0.3:
             return (
                 f"BALANCED RESTORATION: {vocal_count} vocal segments "
                 f"({vocal_percentage:.0%} vocal). Process vocals and instruments "
-                f"independently, preserve mix balance."
+                "independently, preserve mix balance."
             )
         else:
             return (
                 f"INSTRUMENTAL RESTORATION: Minimal vocals ({vocal_percentage:.0%}). "
-                f"Focus on noise reduction and tonal balance, preserve instrumental textures."
+                "Focus on noise reduction and tonal balance, preserve instrumental textures."
             )
 
     def _generate_studio_strategy(
@@ -568,18 +568,18 @@ class ContentAwareProcessor:
             return (
                 f"VOCAL PRODUCTION: {vocal_count} vocal segments "
                 f"({vocal_percentage:.0%} vocal). Maximize vocal clarity and presence, "
-                f"apply modern vocal chain (de-essing, compression, EQ)."
+                "apply modern vocal chain (de-essing, compression, EQ)."
             )
         elif vocal_percentage > 0.3:
             return (
                 f"MIXED PRODUCTION: {vocal_count} vocal segments "
                 f"({vocal_percentage:.0%} vocal). Balance vocal/instrumental processing, "
-                f"optimize for streaming platforms."
+                "optimize for streaming platforms."
             )
         else:
             return (
                 f"INSTRUMENTAL PRODUCTION: Minimal vocals ({vocal_percentage:.0%}). "
-                f"Focus on instrumental clarity, dynamics, and tonal balance."
+                "Focus on instrumental clarity, dynamics, and tonal balance."
             )
 
 

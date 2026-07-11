@@ -90,7 +90,7 @@ class PerformanceReport:
 
     def __str__(self):
         return (
-            f"PerformanceReport:\n"
+            "PerformanceReport:\n"
             f"  Total: {self.total_duration_seconds:.1f}s for {self.audio_duration_seconds:.1f}s audio\n"
             f"  RT Factor: {self.total_rt_factor:.2f}× ({self.status.value})\n"
             f"  Phases: {len(self.phases)} executed, {len(self.skipped_phases)} skipped\n"

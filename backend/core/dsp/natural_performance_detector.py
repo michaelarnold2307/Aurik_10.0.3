@@ -138,7 +138,7 @@ class NaturalPerformanceProfile:
 
     def __repr__(self) -> str:
         return (
-            f"NaturalPerformanceProfile("
+            "NaturalPerformanceProfile("
             f"breaths={len(self.breath_zones)}, "
             f"vibratos={len(self.vibrato_zones)}, "
             f"early_refs={len(self.early_reflection_zones)}, "

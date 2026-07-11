@@ -188,7 +188,7 @@ class GlobalCumulativeGuard:
             CUMULATIVE_MINIMUM,
             "\n".join(
                 f"  {pid}: cum={cum:.3f} (Dämpfung %{1 - cum:.1%}) "
-                f"— stärkster Guard: "
+                "— stärkster Guard: "
                 f"{self._trackers[pid].strongest_reduction_guard()}"
                 for pid, cum in weak
             ),

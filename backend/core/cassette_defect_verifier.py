@@ -1368,7 +1368,7 @@ def _build_recommendation(verdict: str, defect_type: str, phase_id: str, proxy_p
     elif not proxy_passed:
         return (
             f"{defect_type}: {phase_id} Proxy-Metrik nicht bestanden. "
-            f"Erwäge reduziertes Strength oder alternative Phase."
+            "Erwäge reduziertes Strength oder alternative Phase."
         )
     else:
         return f"{defect_type}: Hörbares Residual. {phase_id} mit reduziertem Strength (0.65→0.40) erneut versuchen."

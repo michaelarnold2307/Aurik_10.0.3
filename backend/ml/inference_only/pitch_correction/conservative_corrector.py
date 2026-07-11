@@ -105,7 +105,7 @@ class ConservativePitchCorrector:
         )
 
         logger.info(
-            f"ConservativePitchCorrector initialized: "
+            "ConservativePitchCorrector initialized: "
             f"error_threshold={error_threshold_cents}¢, max_dcs={max_dcs}, "
             f"min_epistemic_conf={min_epistemic_confidence}, "
             f"formant_preservation={formant_preservation}"
@@ -138,7 +138,7 @@ class ConservativePitchCorrector:
         # Step 2: Epistemic Gate Check
         if pitch_analysis.epistemic_confidence < self.min_epistemic_confidence:
             logger.warning(
-                f"Pitch correction REJECTED: Epistemic confidence too low "
+                "Pitch correction REJECTED: Epistemic confidence too low "
                 f"({pitch_analysis.epistemic_confidence:.2f} < {self.min_epistemic_confidence})"
             )
             return audio, {

@@ -281,7 +281,7 @@ class VocalOverprocessingDetector:
             msg = (
                 f"§VOD-1 Sibilance over-reduction after {phase_id}: "
                 f"post/pre ratio = {sib_ratio:.3f} < {_th['sibilance_threshold']:.3f} (adaptive). "
-                f"Original sibilance energy was significantly reduced."
+                "Original sibilance energy was significantly reduced."
             )
             warnings.append(msg)
             logger.warning(msg)

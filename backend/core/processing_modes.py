@@ -247,7 +247,7 @@ class ProcessingConfig:
 
             if not -80.0 <= self.spectral_repair_hole_threshold_db <= -40.0:
                 raise ValueError(
-                    f"spectral_repair_hole_threshold_db must be in [-80.0, -40.0], "
+                    "spectral_repair_hole_threshold_db must be in [-80.0, -40.0], "
                     f"got {self.spectral_repair_hole_threshold_db}"
                 )
 

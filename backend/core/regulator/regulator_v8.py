@@ -295,7 +295,7 @@ class RegulatorV8:
             reasoning=(
                 f"Processing rejected: {len(violations)} critical violation(s). "
                 f"Goals below hard stop threshold: {', '.join(violations)}. "
-                f"Recommendation: Skip processing or use gentler algorithm."
+                "Recommendation: Skip processing or use gentler algorithm."
             ),
             violations=ViolationReport(
                 violated_goals=violations,

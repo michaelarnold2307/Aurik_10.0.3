@@ -72,7 +72,7 @@ class UncertaintyEstimate:
             return (
                 f"SEHR UNSICHER: Ziel '{self.goal_name}' — "
                 f"Konfidenz={self.confidence:.2f}, std={self.std:.3f}. "
-                f"Ergebnis nicht zuverlässig."
+                "Ergebnis nicht zuverlässig."
             )
         if self.confidence_level == ConfidenceLevel.LOW:
             return f"UNSICHER: Ziel '{self.goal_name}' — Konfidenz={self.confidence:.2f}, std={self.std:.3f}."

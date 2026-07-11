@@ -195,16 +195,16 @@ class GuardEffectivenessAuditor:
             if report.false_positives > 0:
                 report.summary = (
                     f"GUARD PARALYSIS DETECTED: {report.false_positives} Phasen "
-                    f"durch false-positive Guards deaktiviert. "
+                    "durch false-positive Guards deaktiviert. "
                     f"Empfohlen: {len(report.phases_to_recover)} Phasen mit voller "
-                    f"Strength + alternativen Proxies re-runnen."
+                    "Strength + alternativen Proxies re-runnen."
                 )
                 logger.warning("§v10.5 Auditor: %s", report.summary)
             elif self._events:
                 report.summary = (
                     f"GUARD OK: {len(self._events)} best_effort-Phasen, "
                     f"aber {report.confirmed_degradations} echte Degradationen — "
-                    f"keine false positives. Guards arbeiten korrekt."
+                    "keine false positives. Guards arbeiten korrekt."
                 )
                 logger.info("§v10.5 Auditor: %s", report.summary)
             else:

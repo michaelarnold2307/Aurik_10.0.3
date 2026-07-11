@@ -167,7 +167,7 @@ class MusicalGoalsMonitor:
                 recommendations.append(
                     f"WARNING: {goal_name} predicted to drop below threshold "
                     f"({predicted_score:.3f} < {threshold:.2f}). "
-                    f"Consider reducing processing strength."
+                    "Consider reducing processing strength."
                 )
 
         if not recommendations:

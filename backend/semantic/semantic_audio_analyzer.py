@@ -752,14 +752,14 @@ class SemanticAudioAnalyzer:
         if dominant == InstrumentType.VOCALS:
             return (
                 f"VOCAL RESTORATION: Detected {inst_str}. "
-                f"Preserve natural vocal texture, gentle de-essing, "
-                f"maintain breath character."
+                "Preserve natural vocal texture, gentle de-essing, "
+                "maintain breath character."
             )
         elif dominant == InstrumentType.DRUMS:
             return (
                 f"PERCUSSIVE RESTORATION: Detected {inst_str}. "
-                f"Preserve transient attacks, careful with compression, "
-                f"maintain original dynamics."
+                "Preserve transient attacks, careful with compression, "
+                "maintain original dynamics."
             )
         elif content_char in [ContentCharacter.HIGHLY_TRANSIENT, ContentCharacter.TRANSIENT]:
             return (
@@ -768,8 +768,8 @@ class SemanticAudioAnalyzer:
         elif content_char == ContentCharacter.HIGHLY_SUSTAINED:
             return (
                 f"SUSTAINED RESTORATION: Detected {inst_str}. "
-                f"Focus on tonal balance, gentle noise reduction, "
-                f"preserve sustained character."
+                "Focus on tonal balance, gentle noise reduction, "
+                "preserve sustained character."
             )
         else:
             return f"BALANCED RESTORATION: Detected {inst_str}. Standard restoration approach with content awareness."
@@ -786,14 +786,14 @@ class SemanticAudioAnalyzer:
         if dominant == InstrumentType.VOCALS:
             return (
                 f"VOCAL PRODUCTION: Detected {inst_str}. "
-                f"Apply modern vocal chain: de-essing, compression, EQ for clarity. "
-                f"Optimize for streaming platforms."
+                "Apply modern vocal chain: de-essing, compression, EQ for clarity. "
+                "Optimize for streaming platforms."
             )
         elif dominant == InstrumentType.DRUMS:
             return (
                 f"DRUM PRODUCTION: Detected {inst_str}. "
-                f"Enhance punch and clarity, parallel compression, "
-                f"optimize transients for impact."
+                "Enhance punch and clarity, parallel compression, "
+                "optimize transients for impact."
             )
         elif dominant == InstrumentType.BASS:
             return (

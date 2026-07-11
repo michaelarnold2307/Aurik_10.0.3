@@ -265,7 +265,7 @@ class StereoAuthenticitiyInvariant:
                 result.passed = False
                 result.rule_triggered = "decca_wide_stereo_deviation"
                 result.message = (
-                    f"Decca-Wide-Stereo-Fingerabdruck verändert "
+                    "Decca-Wide-Stereo-Fingerabdruck verändert "
                     f"(LR-Kreuzkorrelation {rest_lr_cross:.3f} außerhalb [{lo - tolerance:.2f}, {hi + tolerance:.2f}])."
                 )
                 logger.warning("⚠️ StereoAuth: %s", result.message)

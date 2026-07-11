@@ -194,7 +194,7 @@ class EraAuthenticPerceptualCompletion:
         decade_str = str(era) if era else "unbekannt"
         msg = (
             f"Fehlende Hochton-Frequenzen wurden im Stil der Aufnahme-Aera {decade_str} "
-            f"ergaenzt — als Rekonstruktion markiert."
+            "ergaenzt — als Rekonstruktion markiert."
         )
 
         return EraCompletionResult(

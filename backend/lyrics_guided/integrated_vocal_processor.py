@@ -525,8 +525,8 @@ class IntegratedVocalProcessor:
         return (
             f"LYRICS-AWARE RESTORATION: {vocal_count} vocal segments with "
             f"{sibilant_count} sibilant phonemes detected. "
-            f"Applying phoneme-specific processing: gentle de-essing, "
-            f"transient preservation, natural breath handling. "
+            "Applying phoneme-specific processing: gentle de-essing, "
+            "transient preservation, natural breath handling. "
             f"Semantic profile: {semantic_profile.dominant_instrument.value}, "
             f"{semantic_profile.content_character.value}."
         )
@@ -541,8 +541,8 @@ class IntegratedVocalProcessor:
 
         return (
             f"LYRICS-AWARE PRODUCTION: {vocal_count} vocal segments with "
-            f"phoneme-level processing. Applying modern vocal chain: "
-            f"aggressive de-essing, clarity enhancement, breath control. "
+            "phoneme-level processing. Applying modern vocal chain: "
+            "aggressive de-essing, clarity enhancement, breath control. "
             f"Optimized for {semantic_profile.dominant_instrument.value} "
             f"with {semantic_profile.content_character.value} character."
         )

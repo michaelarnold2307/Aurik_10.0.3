@@ -31,7 +31,7 @@ class ExplainabilityEngine:
             cr = float(metrics.get("click_reduction", 0.0))
             if cr >= 0.5:
                 return (
-                    f"Es wurden viele Störimpulse (Klicks) erkannt und entfernt "
+                    "Es wurden viele Störimpulse (Klicks) erkannt und entfernt "
                     f"(Reduktion: {cr:.0%}). Das Material wies eine hohe Klick-Dichte auf."
                 )
             return f"Klick-Entfernung war kaum nötig (Reduktion: {cr:.0%}). Das Material ist in gutem Zustand."
@@ -40,7 +40,7 @@ class ExplainabilityEngine:
             nr = float(metrics.get("noise_reduction", 0.0))
             if nr >= 0.4:
                 return (
-                    f"Es wurde ein hoher Rauschpegel festgestellt und reduziert "
+                    "Es wurde ein hoher Rauschpegel festgestellt und reduziert "
                     f"(NR: {nr:.0%}). Das Signal-Rausch-Verhältnis wurde verbessert."
                 )
             return f"Rauschreduktion war minimal erforderlich (NR: {nr:.0%}). Das Material ist weitgehend rauschfrei."
@@ -49,14 +49,14 @@ class ExplainabilityEngine:
             dev = float(metrics.get("bark_band_deviation", 0.0))
             if dev >= 0.1:
                 return (
-                    f"Es wurden spektrale Unausgewogenheiten im Frequenzgang "
+                    "Es wurden spektrale Unausgewogenheiten im Frequenzgang "
                     f"festgestellt und korrigiert (Abweichung: {dev:.2f})."
                 )
             return f"Frequenzgangkorrektur war kaum nötig (Abweichung: {dev:.2f}). Das Spektrum ist ausgewogen."
 
         return (
             f"Phase '{phase}' wurde ausgeführt. "
-            f"Alle restaurativen Schritte wurden gemäß dem aktuellen Analyseergebnis angewandt."
+            "Alle restaurativen Schritte wurden gemäß dem aktuellen Analyseergebnis angewandt."
         )
 
 
