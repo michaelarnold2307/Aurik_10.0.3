@@ -1382,7 +1382,14 @@ class MediumDetector:
             # Die physikalischen Features (crackle, wow, flutter, rotation) sind
             # stärkere Evidenz als die Dateiendung. Ein rip von Vinyl→Cassette→.mp3
             # hat echte analoge Defekte, die nicht ignoriert werden dürfen.
-            _ANALOG_PENALTY = 0.50  # §Original-Medium: mildere Penalty — EraClassifier überstimmt bei pre-1990
+            # §2.46b: Adaptive Penalty — codec-abhängig, nicht pauschal.
+            # Verlustbehaftete Codecs zerstören analoge Signaturen unterschiedlich stark.
+            _CODEC_PENALTY_MAP = {
+                ".mp3": 0.50, ".mpc": 0.45, ".wma": 0.55,
+                ".aac": 0.55, ".m4a": 0.55, ".ogg": 0.40, ".oga": 0.40,
+                ".opus": 0.60,  # sehr destruktiv bei niedrigen Bitraten
+            }
+            _ANALOG_PENALTY = _CODEC_PENALTY_MAP.get(_ext_lower, 0.50)
             _adjusted: dict[str, float] = {
                 mat: (score * _ANALOG_PENALTY if mat in self._ANALOG_MATERIALS else score)
                 for mat, score in posteriors.items()

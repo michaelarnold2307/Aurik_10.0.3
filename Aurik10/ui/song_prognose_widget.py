@@ -831,6 +831,16 @@ class SongPrognoseWidget(QWidget):
             lo += 2
             hi += 3
 
+        # §2.46b: Multi-Generation-Ketten brauchen mehr Phasen
+        # Jede zusätzliche Kettenstufe fügt eigene Defekte hinzu, die separate
+        # Phasen erfordern. Faustregel: +2 Phasen pro Zwischenstufe.
+        if self._is_multi_generation and self._chain_label:
+            _stages = self._chain_label.count(" → ") + 1
+            if _stages >= 3:
+                lo += (_stages - 1) * 2
+                hi += (_stages - 1) * 2
+                desc += f" ({_stages}-stufige Kette)"
+
         self._phase_count_lbl.setText(f"~ {lo}–{hi}")
         self._phase_desc_lbl.setText(desc)
 
