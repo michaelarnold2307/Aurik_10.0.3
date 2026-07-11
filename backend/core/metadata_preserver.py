@@ -252,13 +252,15 @@ class MetadataPreserver:
 
     # ── Private: format-specific writers ──────────────────────────────────
 
-    def _provenance_comment(self, aurik_version: str, original_hash: str) -> str:
+    def _provenance_comment(self, aurik_version: str, original_hash: str, transfer_chain: list[str] | None = None) -> str:
         """Erstellt provenance string for embedding in tags."""
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         parts = [f"Restored by Aurik {aurik_version}" if aurik_version else "Restored by Aurik"]
         parts.append(f"Date: {ts}")
         if original_hash:
             parts.append(f"Original-SHA256: {original_hash[:16]}…")
+        if transfer_chain:
+            parts.append(f"Chain: {' → '.join(transfer_chain)}")
         return " | ".join(parts)
 
     def _apply_id3(self, path: Path, meta: AudioMetadata, version: str, orig_hash: str) -> bool:
