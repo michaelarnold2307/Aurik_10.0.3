@@ -141,6 +141,7 @@ class TruePeakLimiterPhase(PhaseInterface):
 
             _hp_freq = 20.0
             _hp_sos = butter(4, _hp_freq / (sample_rate / 2), btype="high", output="sos")
+            is_stereo = audio.ndim == 2
             if is_stereo:
                 audio_hp = np.column_stack(
                     [

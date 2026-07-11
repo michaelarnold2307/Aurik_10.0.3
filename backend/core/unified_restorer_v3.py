@@ -7163,6 +7163,12 @@ class UnifiedRestorerV3:
         # §Dach: MusikalischerGlobalplan — aus kwargs oder RestorationConfig laden
         _gp_kwarg = kwargs.pop("global_plan", None)
         _chain_kwarg = kwargs.pop("chain_info", None)
+        # §6.7: transfer_chain aus chain_info früh extrahieren für EraClassifier + Material-Detection
+        transfer_chain: list[str] | None = None
+        if isinstance(_chain_kwarg, dict):
+            _raw_tc = _chain_kwarg.get("chain") or _chain_kwarg.get("transfer_chain")
+            if isinstance(_raw_tc, list) and _raw_tc:
+                transfer_chain = [str(c).strip().lower() for c in _raw_tc if str(c).strip()]
         _defekt_hint_kwarg = kwargs.pop("defekt_hint", None)
         # §PID: PhaseInteractionDenker übergibt fertig selektierten Plan — UV3 übernimmt
         # dann als reiner Executor (kein _optimize_phase_plan_intelligence() mehr).
@@ -8591,8 +8597,7 @@ class UnifiedRestorerV3:
                 sample_rate,
                 era_decade=self._restoration_context.get("decade"),
                 venue_hint=str(
-                    getattr(material_type, "value", material_type)
-                    or getattr(_classified_material, "value", _classified_material)
+                    getattr(_classified_material, "value", _classified_material)
                     or "unknown"
                 ),
             )

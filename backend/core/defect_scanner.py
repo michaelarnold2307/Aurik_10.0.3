@@ -2,7 +2,7 @@
 Defect Scanner for Aurik 9.0 - Defect-First Architecture
 =========================================================
 
-Erkennt und bewertet 46 Defekttypen in Audio-Materialien mit material-adaptiven
+Erkennt und bewertet 62 Defekttypen in Audio-Materialien mit material-adaptiven
 Thresholds. Ersetzt das Medium-First Detection System aus v8.0.
 
 Performance-Budget: Max 5% der Gesamtzeit (< 30s für 3:45 Audio)

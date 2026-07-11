@@ -24,6 +24,8 @@ Es wird nachgesteuert, bis das Optimum gefunden ist.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 
@@ -33,6 +35,35 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════
 # Steering-Aktionen
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+class SteerAction(Enum):
+    """Aktionen, die PleasantnessSteering nach einem Schritt entscheiden kann."""
+
+    CONTINUE = "continue"
+    RETRY_LIGHTER = "retry_lighter"
+    SKIP_AND_REVERT = "skip_and_revert"
+    ROLLBACK_TO_BEST = "rollback_to_best"
+    STOP_WITH_BEST = "stop_with_best"
+
+
+@dataclass
+class SteerDecision:
+    """Entscheidung nach einem Pipeline-Schritt."""
+
+    action: SteerAction
+    reason: str
+    delta_pleasantness: float = 0.0
+
+
+@dataclass
+class StepSnapshot:
+    """Snapshot eines Pipeline-Schritts für Rollback."""
+
+    step_id: int
+    audio: np.ndarray
+    pleasantness: float
+    label: str
 
 
 class PleasantnessSteering:

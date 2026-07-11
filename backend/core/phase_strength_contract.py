@@ -10,9 +10,12 @@ Optional kann ein Vocal-Cap fuer panns_singing aktiviert werden.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_float(value: Any, default: float) -> float:

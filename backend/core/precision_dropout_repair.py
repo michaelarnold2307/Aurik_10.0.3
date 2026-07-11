@@ -5,7 +5,11 @@ Schwellwerte. Repariert NUR Samples, die signifikant von der lokalen
 Signalverteilung abweichen — musikalische Dynamik bleibt unangetastet.
 """
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def repair_dropouts_precise(audio, sr):

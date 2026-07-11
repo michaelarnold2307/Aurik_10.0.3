@@ -4,7 +4,7 @@
 
 ## 🚀 v10 Invarianten
 
-- **Bridge-Bypass-Verbot**: Kein Frontend-Code importiert `backend/core/` direkt. Nur über `backend/api/bridge.py`.
+- **Bridge-Bypass-Verbot**: Kein UI-/Frontend-Code (Aurik10, CLI) importiert `backend/core/` direkt. Nur über `backend/api/bridge.py`. Die Denker-Schicht (`denker/`) ist Teil der Backend-Orchestrierung und von diesem Verbot ausgenommen.
 - **Soft-Knee-Gate**: `apply_musical_gain_envelope()` arbeitet mit Sigmoid-Soft-Knee (6dB), 200ms Hanning-Crossfade. KEIN Hard-Clamp.
 - **PIM-first**: Vor jedem Phasen-Loop wird die PIM-Intensitäts-Map berechnet und in `restoration_context` gespeichert.
 - **RLP-last**: Nach jedem Phasen-Loop wird der RLP ausgeführt. Korrekturen werden nur bei objektiver Verbesserung übernommen.

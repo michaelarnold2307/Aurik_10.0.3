@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import math
 import threading
 from dataclasses import dataclass, field
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Öffentliche Konstanten (§2.11)

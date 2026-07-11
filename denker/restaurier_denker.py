@@ -949,6 +949,7 @@ class RestaurierDenker:
         # §v10.2 Naturalness Optimizer MAX: HPE-geführte Post-Processing
         _hpe_before: dict[str, Any] = {}
         _hpe_after: dict[str, Any] = {}
+        detected_material = None
         try:
             from backend.core.naturalness_optimizer import optimize_naturalness
 

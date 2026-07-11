@@ -79,8 +79,11 @@ class GlueStagePhase(PhaseInterface):
             enabled=True,
         )
 
+        # NaN/Inf protection for audio output (safety-in-depth; PhaseResult.__post_init__ also sanitizes)
+        output_audio = np.nan_to_num(result.audio, nan=0.0, posinf=0.0, neginf=0.0)
+
         return PhaseResult(
-            audio=result.audio,
+            audio=output_audio,
             success=True,
             metadata={
                 "gain_reduction_db": result.gain_reduction_db,

@@ -212,6 +212,9 @@ class IntelligentPhasePruner:
                 result.reasons[phase_id] = f"Material {material} benötigt diese Phase nicht"
                 continue
 
+            # 2. Defekt-Präsenz-Check
+            required = _PHASE_DEFECT_REQUIREMENTS.get(phase_id, [])
+
             # §2.59: Chirurgische Phasen werden NIE geprunt
             _ctx = restoration_context or {}
             _surgical_defects = _ctx.get("surgical_defect_types", [])
@@ -222,9 +225,6 @@ class IntelligentPhasePruner:
                     result.kept_phases.append(phase_id)
                     logger.debug("PhasePruner KEEP %s: surgical defect protection", phase_id)
                     continue
-
-            # 2. Defekt-Präsenz-Check
-            required = _PHASE_DEFECT_REQUIREMENTS.get(phase_id, [])
             if required:
                 matching_defects = [d for d in required if any(d in defect for defect in defects_lower)]
                 if not matching_defects:

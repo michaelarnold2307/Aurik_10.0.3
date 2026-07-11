@@ -17,7 +17,11 @@ einen Diskriminations-Faktor [0.0, 1.0] zurück (1.0 = definitiv analog, 0.0 = d
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ── MP3 Frame Constants ────────────────────────────────────────
 MP3_FRAME_SAMPLES_44100 = 1152  # MPEG Layer 3 frame length in samples

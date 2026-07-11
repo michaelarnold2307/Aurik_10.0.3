@@ -32,6 +32,8 @@ import os
 import time
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 import numpy as np
 import scipy.signal as sig
 
@@ -59,9 +61,7 @@ except Exception as e:
     logger.warning("phase_53_semantic_audio.py::unknown fallback: %s", e)
 _beats_factory: Any = _beats_factory_impl
 
-logger = logging.getLogger(__name__)
 
-# Krumhansl-Schmuckler Dur/Moll-Profile (1990)
 _MAJOR_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
 _MINOR_PROFILE = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 

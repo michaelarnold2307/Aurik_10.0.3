@@ -76,6 +76,7 @@ Date: 16. Februar 2026
 
 import logging
 import time
+from typing import Any
 
 import numpy as np
 from scipy import signal

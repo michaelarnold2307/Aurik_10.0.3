@@ -2557,6 +2557,7 @@ class AurikDenker:
             )
 
         # ── §v10.5 PerceptualQualityCouncil: SOTA holistische Bewertung ──
+        _defect_sev_final: float = 0.0
         try:
             from backend.core.perceptual_quality_council import get_perceptual_council
 

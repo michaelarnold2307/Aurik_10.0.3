@@ -10,6 +10,7 @@ checking absolute score drops.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -18,6 +19,8 @@ from backend.core.calibration_matrix import (
     compute_ibs,
     compute_tcci,
 )
+
+logger = logging.getLogger(__name__)
 from backend.core.material_canonical import canonical_material_key
 
 _TARGET_VERSION = "v1.1"

@@ -3844,11 +3844,9 @@ class PerPhaseMusicalGoalsGate:
                 PhaseGateLogEntry(
                     phase_id=phase_id,
                     action="validation_error",
-                    regression=0.0,
-                    strength=0.0,
-                    rms_drop_db=0.0,
-                    hpe_delta=0.0,
-                    metadata={"error": "input_contains_nan_inf"},
+                    goal_regressions={},
+                    strength_used=0.0,
+                    metadata={"error": "input_contains_nan_inf", "rms_drop_db": 0.0, "hpe_delta": 0.0},
                 ),
             )
 
@@ -4009,6 +4007,7 @@ class PerPhaseMusicalGoalsGate:
             is_studio_2026=is_studio_2026,
             goal_weights=goal_weights,
             adaptive_goal_thresholds=adaptive_goal_thresholds,
+            restorability_score=restorability_score,
         )
 
         # Best-Effort-Zähler: Phase wurde mit bestmöglicher Stärke angewendet,
@@ -4272,6 +4271,7 @@ class PerPhaseMusicalGoalsGate:
         is_studio_2026: bool = False,
         goal_weights: dict[str, float] | None = None,
         adaptive_goal_thresholds: dict[str, float] | None = None,
+        restorability_score: float = 70.0,
     ) -> tuple[np.ndarray, dict[str, float], str, float]:
         """
         Führt Phase aus, ggf. mit Retry bei Regression.

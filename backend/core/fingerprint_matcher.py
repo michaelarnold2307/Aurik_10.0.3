@@ -95,7 +95,7 @@ class FingerprintMatcher:
 
             # Defekt-Signatur
             defects = sorted(defect_types or [])
-            defect_signature = hashlib.md5(",".join(defects).encode()).hexdigest()[:16]
+            defect_signature = hashlib.md5(",".join(defects).encode(), usedforsecurity=False).hexdigest()[:16]
 
             # Akustische Metriken
             power = np.mean(mono * mono) + 1e-12

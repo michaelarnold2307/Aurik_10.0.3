@@ -831,7 +831,7 @@ class NoiseGate(PhaseInterface):
                 # §v9.20.3 Genre-adaptive: Schlager/Pop brauchen weicheren Gate
                 # (dichter Mix, keine echten Stille-Passagen). Klassik/Jazz
                 # vertragen tieferen Gate (tatsächliche Pausen zwischen Phrasen).
-                _genre_18 = str(kwargs.get("genre_label", "")).strip().lower()
+                _genre_18 = ""
                 _gate_dbfs_18 = compute_signal_relative_gate_dbfs(original_audio, material_key=material_key)
                 if _genre_18 in ("schlager", "pop", "rock", "metal"):
                     _gate_dbfs_18 = float(_gate_dbfs_18) + 6.0  # 6 dB softer gate

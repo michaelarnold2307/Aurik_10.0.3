@@ -233,7 +233,7 @@ def main() -> int:
         input_path=str(input_path),  # Bug 11: file_ext-Prior für Bayesian-Zeroing
     )
     elapsed = time.perf_counter() - t0
-    logger.info()  # Newline nach Progress-Bar
+    logger.info("")  # Newline nach Progress-Bar
 
     # ── Ergebnis auswerten ───────────────────────────────────────────────────
     logger.info("═" * 70)

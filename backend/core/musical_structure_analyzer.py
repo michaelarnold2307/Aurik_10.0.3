@@ -8,12 +8,15 @@ Implementierung gemäß Spec §2.17: Self-Similarity-Matrix, Novelty-Kurve, Foot
 from __future__ import annotations
 
 import itertools
+import logging
 import threading
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from backend.core.core_utils import fft_autocorr
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Datenklassen

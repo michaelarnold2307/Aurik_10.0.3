@@ -4,7 +4,11 @@ Werden von ModelManager.multi_stage_enhancement() als Fallback-Kette verwendet:
   denoiser  → sibilant → authenticity
 """
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class DenoiserModel:

@@ -404,6 +404,8 @@ class DenoisePhase(PhaseInterface):
             PhaseResult with denoised audio
         """
 
+        sample_rate = kwargs.get("sample_rate", 48000)
+
         # ── §v10 PIM: Echte Per-Band-Intensität ──
 
         # ── §v10 #6: Transienten-Schutz vor NR ──
@@ -550,7 +552,6 @@ class DenoisePhase(PhaseInterface):
         # ML-Hybrid Mode Routing (v3.0)
         # quality_mode from UnifiedRestorerV3: 'fast', 'balanced', 'maximum'
         quality_mode = kwargs.get("quality_mode", "quality")
-        sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
 
         # §V40 NMR-Feedback: NR-Stärke adaptiv anpassen (FeedbackChain-aware).
@@ -1003,7 +1004,7 @@ class DenoisePhase(PhaseInterface):
                     detect_tube_harmonic_fingerprint,
                 )
 
-                _thf = detect_tube_harmonic_fingerlogger.debug(
+                _thf = detect_tube_harmonic_fingerprint(
                     audio,
                     sample_rate,
                     material_type=str(getattr(material_type, "value", material_type)),
@@ -1050,7 +1051,7 @@ class DenoisePhase(PhaseInterface):
 
                 _hpg = _get_hpg()
                 _audio_for_hpg = audio if audio.ndim == 1 else audio
-                _protected_mask, _h_ref = _hpg.extract_harmonic_mask(_audio_for_hpg.astype(np.float32), int(sr))
+                _protected_mask, _h_ref = _hpg.extract_harmonic_mask(_audio_for_hpg.astype(np.float32), int(sample_rate))
                 params = dict(params)
                 params["_hpg_protected_mask"] = _protected_mask
                 params["_hpg_h_ref"] = _h_ref

@@ -19,6 +19,7 @@ Invarianten:
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +27,8 @@ from typing import Any
 import numpy as np
 
 from backend.core.calibration_matrix import get_goal_recovery_phases
+
+logger = logging.getLogger(__name__)
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:

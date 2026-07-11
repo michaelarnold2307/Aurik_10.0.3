@@ -6,9 +6,12 @@ Nicht nur RMS und Stereo prüfen, sondern auch:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)

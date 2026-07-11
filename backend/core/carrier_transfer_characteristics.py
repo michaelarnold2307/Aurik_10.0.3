@@ -11,8 +11,12 @@ Changelog: tape DR-Ceiling 68→62 dB (Bug #4/#5): MediumDetector normiert casse
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from scipy.signal import welch as _welch
+
+logger = logging.getLogger(__name__)
 
 # (bw_ceiling_hz, snr_floor_db, generation_loss_db_per_gen, dr_ceiling_db)
 CARRIER_TRANSFER_CHARACTERISTICS: dict[str, tuple[int, int, float, int]] = {

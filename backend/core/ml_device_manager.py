@@ -629,24 +629,6 @@ class MLDeviceManager:
         except Exception as exc:
             logger.debug("MLDeviceManager: ONNX ROCm detection error: %s", exc)
 
-            logger.info(
-                "MLDeviceManager: AMD GPU arch=%s tier=%s name=%s VRAM=%.1f GB",
-                self._gpu_architecture.value,
-                self._gpu_tier.name,
-                device_name,
-                self._vram_total_gb,
-            )
-
-            # ROCm ONNX Pad-Probe: test if ROCMExecutionProvider can execute a Pad
-            # operator. On some APU/iGPU variants (e.g. gfx1103) the ROCm ORT build
-            # does not include the Pad kernel → hipErrorInvalidDeviceFunction at
-            # runtime. Detecting this once avoids per-plugin 5-min fallback cycles
-            # and Wall-Time-Budget exhaustion.
-            self._probe_rocm_onnx_pad()
-
-        except Exception as exc:
-            logger.debug("MLDeviceManager: ROCm detection failed: %s", exc)
-
     def _probe_rocm_onnx_pad(self) -> None:
         """Probe ROCm ONNX Runtime with a minimal GPU-compute op.
 

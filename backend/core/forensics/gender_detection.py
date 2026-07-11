@@ -1,7 +1,10 @@
+import logging
 from typing import Any
 
 import numpy as np
 from scipy.signal import correlate
+
+logger = logging.getLogger(__name__)
 
 
 class GenderDetector:

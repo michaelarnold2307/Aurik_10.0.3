@@ -1,3 +1,5 @@
+import logging
+
 try:
     import librosa
     _HAS_LIBROSA = True
@@ -5,6 +7,8 @@ except ImportError:
     librosa = None  # type: ignore[assignment]
     _HAS_LIBROSA = False
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _sbr_extend(audio: np.ndarray, sr: int) -> np.ndarray:

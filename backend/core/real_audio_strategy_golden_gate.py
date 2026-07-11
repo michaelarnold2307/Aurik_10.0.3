@@ -8,10 +8,13 @@ runtime budget.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from backend.core.causal_defect_reasoner import reason_about_defects
 from backend.core.defect_phase_mapper import _RESTORATION_FORBIDDEN_PHASES, DefectPhaseMapper

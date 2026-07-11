@@ -5,9 +5,12 @@ monitoring.py – Einfaches Monitoring für Aurik
 - Loggt Ergebnisse in monitoring_log.txt
 """
 
+import logging
 import time
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def check_compliance():

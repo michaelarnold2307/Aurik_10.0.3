@@ -4,9 +4,12 @@ Sprachanteil und Produktionskontext aus Audiodaten.
 SOTA-Architektur, modular und erweiterbar.
 """
 
+import logging
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class ContextAnalyzer:

@@ -1,6 +1,9 @@
+import logging
 from typing import cast
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def safe_to_mono(audio: np.ndarray) -> np.ndarray:
