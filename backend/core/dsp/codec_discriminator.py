@@ -48,7 +48,7 @@ class CodecDiscriminator:
         if not self._enabled or not locations_s:
             return 0.0
         try:
-                        onsets = self._detect_transients(audio)
+            onsets = self._detect_transients(audio)
             regions = [(int(s * 44100), int(e * 44100)) for s, e in locations_s if e > s]
             return self.crackle_onset_correlation(regions, onsets)
         except Exception as e:

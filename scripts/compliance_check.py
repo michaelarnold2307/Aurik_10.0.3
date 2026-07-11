@@ -256,7 +256,7 @@ def _get_string_literal_lines(source: str) -> set[int]:
             if tok_type == tokenize.STRING:
                 for lineno in range(tok_start[0], tok_end[0] + 1):
                     string_lines.add(lineno)
-    except tokenize.TokenError:
+    except (tokenize.TokenError, IndentationError, SyntaxError):
         pass
     return string_lines
 
