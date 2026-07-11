@@ -434,6 +434,10 @@ def check_formant_shift_db(
         # (resampy in lpc_formant_analyze enthält AA; einfache Stride-Dezimation hier nicht.)
         ds = max(1, sr // 16000)
         _pre_seg_lpc = pre_seg  # Referenz für FFT-Spektralmessung unverändert
+        # §Bugfix: ensure equal lengths for anti-aliasing filter
+        _min_len = min(len(pre_seg), len(post_seg))
+        pre_seg = pre_seg[:_min_len]
+        post_seg = post_seg[:_min_len]
         if ds > 1:
             try:
                 from scipy.signal import butter as _butter_lpc  # pylint: disable=import-outside-toplevel
@@ -543,6 +547,7 @@ class _LPCFormantTracker:
             max_win = min(mono.size, int(max(sr, 1) * 2.0))
             mid = mono.size // 2
             start = max(0, mid - max_win // 2)
+            start = min(start, mono.size - max_win)  # §Bugfix: verhindert 1-Sample-Off-by-One
             mono_win = mono[start : start + max_win]
 
             ds = max(1, sr // 16000)
