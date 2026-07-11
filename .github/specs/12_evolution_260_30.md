@@ -71,3 +71,10 @@ ReparaturDenker → MDCT-Guard: click_iqr 5.0→8.5 + _detect_clicks Cap 3000
 2. **Eine Quelle**: `transfer_chain` fließt von MediumDetector → RestorationContext → Phase-Kwargs
 3. **Opt-in für experimentelle Features**: Fahrplan-Kalibrierung + PID hinter `AURIK_EVOLUTION=1`
 4. **Schützend, nicht amputierend**: Keine Pauschal-Suppression — Denker dämpft, würzt, erhält
+
+---
+
+## Evidenz-Referenz
+
+Siehe `docs/reports/spec_evidence/2026-07-11_spec_evolution_v10_chain_phases_linter.md`
+(Maintainer Sign-off: §2.46a Chain-Metadaten, Phasen 59–66 Export, VERBOTEN-Linter v4).

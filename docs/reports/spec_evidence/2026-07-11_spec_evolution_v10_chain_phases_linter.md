@@ -61,3 +61,4 @@
 - [x] Keine regressiven Spec-Änderungen
 - [x] Alle bestehenden Tests grün
 - [x] Datenfluss von Detection bis Export lückenlos
+
