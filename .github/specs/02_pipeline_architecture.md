@@ -2078,6 +2078,16 @@ Implementierung in `backend/core/unified_restorer_v3.py`:
 
 > Kreuzreferenz: Slim Core §2.46, Spec 01 §8.2 Rauschboden modus-differenziert
 
+
+### §2.46a.1 Vinyl-Inference (v10.0.0-Phantom)
+
+Wenn `reel_tape` und `cassette` in der erkannten Kette sind und die
+Inhalts-Ära 1950–1990 beträgt, inferiert Aurik eine Vinyl-Zwischenstufe.
+Dies ist eine logische Inferenz aus der Defektanalyse — kein physikalisches
+Risiko für das Audio.
+
+Implementiert in `backend/core/pre_analysis.py` (§Vinyl-Inference).
+
 ## §2.46a [RELEASE_MUST] Deep-Transfer-Chain-Pflicht (v9.10.124)
 
 Importsongs mit **3+ Tonträgerstufen** müssen vollständig modelliert werden. Die

@@ -1272,3 +1272,14 @@ if not _tcg_result["temporal_consistent"]:
     )
     # Non-blocking: Kein Export-Veto. Aber metadata["quality_variance_warning"] = True.
 ```
+
+### §2.14.1 Decade-Boundary-Softener (v10.0.0-Phantom)
+
+Der EraClassifier korrigiert CLAP-Fehlklassifikationen an Dekaden-Grenzen
+basierend auf der physikalischen Bandbreite des Signals:
+- `rolloff < 8 kHz` → −3 Dekaden (AM-Radio/Schellack-Ära)
+- `rolloff < 12 kHz` → −2 Dekaden (frühes Tape/Vinyl)
+- `rolloff < 16 kHz` → −1 Dekade (pre-digitales Equipment)
+
+Implementiert in `backend/core/era_classifier.py` (§Decade-Boundary-Softener).
+

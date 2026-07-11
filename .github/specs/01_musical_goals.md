@@ -8,6 +8,17 @@
 > Ergebnis erreicht. Ihre Schwellwerte sind so kalibriert, dass sie die qualitativ hochwertigsten
 > automatisierten Restaurierungsergebnisse für Musik mit Gesang weltweit ermöglichen.
 
+
+### §1.10 VocalQualityGate (v10.0.0-Phantom)
+
+6-dimensionale Gesangsqualität mit Delta-Vergleich (vor/nach Phase):
+Formant-Integrität, Atem-Natürlichkeit, Sibilanz-Erhalt,
+Verständlichkeit, Hörkomfort, Stimmwärme.
+Rollback bei Δ < −10 oder Einzelkriterien-Verletzung.
+
+Implementiert in `backend/core/vocal_quality_gate.py`, integriert in
+`PhaseInterface._safe_process()` für Vokal-Phasen.
+
 ## §1.0a [RELEASE_MUST] Universaler Zielraum (All-Import Contract)
 
 Die 15 Musical Goals sind **nicht** auf einen einzelnen Song oder ein Einzelgenre optimiert,

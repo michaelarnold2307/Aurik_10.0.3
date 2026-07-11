@@ -604,6 +604,16 @@ def export_audio(
             sf.write(tmp_path, audio, sr, **write_kwargs)
             os.replace(tmp_path, export_path)
             _transfer_metadata(source_path, export_path)
+            # §2.46a: Transferkette in Export-Metadaten
+            try:
+                _chain_meta = _build_chain_metadata()
+                if _chain_meta:
+                    _meta = getattr(get_metadata_preserver(), '_last_metadata', None)
+                    if _meta is None:
+                        _meta = {}
+                    _meta['aurik_transfer_chain'] = _chain_meta
+            except Exception:
+                pass  # Chain metadata is best-effort
             # BWF-Metadaten für WAV/RF64 schreiben
             if export_format.lower() in ("wav", "rf64"):
                 try:
@@ -646,6 +656,16 @@ def export_audio(
             (ffmpeg.input(tmp_wav).output(tmp_out, **out_args).run(overwrite_output=True, quiet=True))
             os.replace(tmp_out, export_path)
             _transfer_metadata(source_path, export_path)
+            # §2.46a: Transferkette in Export-Metadaten
+            try:
+                _chain_meta = _build_chain_metadata()
+                if _chain_meta:
+                    _meta = getattr(get_metadata_preserver(), '_last_metadata', None)
+                    if _meta is None:
+                        _meta = {}
+                    _meta['aurik_transfer_chain'] = _chain_meta
+            except Exception:
+                pass  # Chain metadata is best-effort
             _size_mb = os.path.getsize(export_path) / (1024 * 1024)
             logger.info("Export abgeschlossen: %s (%.1f MB, %s)", export_path, _size_mb, export_format.upper())
             return True

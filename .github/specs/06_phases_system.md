@@ -533,7 +533,17 @@ CAUSE_TO_PHASES = {
 
 # [RELEASE_MUST] §7.2a Severity-Weighted Phase-Reorder bei ≥3 Simultandefekten (v9.10.100+):
 
-### §6.9b [RELEASE_MUST] Phase-50 Team-Kohärenz + CONFLICT_REGISTRY (v9.11.5, erweitert v9.11.7)
+#
+### §6.10 Phantom-Guards in PhaseInterface (v10.0.0-Phantom)
+
+`PhaseInterface._safe_process()` integriert automatisch:
+- **BreathPreserver**: Atemschutz vor/nach Noise-Reduction-Phasen
+- **ComfortGuard**: Hörmüdungs-Prävention nach jeder Phase
+- **VocalQualityGate**: Delta-basierte Gesangsqualität mit Rollback
+
+Diese Guards laufen ohne manuelle Konfiguration — jede Phase profitiert.
+
+## §6.9b [RELEASE_MUST] Phase-50 Team-Kohärenz + CONFLICT_REGISTRY (v9.11.5, erweitert v9.11.7)
 
 `phase_50_spectral_repair` ist nach `phase_06_frequency_restoration`,
 `phase_07_harmonic_restoration` oder `phase_23_spectral_repair` als

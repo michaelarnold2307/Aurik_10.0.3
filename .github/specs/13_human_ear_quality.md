@@ -108,5 +108,6 @@ BatchSessionLearner existiert bereits — Transfer-Learning für Künstler-Finge
 > Onset-Guard, Contralto-Erkennung, Uniformer Gain.
 > **v10.0.0-Phantom:** ComfortGuard (§16.2), BreathPreserver (§16.3),
 > VocalQualityGate 6-dim (§16.4), PhantomDetector Zero-Config (§16.1).
-> **ROADMAP:** Blind Reference-Free Quality, Human-Panel MUSHRA,
+> **ROADMAP:** Blind Reference-Free Quality
+> **v10.0.0-Phantom:** ABX/MUSHRA Listener-Endpoints bereit (§16.9), Human-Panel MUSHRA-Protokoll erstellt, Studie ausstehend.
 > Cross-Phase Consensus, Artist/Track-Fingerprint.
