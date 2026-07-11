@@ -305,7 +305,17 @@ BWF Export:
   → ProgressMonitor: Pipeline-Report an GUI
 ```
 
-### §16.11.2 Cross-References zu bestehenden Specs
+### §16.11.2 Deep-Transfer-Chain (§2.46a) Integration
+
+Die Tonträgerketten-Erkennung nutzt drei Quellen:
+1. **EraClassifier**: Inhaltsbasiertes Original-Medium
+2. **DefectScanner**: Physikalische Defekte → Material
+3. **MediumDetector**: Spectral fingerprint + physical_analog_sources
+
+Bei MP3-Dateien ohne direkte analoge Evidenz: Vinyl-Inference (reel_tape+cassette+1950-1990→vinyl).
+Implementiert in `backend/core/pre_analysis.py` (§2.46a Deep-Transfer-Chain-Injection).
+
+### §16.11.3 Cross-References zu bestehenden Specs
 | Bestehende Spec | Phantom-Ergänzung |
 |----------------|-------------------|
 | §13 Human Ear Quality | §16.2 ComfortGuard, §16.4 VocalQualityGate |
