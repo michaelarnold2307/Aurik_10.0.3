@@ -58,6 +58,10 @@ warnings.filterwarnings("ignore", message="You should probably TRAIN this model"
 # ── webrtcvad: pkg_resources ist deprecated (externes Package, nicht Aurik) ──
 warnings.filterwarnings("ignore", message=".*pkg_resources.*deprecated.*", category=UserWarning)
 
+# ── torchaudio/torch: deprecation warnings aus externen Packages ──
+warnings.filterwarnings("ignore", message=".*onesided.*deprecated.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*weight_norm.*deprecated.*", category=FutureWarning)
+
 # ── PyTorch global thread-pool — must be set once at startup (§VERBOTEN) ─────
 try:
     import torch as _torch
