@@ -414,6 +414,22 @@ def run_pre_analysis(
                         _dpos = i; break
                 for _m in reversed(_injected):
                     _chain.insert(_dpos, _m)
+
+                # ── §2.46a Vinyl-Inference ─────────────────────────
+                # Wenn reel_tape + cassette in der Kette sind und die
+                # Ära in der Vinyl-Ära liegt (1950–1990), war die
+                # Veröffentlichung mit hoher Wahrscheinlichkeit auf
+                # Vinyl. Kein physikalisches Risiko — nur logische
+                # Inferenz ohne Audio-Veränderung.
+                _has_reel = "reel_tape" in _chain
+                _has_cassette = "cassette" in _chain
+                _has_vinyl = "vinyl" in _chain
+                _vinyl_era = result.era is not None and 1950 <= getattr(result.era, "decade", 0) <= 1990
+                if _has_reel and _has_cassette and not _has_vinyl and _vinyl_era:
+                    _vi = _chain.index("cassette")
+                    _chain.insert(_vi, "vinyl")
+                    logger.info("pre_analysis: Vinyl-Inference — reel_tape+cassette+vinyl-era → vinyl eingefügt")
+
                 _md.transfer_chain = _chain
                 _md.is_multi_generation = len(_chain) > 1
                 _analog_in = [m for m in _chain if m in _analog]
