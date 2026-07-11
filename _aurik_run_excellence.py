@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+logger = logging.getLogger(__name__)
 import sys
 import time
 from pathlib import Path
@@ -50,7 +51,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
     stream=sys.stdout,
 )
-logger = logging.getLogger("aurik_run")
+logger = logging.getLogger("aurik_run")  # re-init after imports
 
 sys.path.insert(0, str(Path(__file__).parent))
 
