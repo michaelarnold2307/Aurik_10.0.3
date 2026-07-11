@@ -830,7 +830,8 @@ class WowFlutterFix(PhaseInterface):
         # Step 4: Calculate time-stretching factors from pitch deviation
         # §2.46b: Store material for adaptive pitch-span threshold
         self._mat_type_for_stretch = str(material_type)
-        self._wow_sev_for_stretch = float(kwargs.get("wow_severity", kwargs.get("flutter_severity", 0.0)) or 0.0)
+        _wow_default = 0.50 if str(material_type).lower() in ("cassette", "reel_tape", "tape") else 0.0
+        self._wow_sev_for_stretch = float(kwargs.get("wow_severity", kwargs.get("flutter_severity", _wow_default)) or _wow_default)
         stretch_factors = self._calculate_stretch_factors(
             pitch_trajectory,
             confidence,
