@@ -26,7 +26,7 @@
 | `MusikalischerGlobalplanDienst` | `backend/core/musikalischer_globalplan.py` | Cross-Phase-Globalplan: 13 Ära-Profile × Genre-Modifikatoren, 17 Phase-Adjustments |
 | `PerPhaseMusicalGoalsGate` | `backend/core/per_phase_musical_goals_gate.py` | Rollback pro Phase |
 | `SongCalibrationProfile` | `backend/core/song_calibration.py` | §2.31a: materialadaptives Kalibrierungsprofil (global_scalar + family_scalars) vor Phasenkette |
-| `EraAuthenticPerceptualCompletion` | `backend/core/era_authentic_completion.py` | Ära-authentische Wahrnehmungs-Ergänzung (Quell-BW < 10 kHz); Studio-2026-Kette Schritt 8 |
+| `EraAuthenticPerceptualCompletion` | `backend/core/era_authentic_completion.py` [ROADMAP] | Ära-authentische Wahrnehmungs-Ergänzung (Quell-BW < 10 kHz); Studio-2026-Kette Schritt 8 |
 | `LyricsGuidedEnhancement` | `backend/core/lyrics_guided_enhancement.py` | §2.36 RELEASE_MUST: Whisper-Tiny ONNX → Phonem-Alignment → ContentAwareProcessor |
 | `EraClassifier` | `plugins/era_classifier_plugin.py` | Ära 1890–2025 |
 | `GermanSchlagerClassifier` | `backend/core/genre_classifier.py` | 6-Schicht Zero-Shot |

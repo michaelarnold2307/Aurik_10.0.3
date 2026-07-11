@@ -23,7 +23,7 @@
 
 ## §8.1 Numerische Qualitätsgrenzen
 
-### PQS-Metriken (`core/perceptual_quality_scorer.py`)
+### PQS-Metriken (`backend/core/holistic_perceptual_gate.py` (v10.0.0-Phantom))
 
 | Metrik | Hard-Fail-Minimum | Internes Spitzenziel |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Erlaubte Musikmetriken: **PEAQ, FAD, PQS-MOS, ViSQOL v3 (`--audio` Mode), Musica
 
 ## §8.1.1 OQS — Objektiver Qualitäts-Score
 
-> ⚠ **Wichtig**: `core/mushra_evaluator.py` ist eine algorithmische Approximation
+> ⚠ **Wichtig**: `backend/core/mushra_evaluator.py` (v10.0.0-Phantom) ist eine algorithmische Approximation
 > (PEAQ-ähnlich). Es ist **kein** ITU-R BS.1534-3-konformer MUSHRA-Hörertest.
 > In externen Berichten: „OQS (algorithmisch)" — niemals „MUSHRA-Score".
 > Die 15 Musical-Goal-Schwellwerte sind aus AMRB-Daten hergeleitet („best engineering estimate“).
@@ -685,7 +685,7 @@ fad = FrechetAudioDistance(model_name="vggish", sample_rate=16000)
 score = fad.score("benchmarks/fad_reference_set/", "output/test_batch/")
 ```
 
-**CI-Gate**: `tests/normative/test_fad_gate.py` — läuft nur mit `--run-heavy-tests`. Nicht im täglichen CI.
+**CI-Gate**: `tests/normative/test_fad_gate.py` [ROADMAP] — läuft nur mit `--run-heavy-tests`. Nicht im täglichen CI.
 
 ---
 
@@ -771,7 +771,7 @@ mos_composite = versa_score * versa_confidence + mert_score * mert_weight
 
 **CI-Invariante**: Beim Release einer neuen Hauptversion (9.x.0) MUSS `benchmarks/amrb_history.json` aktualisiert werden. Wenn ein neuer Eintrag AMRB-Score verschlechtert (OQS-Delta < −2.0 vs. Vorgänger-Version), ist das ein Release-Blocker.
 
-**Automatisierung**: `benchmarks/update_amrb_history.py` — liest aktuellen Score aus AMRB-Testlauf und schreibt neuen Eintrag.
+**Automatisierung**: `benchmarks/update_amrb_history.py` [ROADMAP] — liest aktuellen Score aus AMRB-Testlauf und schreibt neuen Eintrag.
 
 ---
 
@@ -1181,7 +1181,7 @@ Fixtures mit `(2,N)` UND `(N,2)` testen — viele Bugs nur bei einer Orientierun
 
 ### OQS — Berechnung & Stufen
 
-Modul: `core/mushra_evaluator.py` (algorithmische PEAQ-Approximation — **kein** ITU-R-MUSHRA).
+Modul: `backend/core/mushra_evaluator.py` (v10.0.0-Phantom) (algorithmische PEAQ-Approximation — **kein** ITU-R-MUSHRA).
 In externen Berichten: „OQS (algorithmisch)".
 
 | Stufe | Score | Pflicht |

@@ -3222,7 +3222,7 @@ if (
 **Protokollierung**: `metadata["multipass"]["passes_run"]`, `metadata["multipass"]["pass2_defects_remaining"]`.
 
 > Implementierung: UV3 `_execute_multipass_pipeline()`
-> Tests: `tests/unit/test_multipass_scheduler.py`
+> Tests: `tests/unit/test_multipass_scheduler.py` [ROADMAP]
 
 ---
 
@@ -3947,7 +3947,7 @@ def _fast_goal_snapshot(self, audio: np.ndarray, phase_id: str) -> dict[str, flo
 | `spatial_depth` | Cross-Correlation-Peak L/R (Stereo) / 1.0 (Mono) | 5 ms |
 | `transient_energie` | Onset-Amplitude-Ratio 5 ms gegen Referenz-/Carrier-Anker | 10 ms |
 
-**Implementierung**: `backend/core/dsp/fast_goal_proxy.py` — `FastGoalProxy.measure_fast()`
+**Implementierung**: `backend/core/dsp/fast_goal_proxy.py` [ROADMAP] — `FastGoalProxy.measure_fast()`
 
 ### Delta-Analyse und Entscheidungslogik
 

@@ -39,7 +39,7 @@ automatisiert verfügbar ist. Open-Source-Alternativen werden nicht genutzt.
 |---|---------|---------|-------------|
 | 1.1 | `benchmarks/competitive/open_source_benchmark.py` — neues Modul, das DeepFilterNet3, AudioSR, Demucs, MDX-Net, Open-Unmix via pip/subprocess benchmarked. **Keine Lizenz nötig.** | 6–8 h | — |
 | 1.2 | Automatischer Download der Open-Source-Modelle via `huggingface_hub.snapshot_download()` mit SHA256-Pinning. | 2 h | 1.1 |
-| 1.3 | `benchmarks/competitive/gate_results.py` — Ergebnis-Dataclasses mit OQS-Delta, Timbre-Fidelity, artifact_freedom, Laufzeit. JSON-Export + CI-freundlicher Exit-Code. | 3 h | 1.1 |
+| 1.3 | `benchmarks/competitive/gate_results.py` [ROADMAP] — Ergebnis-Dataclasses mit OQS-Delta, Timbre-Fidelity, artifact_freedom, Laufzeit. JSON-Export + CI-freundlicher Exit-Code. | 3 h | 1.1 |
 | 1.4 | CI-Integration: `tests/normative/test_competitive_ci_gate.py` um Open-Source-Vergleich erweitern. Neue `@pytest.mark.competitive_oss`-Markierung. | 2 h | 1.3 |
 | 1.5 | `benchmarks/competitive/results/` — Monatliches Scheduled-Run (GitHub Actions cron) mit automatischer Trend-Analyse (Regression-Flag wenn OQS-Delta < 0). | 3 h | 1.4 |
 | 1.6 | Legacy-Mock entfernen: `benchmark_izotope()` in `benchmarks/competitive/benchmark_suite.py` auf `NotImplementedError` umstellen, der klar dokumentiert, dass RX-Lizenz manuell bereitgestellt werden muss. | 0.5 h | — |
@@ -86,7 +86,7 @@ Rechtliche Unsicherheit (Urheberrecht) + fehlende Corpus-Infrastruktur.
 ## §15.3 ABX/Wahrnehmungsvalidierung
 
 ### Ist-Stand
-`tests/unit/test_abx_regression.py` heißt "ABX", implementiert aber **keine Blindhörvergleiche** —
+`tests/unit/test_perceptual_metrics_regression.py` (v10.0.0-Phantom) heißt "ABX", implementiert aber **keine Blindhörvergleiche** —
 es misst SNR und RMS nach butterworth-Filtern. Irreführender Dateiname.
 Die Backend-Module `mushra_evaluator.py` (636 Zeilen) und `mushra_session.py` (318 Zeilen) existieren,
 sind aber rein algorithmische Approximationen ohne menschliche Hörer-Integration.
@@ -99,7 +99,7 @@ und tatsächlicher subjektiver Validierung.
 
 | # | Schritt | Aufwand | Abhängigkeit |
 |---|---------|---------|-------------|
-| 3.1 | `tests/unit/test_abx_regression.py` umbenennen in `tests/unit/test_perceptual_metrics_regression.py`. Docstring auf "perzeptuelle Metrik-Regression" ändern. | 0.5 h | — |
+| 3.1 | `tests/unit/test_perceptual_metrics_regression.py` (v10.0.0-Phantom) umbenennen in `tests/unit/test_perceptual_metrics_regression.py`. Docstring auf "perzeptuelle Metrik-Regression" ändern. | 0.5 h | — |
 | 3.2 | `backend/core/abx_listener.py` — Neues Modul: Web-basiertes ABX-Test-Interface (Flask/FastAPI-Endpoint), das A/B/X-Triplets mit randomisierter Reihenfolge serviert. Session-Management, Ergebnis-Persistenz in SQLite. | 8 h | — |
 | 3.3 | `backend/core/mushra_listener.py` — Neues Modul: ITU-R BS.1534-konformes MUSHRA-Interface mit Hidden Reference, 3.5-kHz-Anchor, 5–7 Bedingungen. Integriert mit `mushra_session.py`. | 8 h | 3.2 |
 | 3.4 | `tests/listener/test_listener_contract.py` — Contract-Tests für ABX und MUSHRA HTTP-APIs: Stimulus-Zufälligkeit, Session-Isolation, Ergebnis-Aggregation. | 3 h | 3.2, 3.3 |
@@ -213,7 +213,7 @@ Dokumentation wuchs organisch als Entwickler-Notizen statt als Nutzer-Pfade.
 | 7.2 | `docs/tutorials/`-Verzeichnis mit drei Tutorials: `tutorial_restore_vinyl.md`, `tutorial_restore_tape.md`, `tutorial_batch_processing.md`. Schritt-für-Schritt mit Screenshots. | 6 h | 7.1 |
 | 7.3 | `docs/architecture.md` — C4-Diagramm (Context, Container, Component) der Aurik-Architektur. Mermaid.js für Renderbarkeit in GitHub. | 3 h | — |
 | 7.4 | `docs/api/openapi.yaml` — OpenAPI 3.0-Spezifikation der REST-API (`backend/api/rest/`). Generiert automatisch Swagger-UI. | 4 h | — |
-| 7.5 | `scripts/generate_api_docs.py` — Extrahiert Docstrings aus `backend/api/bridge.py` und generiert Markdown. Integration in `docs/api/`. | 3 h | — |
+| 7.5 | `scripts/generate_api_docs.py` [ROADMAP] — Extrahiert Docstrings aus `backend/api/bridge.py` und generiert Markdown. Integration in `docs/api/`. | 3 h | — |
 
 ### Erfolgskriterien
 - `docs/getting_started.md` führt neuen Nutzer in ≤15 Minuten zu erfolgreicher Restaurierung

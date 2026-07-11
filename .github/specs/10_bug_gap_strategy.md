@@ -144,17 +144,17 @@ Dateien mit echten Typ-Bugs (keine Boilerplate) nach Fehleranzahl:
 
 | Datei | Echte Bugs | Haupt-Fehlertyp | Priorität |
 | --- | --- | --- | --- |
-| `forensics/adaptive_chain_builder.py` | 21 | `dict-item` (str/float vs str/int) | P1 |
+| `forensics/adaptive_chain_builder.py` [ROADMAP] | 21 | `dict-item` (str/float vs str/int) | P1 |
 | `authenticity_metrics_extended.py` | 21 | Dataclass vs dict-Verwechslung, `call-overload` | P1 |
 | `multi_pass_strategy.py` | 18 | Mixed | P2 |
 | `ai_framework.py` | 17 | `attr-defined` ("restoration_button"), assignment None vs Typ | P1 |
 | `forensics/unified_analyzer.py` | 14 | Mixed | P2 |
-| `forensics/feature_extractor.py` | 14 | `floating[Any]` statt `float` | P2 |
+| `forensics/feature_extractor.py` [ROADMAP] | 14 | `floating[Any]` statt `float` | P2 |
 | `real_audio_execution_golden_gate.py` | 13 | `union-attr` None.get() | P1 |
-| `phases/phase_10_compression.py` | 11 | Mixed | P2 |
-| `forensics/analysis_and_modules.py` | 11 | Mixed | P2 |
+| `backend/core/phases/phase_10_compression.py` (v10.0.0-Phantom) | 11 | Mixed | P2 |
+| `forensics/analysis_and_modules.py` [ROADMAP] | 11 | Mixed | P2 |
 | `artifact_detection.py` | 10 | `floating[Any]` statt `float`, `list[ndarray]` vs `list[int]` | P2 |
-| `phases/phase_04_eq_correction.py` | 8 | Mixed | P2 |
+| `backend/core/phases/phase_04_eq_correction.py` (v10.0.0-Phantom) | 8 | Mixed | P2 |
 | `real_audio_defect_golden_gate.py` | 6 | `union-attr` None.get() | P1 |
 | `adaptive_phase_rescheduler.py` | 1 | `arg-type` float(object) | P1 (Pipeline-kritisch) |
 
@@ -272,9 +272,9 @@ falschen Typen im Audio-Pfad führen können.
 **Ziel**: Restliche echte Bugs in DSP, Forensics, Phases die keine direkten Crashes aber
 falsche Berechnungen verursachen können.
 
-1. `forensics/adaptive_chain_builder.py` — 21× `dict-item` (str/float vs str/int)
-2. `forensics/feature_extractor.py` + `forensics/unified_analyzer.py` — `floating[Any]` statt `float`
-3. `phases/phase_10_compression.py` + `phases/phase_04_eq_correction.py` — Mixed Typ-Bugs
+1. `forensics/adaptive_chain_builder.py` [ROADMAP] — 21× `dict-item` (str/float vs str/int)
+2. `forensics/feature_extractor.py` [ROADMAP] + `forensics/unified_analyzer.py` — `floating[Any]` statt `float`
+3. `backend/core/phases/phase_10_compression.py` (v10.0.0-Phantom) + `backend/core/phases/phase_04_eq_correction.py` (v10.0.0-Phantom) — Mixed Typ-Bugs
 4. `multi_pass_strategy.py` — 18 Mixed
 5. `backend/core/dsp/` — ~25 echte Bugs (nach Boilerplate-Ausschluss)
 6. `plugins/` — ~35 echte Bugs

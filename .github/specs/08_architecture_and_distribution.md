@@ -501,7 +501,7 @@ def _check_audio_buffer_size(audio: np.ndarray, file_path: str) -> None:
 
 - Prüfung erfolgt nach Laden, VOR `resample_poly` (Resampling vergrößert Buffer weiter).
 - `AudioTooLargeError` → `item_error`-Signal mit verständlicher deutscher Fehlermeldung.
-- `MAX_AUDIO_BYTES_RAM` als Konfigurationskonstante in `backend/core/audio_validator.py`.
+- `MAX_AUDIO_BYTES_RAM` als Konfigurationskonstante in `backend/core/audio_validator.py` [ROADMAP].
 
 **Code-Sync v9.10.130:** Das normative Limit ist auf 4 GB harmonisiert und entspricht
 dem aktuellen UV3-Guard in `backend/core/unified_restorer_v3.py`.
