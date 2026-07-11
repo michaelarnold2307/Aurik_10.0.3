@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
 try:
     import torch
     _HAS_TORCH = True

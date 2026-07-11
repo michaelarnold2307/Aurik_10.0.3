@@ -46,6 +46,7 @@ import time
 from typing import Any
 
 import numpy as np
+
 try:
     import psutil
     _PSUTIL_OK = True

@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
+
 try:
     import torch
     _HAS_TORCH = True

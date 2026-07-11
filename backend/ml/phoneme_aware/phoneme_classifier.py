@@ -16,11 +16,12 @@ Author: Aurik Development Team
 Version: 1.0.0
 """
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 
 from backend.ml.phoneme_aware.logging_config import setup_logger
-import logging
+
 logger = logging.getLogger(__name__)
 
 logger = setup_logger(__name__)

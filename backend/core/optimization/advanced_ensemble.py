@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+
 try:
     import torch
     _HAS_TORCH = True

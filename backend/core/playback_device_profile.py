@@ -211,13 +211,6 @@ _DEVICE_ALIASES: dict[str, str] = {
     "bt_speaker": "bluetooth_speaker_avg",
     "club": "club_pa_system",
     "pa": "club_pa_system",
-    "car": "car_sedan_avg",
-    "auto": "car_sedan_avg",
-    "suv": "car_suv_avg",
-    "bluetooth": "bluetooth_speaker_avg",
-    "bt_speaker": "bluetooth_speaker_avg",
-    "club": "club_pa_system",
-    "pa": "club_pa_system",
 }
 
 # Maximum correction strength per band (prevents overly aggressive intervention)

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
 try:
     import torch
     _HAS_TORCH = True

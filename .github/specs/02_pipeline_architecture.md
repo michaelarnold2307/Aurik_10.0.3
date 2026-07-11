@@ -4692,3 +4692,45 @@ print(f'Primary: {md.primary_material}')
 print(f'Multi-Gen: {md.is_multi_generation}')
 "
 ```
+
+
+## §2.46c: Phase 12 Material-Adaptiver Pitch-Span-Threshold (v10.0.0)
+
+**Pflicht**: Phase 12 (Wow/Flutter) darf bei Cassette/Reel-Tape mit
+DefectScanner-bestätigtem Wow/Flutter (Score ≥ 0.70) NICHT durch starren
+100-Cent-Threshold blockiert werden.
+
+- **Cassette/Reel-Tape + wow ≥ 0.70**: Threshold = 400 Cents
+- **Alle anderen**: Threshold = 100 Cents
+- Datenfluss: `process()` → `self._mat_type_for_stretch` → `_calculate_stretch_factors()`
+- Datei: `backend/core/phases/phase_12_wow_flutter_fix.py`
+
+
+## §2.46d: AudioSR SOTA Recovery-Kette (v10.0.0)
+
+**Pflicht**: AudioSR muss 4-stufige Recovery vor Zone Passthrough implementieren.
+
+| Stufe | Verfahren | Steps | Device | Qualität |
+|-------|-----------|-------|--------|----------|
+| 1 | GPU-DDIM | 50 | ROCm/CUDA | ML-optimal |
+| 2 | CPU-DDIM (Retry) | 20 | CPU | ML-reduziert |
+| 3 | SBR-DSP (`_sbr_extend`) | — | CPU | DSP-Spektralspiegelung |
+| 4 | Zone Passthrough | — | — | Unverändert |
+
+- DDIM auf GPU (ROCm/CUDA), HiFi-GAN-Vocoder auf CPU (Patch)
+- `model.cpu()` entfernt — zwang vorher gesamtes Modell auf CPU
+- AudioSR-Trainings-Limit: 2–8× Extension. Bei Extremfällen (375 Hz→17 kHz=45×)
+  sind Stufen 1–2 instabil, Stufe 3 (SBR-DSP) ist der wahrscheinlichste Pfad.
+- Datei: `plugins/audiosr_plugin.py`
+
+
+## §2.35c: LPC-Formant-Tracker Anti-Aliasing (v10.0.0)
+
+**Pflicht**: AA-Filter vor LPC-Dezimation muss immer verfügbar sein.
+
+- `scipy.signal.butter` + `sosfiltfilt` auf Modulebene (nicht inline)
+- 2× try/except-Fallback entfernt — kein stiller Degrade-Pfad
+- 1-Sample-Off-by-One: `start = min(start, mono.size - max_win)`
+- Segment-Trim: `pre_seg`/`post_seg` auf `min(len)` getrimmt
+- Filter: Butterworth 4. Ordnung, Zero-Phase, float64, 90% Ziel-Nyquist
+- Datei: `backend/core/dsp/lpc_formant_tracker.py`

@@ -37,10 +37,10 @@ import os
 import signal
 import time
 import traceback
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterator
 
 import numpy as np
 

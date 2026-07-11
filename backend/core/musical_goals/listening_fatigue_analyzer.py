@@ -39,8 +39,6 @@ except ImportError:
 import numpy as np
 from scipy import signal
 
-
-
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)

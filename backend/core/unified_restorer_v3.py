@@ -7394,7 +7394,7 @@ class UnifiedRestorerV3:
             )
         # Physischer RAM-Preflight: mind. 3 GB + 5× Audio-Puffer frei
         try:
-            import psutil as _psutil_guard  # noqa: F811
+            import psutil as _psutil_guard
 
             _avail_mb = float(_psutil_guard.virtual_memory().available / (1024 * 1024))
             _needed_mb = max(3072.0, (_audio_bytes * 5) / (1024 * 1024))
@@ -34881,7 +34881,7 @@ class UnifiedRestorerV3:
                 # RAM-Notbremse: bei < 4 GB verfügbar ODER > 80% belegt ODER Swap-Thrashing
                 # → Plugin-Eviction erzwingen. systemd-oomd killt bei Memory-Pressure > 50%.
                 try:
-                    import psutil as _psutil_phase  # noqa: F811
+                    import psutil as _psutil_phase
 
                     _vm_phase = _psutil_phase.virtual_memory()
                     _avail_gb_phase = _vm_phase.available / (1024**3)

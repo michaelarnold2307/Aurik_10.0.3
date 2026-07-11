@@ -59,8 +59,10 @@ try:
 except Exception:
     LIBROSA_AVAILABLE = False
 
-from backend.ml.phoneme_aware.logging_config import setup_logger
 import logging
+
+from backend.ml.phoneme_aware.logging_config import setup_logger
+
 logger = logging.getLogger(__name__)
 
 logger = setup_logger(__name__)

@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
+
 def _load_with_sf(filepath):
     """Wrapper for sf.read — use load_audio_file() for production pipelines."""
     import soundfile as sf

@@ -8,12 +8,11 @@ except ImportError:
     librosa = None  # type: ignore[assignment]
     _HAS_LIBROSA = False
 import numpy as np
+
 from backend.file_import import load_audio_file
 
 # Qualitätsmechanismen importieren
 from .quality_control import QualityControl
-
-
 
 logger = logging.getLogger(__name__)
 
