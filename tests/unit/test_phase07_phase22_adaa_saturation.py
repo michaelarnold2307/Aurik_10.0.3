@@ -123,7 +123,7 @@ class TestTanhAdaa22:
     def test_midpoint_fallback(self, phase22):
         x = np.array([0.8, -0.8])
         out = phase22._tanh_adaa(x, x.copy())
-        np.testing.assert_allclose(out, np.tanh(x), atol=1e-6)
+        np.testing.assert_allclose(out, np.tanh(x, rtol=1e-5, atol=1e-8), atol=1e-6)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ class TestAliasingSuppressionPhase07:
         """Constant signal (dX=0 everywhere) must equal tanh exactly."""
         x = np.full(200, 1.2)
         out = phase07._tanh_adaa(x, x.copy())
-        np.testing.assert_allclose(out, np.tanh(x), atol=1e-6)
+        np.testing.assert_allclose(out, np.tanh(x, rtol=1e-5, atol=1e-8), atol=1e-6)
 
     def test_transformer_slowly_varying_converges(self, phase07):
         """_transformer_saturation on slow ramp ≈ tanh within 5 %."""

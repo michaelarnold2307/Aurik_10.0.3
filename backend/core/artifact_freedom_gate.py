@@ -1760,6 +1760,7 @@ class ArtifactFreedomGate:
     # ── §2.50 Source Material Baseline ────────────────────────────────────
 
     def measure_source_baseline(
+                    bad_frames = 0  # Aurik v10: init before += (bugfix)
         self,
         audio: np.ndarray,
         sr: int,

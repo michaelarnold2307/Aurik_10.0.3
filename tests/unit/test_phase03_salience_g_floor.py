@@ -312,8 +312,7 @@ class TestGainGradientPhaseCorrection:
         G = self._make_gain(513, 60, mode="identity")
         out = phase._apply_gain_gradient_phase_correction(Zxx, G, hop=512, sr=SR)
         np.testing.assert_allclose(
-            np.abs(out),
-            np.abs(Zxx).astype(np.float64),
+            np.abs(out), np.abs(Zxx, rtol=1e-5, atol=1e-8).astype(np.float64),
             rtol=1e-4,
         )
         phase_err = np.abs(np.angle(np.exp(1j * (np.angle(out) - np.angle(Zxx)))))

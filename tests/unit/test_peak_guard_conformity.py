@@ -122,13 +122,13 @@ class TestPeakGuardConformity:
         """Edge case: empty or near-silent audio."""
         audio = np.zeros(1000)
         result = limiter(audio, threshold=0.98)
-        np.testing.assert_allclose(result, np.zeros(1000))
+        np.testing.assert_allclose(result, np.zeros(1000, rtol=1e-5, atol=1e-8))
 
     def test_limiter_single_sample(self):
         """Edge case: very short audio."""
         audio = np.array([0.5])
         result = limiter(audio, threshold=0.98)
-        np.testing.assert_allclose(result, np.array([0.5]))
+        np.testing.assert_allclose(result, np.array([0.5], rtol=1e-5, atol=1e-8))
 
 
 class TestPeakGuardRegressionMatrix:

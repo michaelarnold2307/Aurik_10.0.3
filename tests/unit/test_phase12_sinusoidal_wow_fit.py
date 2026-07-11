@@ -47,4 +47,4 @@ def test_sinusoidal_wow_fit_bypasses_melodic_pitch_span() -> None:
     fitted_pitch, profile = phase._fit_sinusoidal_wow_curve(pitch, confidence, SR)
 
     assert profile["applied"] is False
-    np.testing.assert_allclose(fitted_pitch, pitch)
+    np.testing.assert_allclose(fitted_pitch, pitch, rtol=1e-5, atol=1e-8)

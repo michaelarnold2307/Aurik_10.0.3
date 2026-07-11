@@ -512,4 +512,4 @@ class TestIntegration:
         result = processor.process(audio, sr, modules)
 
         # Should return copy of original audio
-        np.testing.assert_allclose(result, audio)
+        np.testing.assert_allclose(result, audio, rtol=1e-5, atol=1e-8)

@@ -12412,6 +12412,7 @@ class UnifiedRestorerV3:
                 """Closure-Fabrik für Deferred-Phase-FeedbackChain-Integration."""
 
                 def _dfr_call(_audio: np.ndarray, _sr: int, **_kw: object) -> np.ndarray:
+                _added_deferred = 0  # Aurik v10: init before += (bugfix)
                     _res = self._profiled_phase_call(
                         _ph,
                         _audio,

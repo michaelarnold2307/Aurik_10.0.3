@@ -1003,7 +1003,7 @@ class DenoisePhase(PhaseInterface):
                     detect_tube_harmonic_fingerprint,
                 )
 
-                _thf = detect_tube_harmonic_fingerprint(
+                _thf = detect_tube_harmonic_fingerlogger.debug(
                     audio,
                     sample_rate,
                     material_type=str(getattr(material_type, "value", material_type)),

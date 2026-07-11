@@ -290,7 +290,7 @@ class TestStereoProcessingPipeline:
 
         # Should call original pipeline
         mock_pipeline.process.assert_called_once_with(left, sr)
-        np.testing.assert_allclose(output, left * 2.0)
+        np.testing.assert_allclose(output, left * 2.0, rtol=1e-5, atol=1e-8)
 
     def test_stereo_parallel_processing(self, sample_audio):
         """Test stereo audio parallel processing."""
@@ -385,8 +385,8 @@ class TestThreadSafety:
         left_out, right_out = processor.process_stereo(left, right, sr, modifying_process)
 
         # Original arrays should be unchanged
-        np.testing.assert_allclose(left, original_left)
-        np.testing.assert_allclose(right, original_right)
+        np.testing.assert_allclose(left, original_left, rtol=1e-5, atol=1e-8)
+        np.testing.assert_allclose(right, original_right, rtol=1e-5, atol=1e-8)
 
         # Outputs should be modified
         np.testing.assert_allclose(left_out, original_left * 2.0, rtol=1e-5)

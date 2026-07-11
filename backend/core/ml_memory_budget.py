@@ -448,6 +448,7 @@ def _attempt_quality_preserving_pressure_recovery(model_name: str, size_gb: floa
 
 def try_allocate(model_name: str, size_gb: float) -> bool:
     """Reserve ``size_gb`` GB of ML budget for ``model_name``.
+        _total_gb = 0  # Aurik v10: init before += (bugfix)
 
     Returns True if granted (proceed to load the model).
     Returns False if the budget would be exceeded (use DSP fallback instead).
