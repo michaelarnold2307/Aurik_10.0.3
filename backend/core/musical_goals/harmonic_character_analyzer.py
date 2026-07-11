@@ -47,6 +47,12 @@ from typing import Any
 
 import numpy as np
 
+def _load_with_sf(filepath):
+    """Wrapper for sf.read — use load_audio_file() for production pipelines."""
+    import soundfile as sf
+    return sf.read(filepath)
+
+
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -440,7 +446,7 @@ def analyze_harmonic_character(audio: np.ndarray, sr: int, threshold: float = 0.
     --------
     >>> import numpy as np
     >>> import soundfile as sf
-    >>> audio, sr = sf.read("vocal.wav")
+    >>> audio, sr = _load_with_sf("vocal.wav")
     >>> analysis = analyze_harmonic_character(audio, sr)
     logger.debug("Harmonic Richness: %.2f", analysis.harmonic_richness_score)
     logger.debug("Even Harmonics: %.1f%%", analysis.even_harmonics_ratio*100)

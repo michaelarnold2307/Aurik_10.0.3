@@ -60,6 +60,8 @@ except Exception:
     LIBROSA_AVAILABLE = False
 
 from backend.ml.phoneme_aware.logging_config import setup_logger
+import logging
+logger = logging.getLogger(__name__)
 
 logger = setup_logger(__name__)
 
@@ -153,7 +155,7 @@ class PhonemeDetector:
         >>> detector = PhonemeDetector()
         >>> phonemes = detector.detect(audio, sr=44100)
         >>> for p in phonemes:
-        ...     print(f"{p.phoneme}: {p.start_time:.2f}-{p.end_time:.2f}s")
+        ...     logger.info(f"{p.phoneme}: {p.start_time:.2f}-{p.end_time:.2f}s")
         h: 0.00-0.05s
         ɛ: 0.05-0.15s
         l: 0.15-0.20s

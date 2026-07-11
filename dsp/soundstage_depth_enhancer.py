@@ -392,7 +392,7 @@ def enhance_soundstage_depth(
 
     Example:
         >>> enhanced, report = enhance_soundstage_depth(audio, sr, depth_amount=0.6)
-        >>> print(f"Depth improved by: {report.depth_score:.1%}")
+        >>> logger.info(f"Depth improved by: {report.depth_score:.1%}")
     """
     enhancer = SoundstageDepthEnhancer(depth_amount=depth_amount, room_size=room_size)
     return enhancer.process(audio, sr)

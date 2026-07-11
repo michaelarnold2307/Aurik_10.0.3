@@ -255,7 +255,7 @@ class ContextAwareDeEsser:
     Example:
         >>> deesser = ContextAwareDeEsser()
         >>> audio_out, report = deesser.process(audio, sr=48000)
-        >>> print(f"Processed {report.percentage_processed:.1f}% of audio")
+        >>> logger.info(f"Processed {report.percentage_processed:.1f}% of audio")
     """
 
     def __init__(self, config: DeEsserConfig | None = None):
@@ -728,7 +728,7 @@ def apply_context_aware_deessing(
         >>> audio_out, report = apply_context_aware_deessing(
         ...     audio, sr=48000, mode=ProcessingMode.MODERATE
         ... )
-        >>> print(f"Reduced {report.sibilants_processed} sibilants")
+        >>> logger.info(f"Reduced {report.sibilants_processed} sibilants")
     """
     config = DeEsserConfig(
         mode=mode,

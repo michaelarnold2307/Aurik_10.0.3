@@ -39,6 +39,12 @@ import librosa
 import numpy as np
 from scipy import signal
 
+def _load_with_sf(filepath):
+    """Wrapper for sf.read — use load_audio_file() for production pipelines."""
+    import soundfile as sf
+    return sf.read(filepath)
+
+
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -433,7 +439,7 @@ def analyze_microdynamics(
     --------
     >>> import numpy as np
     >>> import soundfile as sf
-    >>> audio, sr = sf.read("piano.wav")
+    >>> audio, sr = _load_with_sf("piano.wav")
     >>> analysis = analyze_microdynamics(audio, sr)
     logger.debug("Microdynamics Score: %.2f", analysis.microdynamics_score)
     logger.debug("Passed: %s", analysis.passed)

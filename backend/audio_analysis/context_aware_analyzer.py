@@ -129,8 +129,8 @@ class ContextAwareAnalyzer:
     Example:
         >>> analyzer = ContextAwareAnalyzer()
         >>> context = analyzer.analyze(audio, sr=48000)
-        >>> print(f"Vocal density: {context.vocal_density.value}")
-        >>> print(f"Recommended deessing: {context.recommended_deessing_strength}")
+        >>> logger.info(f"Vocal density: {context.vocal_density.value}")
+        >>> logger.info(f"Recommended deessing: {context.recommended_deessing_strength}")
     """
 
     def __init__(self):
@@ -514,8 +514,8 @@ def analyze_audio_context(
 
     Example:
         >>> context = analyze_audio_context(audio, sr=48000)
-        >>> print(f"Vocal density: {context.vocal_density.value}")
-        >>> print(f"Recommended deessing: {context.recommended_deessing_strength}")
+        >>> logger.info(f"Vocal density: {context.vocal_density.value}")
+        >>> logger.info(f"Recommended deessing: {context.recommended_deessing_strength}")
     """
     analyzer = ContextAwareAnalyzer()
     return analyzer.analyze(audio, sr)

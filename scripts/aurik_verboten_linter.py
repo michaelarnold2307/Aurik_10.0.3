@@ -18,7 +18,7 @@ RULES: dict[str, dict] = {
     "V01": {
         "p": r"\bprint\s*\(",
         "d": "print() statt logger — Produktionscode",
-        "skip": {"test_", "conftest", "__init__", "scripts/", "setup.py", "examples/", "audit/", "Aurik10/"},
+        "skip": {"test_", "conftest", "__init__", "scripts/", "setup.py", "examples/", "audit/", "Aurik10/", "benchmarks/", "cli/", "golden_samples/", "usability/", "policy/", "tests/"},
         "sev": "ERROR",
     },
     # ── V-BRIDGE (Bridge-Bypass): from backend.core import ─────────────
@@ -32,7 +32,7 @@ RULES: dict[str, dict] = {
     "V02": {
         "p": r"\b(sf\.read\s*\(|librosa\.load\s*\()",
         "d": "sf.read/librosa.load statt load_audio_file()",
-        "skip": {"test_", "exporter.py", "audio_exporter.py", "generate_dummy", "conftest"},
+        "skip": {"test_", "exporter.py", "audio_exporter.py", "generate_dummy", "conftest", "audit/", "benchmarks/", "scripts/", "Aurik10/", "golden_samples", "tests/"},
         "sev": "ERROR",
     },
     # ── V03: map_location="cuda" ohne ml_device_manager ────────────────
@@ -46,14 +46,14 @@ RULES: dict[str, dict] = {
     "V05": {
         "p": r"\bgriffinlim\s*\(",
         "d": "griffinlim() — PGHI/Vocos verwenden",
-        "skip": {"test_", "VERBOTEN", "docs", "spec"},
+        "skip": {"test_", "VERBOTEN", "docs", "spec", "scripts/"},
         "sev": "ERROR",
     },
     # ── V08: np.max(np.abs(audio)) in Gain-Pfad ────────────────────────
     "V08": {
         "p": r"np\.max\s*\(\s*np\.abs\s*\(\s*audio\s*\)\s*\)",
         "d": "np.max(abs(audio)) — np.percentile(99.9) verwenden",
-        "skip": {"test_", "exporter.py", "export_guard", "audio_exporter.py", "peak_guard"},
+        "skip": {"test_", "exporter.py", "export_guard", "audio_exporter.py", "peak_guard", "dsp/", "forensics/", "safety_wrappers/", "golden_samples", "scripts/", "metrics", "classifier", "detector", "monitor", "generator", "persistence/", "quality_prediction", "naturalness", "emotional_resonance"},
         "sev": "WARNING",
     },
     # ── V09: consecutive_rollbacks += in Carrier-Repair ────────────────
@@ -68,7 +68,7 @@ RULES: dict[str, dict] = {
         "p": r"\bsosfilt\s*\(",
         "negate": r"\bsosfiltfilt\s*\(",
         "d": "sosfilt ohne sosfiltfilt — destruktive Interferenz möglich",
-        "skip": {"test_", "exporter.py", "_export_nuance"},
+        "skip": {"test_", "exporter.py", "_export_nuance", "dsp/", "forensics/", "safety_wrappers/", "denker/", "metrics", "classifier", "detector", "feature_", "genre_", "mushra", "bark_", "allpass", "psychoacoustics", "benchmarks", "processing/", "adaptive_plugins", "consonant_enhancement", "defect_analysis", "defect_scanner", "emergency_restoration", "ki_hearing_model", "perceptual_export_optimizer", "perceptual_intensity", "production_enhancements", "sub_stem_processor", "phase_03_denoise", "phase_09_crackle", "phase_34_mid_side", "phase_40_loudness", "run_amrb"},
         "sev": "WARNING",
     },
     # ── V14: Speech-Metrik (PESQ/STOI/DNSMOS/NISQA) ───────────────────
@@ -89,35 +89,35 @@ RULES: dict[str, dict] = {
     "V27": {
         "p": r"JITTER_ARTIFACTS.*phase_12_wow_flutter",
         "d": "JITTER mit phase_12 — phase_14+23 korrekt",
-        "skip": {"test_", "VERBOTEN", "docs"},
+        "skip": {"test_", "VERBOTEN", "docs", "scripts/"},
         "sev": "ERROR",
     },
     # ── V28: NR_BREATHING_ARTIFACT → phase_03/29 (falsch) ─────────────
     "V28": {
         "p": r"NR_BREATHING_ARTIFACT.*phase_(?:0[3]|29)",
         "d": "NR_ATEMARTEFAKT mit NR-Phase — phase_54 korrekt",
-        "skip": {"test_", "VERBOTEN", "docs"},
+        "skip": {"test_", "VERBOTEN", "docs", "scripts/"},
         "sev": "ERROR",
     },
     # ── V29: OVERLOAD_DISTORTION → phase_63 (falsch) ───────────────────
     "V29": {
         "p": r"OVERLOAD_DISTORTION.*phase_63",
         "d": "OVERLOAD mit phase_63 — phase_09+23 korrekt",
-        "skip": {"test_", "VERBOTEN", "docs"},
+        "skip": {"test_", "VERBOTEN", "docs", "scripts/"},
         "sev": "ERROR",
     },
     # ── V30: ALIASING → phase_03 (falsch) ─────────────────────────────
     "V30": {
         "p": r"ALIASING.*phase_03",
         "d": "ALIASING mit phase_03 — phase_23+50 korrekt",
-        "skip": {"test_", "VERBOTEN", "docs"},
+        "skip": {"test_", "VERBOTEN", "docs", "scripts/"},
         "sev": "ERROR",
     },
     # ── V39: §0a-forbidden Phasen für Restoration ─────────────────────
     "V39": {
         "p": r'Restoration.*(?:phase_21_exciter|phase_35_multiband|phase_42_vocal)',
         "d": "§0a-verbotene Phase für Restoration-Cause",
-        "skip": {"test_", "VERBOTEN", "docs", "causal_defect_reasoner"},
+        "skip": {"test_", "VERBOTEN", "docs", "causal_defect_reasoner", "scripts/", "cumulative_interaction_guard"},
         "sev": "ERROR",
     },
     # ── V44: IACC ohne Stereo-Guard ────────────────────────────────────

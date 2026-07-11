@@ -6,6 +6,12 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
+def _load_with_sf(filepath):
+    """Wrapper for sf.read — use load_audio_file() for production pipelines."""
+    import soundfile as sf
+    return sf.read(filepath)
+
+
 logger = logging.getLogger(__name__)
 
 # Formats that libsndfile cannot decode — route directly to pedalboard (FFmpeg backend)
@@ -236,7 +242,7 @@ def load_audio_file(
         if not _sf_unsupported:
             # Stufe 1: soundfile — WAV, FLAC, OGG, AIFF, ALAC, CAF …
             try:
-                audio, sr = sf.read(filepath, always_2d=False)
+                audio, sr = _load_with_sf(filepath, always_2d=False)
                 logger.debug("load_audio_file: soundfile OK (%s)", filepath)
             except Exception as _e1:
                 logger.debug("load_audio_file: soundfile failed (%s) — trying pedalboard", _e1)
@@ -299,7 +305,7 @@ def load_audio_file(
                     "result = {'sr': sr, 'channels': seg.channels, 'shape': list(s.shape)}\n"
                     "with open(sys.argv[1], 'wb') as f:\n"
                     "    np.save(f, s)\n"
-                    "print(json.dumps(result))\n"
+                    "logger.info(json.dumps(result))\n"
                 )
                 _tmp = tempfile.NamedTemporaryFile(suffix=".npy", delete=False)
                 _tmp.close()

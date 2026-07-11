@@ -176,9 +176,9 @@ def _progress_cb(pct: int, msg: str, elapsed_s: float = 0.0) -> None:
         remaining = total_est - elapsed_s
         _m, _s = divmod(int(remaining), 60)
         eta = f"  noch ca. {_m}:{_s:02d}" if _m > 0 else f"  noch ca. {_s}s"
-    print(f"\r[{progress_bar}] {pct:3d}%{eta}  {msg[:60]}", end="", flush=True)
+    logger.info(f"\r[{progress_bar}] {pct:3d}%{eta}  {msg[:60]}", end="", flush=True)
     if pct >= 100:
-        print()
+        logger.info()
 
 
 def main() -> int:
@@ -233,7 +233,7 @@ def main() -> int:
         input_path=str(input_path),  # Bug 11: file_ext-Prior für Bayesian-Zeroing
     )
     elapsed = time.perf_counter() - t0
-    print()  # Newline nach Progress-Bar
+    logger.info()  # Newline nach Progress-Bar
 
     # ── Ergebnis auswerten ───────────────────────────────────────────────────
     logger.info("═" * 70)

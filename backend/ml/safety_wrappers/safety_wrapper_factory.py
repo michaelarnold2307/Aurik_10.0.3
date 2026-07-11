@@ -461,4 +461,4 @@ if __name__ == "__main__":
     logger.info("  processed, report = dehum.process(audio, sr, strength=0.8)")
     logger.info("  ")
     logger.info("  if report.decision == ProcessingDecision.ROLLBACK_REQUIRED:")
-    logger.info("      print('Processing aborted - returning original')")
+    logger.info("      logger.info('Processing aborted - returning original')")

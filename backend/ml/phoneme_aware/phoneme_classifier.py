@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 from backend.ml.phoneme_aware.logging_config import setup_logger
+import logging
+logger = logging.getLogger(__name__)
 
 logger = setup_logger(__name__)
 
@@ -123,11 +125,11 @@ class PhonemeClassifier:
     Example:
         >>> classifier = PhonemeClassifier()
         >>> info = classifier.classify_detailed('s')
-        >>> print(info.category)
+        >>> logger.info(info.category)
         PhonemeCategory.SIBILANT_ALVEOLAR
-        >>> print(info.is_sibilant)
+        >>> logger.info(info.is_sibilant)
         True
-        >>> print(info.sibilant_type)
+        >>> logger.info(info.sibilant_type)
         SibilantType.S_VOICELESS
 
     Attributes:
@@ -341,9 +343,9 @@ class PhonemeClassifier:
         Example:
             >>> classifier = PhonemeClassifier()
             >>> info = classifier.classify_detailed('tʃ')
-            >>> print(f"Category: {info.category}")
-            >>> print(f"Sibilant: {info.is_sibilant}")
-            >>> print(f"Type: {info.sibilant_type}")
+            >>> logger.info(f"Category: {info.category}")
+            >>> logger.info(f"Sibilant: {info.is_sibilant}")
+            >>> logger.info(f"Type: {info.sibilant_type}")
         """
         phoneme = phoneme.strip().lower()
         category = self.classify(phoneme)
@@ -446,7 +448,7 @@ class PhonemeClassifier:
         Example:
             >>> classifier = PhonemeClassifier()
             >>> freq = classifier.get_frequency_center('s')
-            >>> print(f"Frequency center: {freq} Hz")
+            >>> logger.info(f"Frequency center: {freq} Hz")
             8000.0 Hz
         """
         sibilant_type = self.get_sibilant_type(phoneme)
