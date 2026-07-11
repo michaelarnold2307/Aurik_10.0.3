@@ -57,9 +57,15 @@ def test_mp3_chain_reduces_ml():
 
 def test_substitutions_are_valid():
     from backend.core.fahrplan import PHASE_SUBSTITUTIONS
-    known = {"phase_23_spectral_repair","phase_16_final_eq","phase_06_frequency_restoration"}
-    for sub in PHASE_SUBSTITUTIONS.values():
-        assert sub in known, f"Substitution {sub} unbekannt"
+    # Dynamische Validierung gegen existierende Phasen-Dateien
+    import glob
+    from pathlib import Path
+    _repo = Path(__file__).resolve().parent.parent.parent
+    _phase_dir = _repo / "backend" / "core" / "phases"
+    _existing = {Path(p).stem for p in glob.glob(str(_phase_dir / "phase_*.py"))}
+    for key, sub in PHASE_SUBSTITUTIONS.items():
+        assert sub in _existing, f"Substitution target {sub} nicht in phases/"
+        assert key in _existing, f"Substitution key {key} nicht in phases/"
 
 def test_perceptual_budget_sums_to_one():
     from backend.core.fahrplan import PERCEPTUAL_BUDGET

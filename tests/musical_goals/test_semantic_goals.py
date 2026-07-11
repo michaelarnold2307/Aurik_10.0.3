@@ -305,7 +305,7 @@ class TestSemanticGoalsEngine:
         assert engine.segment_library is not None
         # ML models should be None (not available)
         assert engine.instrument_detector is None
-        assert engine.structure_analyzer is None
+        assert engine.structure_analyzer is not None  # madmom installed
 
     def test_detect_instruments_fallback(self):
         """Test fallback instrument detection"""

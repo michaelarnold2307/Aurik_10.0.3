@@ -147,7 +147,7 @@ class ABPreviewWidget(QtWidgets.QWidget):
                 # Leichte, schnelle Vorverarbeitung
                 try:
                     from backend.api.bridge import get_defect_scanner
-                    from backend.core.human_pleasantness_estimator import compute_pleasantness
+                    from backend.api.bridge import get_human_pleasantness_estimator as _hpe; compute_pleasantness = _hpe()
                     result = compute_pleasantness(segment, self._sr)
                     logger.info("Preview HPE: %.2f", result.score)
                 except Exception as e:
@@ -156,7 +156,7 @@ class ABPreviewWidget(QtWidgets.QWidget):
 
                 # Schnelle Vorverarbeitung: einfaches Gate + Soft-Knee
                 try:
-                    from backend.core.audio_utils import apply_musical_gain_envelope
+                    from backend.api.bridge import get_audio_utils_gain_envelope as _ge; apply_musical_gain_envelope = _ge()
                     segment = apply_musical_gain_envelope(
                         segment, self._sr, gate_db=-30, knee_db=6, crossfade_ms=200
                     )

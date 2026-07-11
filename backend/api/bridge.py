@@ -95,6 +95,23 @@ def _coerce_list_any(raw: Any) -> list[Any]:
 # Öffentliche API — explizite Export-Liste
 # ---------------------------------------------------------------------------
 
+
+# ── §Bridge-UI: core functions exposed for UI through bridge ──
+def get_human_pleasantness_estimator():
+    """Bridge for UI: returns human pleasantness estimator."""
+    from backend.core.human_pleasantness_estimator import compute_pleasantness
+    return compute_pleasantness
+
+def get_audio_utils_gain_envelope():
+    """Bridge for UI: returns musical gain envelope function."""
+    from backend.core.audio_utils import apply_musical_gain_envelope
+    return apply_musical_gain_envelope
+
+def get_ab_delta():
+    """Bridge for UI: returns AB delta computation."""
+    from backend.core.dsp.ab_delta import compute_ab_delta
+    return compute_ab_delta
+
 __all__ = [
     # Defect-Cache
     "cache_defect_result",

@@ -17151,7 +17151,7 @@ class ModernMainWindow(QMainWindow):
         if self._orig_audio is None or self._rest_audio is None:
             return
         try:
-            from backend.core.dsp.ab_delta import compute_ab_delta
+            from backend.api.bridge import get_ab_delta as _abd; compute_ab_delta = _abd()
             delta = compute_ab_delta(self._orig_audio, self._rest_audio)
             self._play_audio(delta, self._orig_sr or 48000)
         except Exception as e:

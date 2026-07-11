@@ -105,7 +105,7 @@ class SurgicalDefectAnalyzer:
 
         for defect_type in SURGICAL_DEFECT_TYPES:
             sev = defect_scores.get(defect_type, 0.0)
-            _cd = _codec_disc.get(defect_type, 1.0)
+            _cd = (codec_discounts or {}).get(defect_type, 1.0)
             if _cd < 1.0:
                 sev = sev * _cd
             if sev < self.MIN_SEVERITY:
