@@ -351,11 +351,10 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                         zone_mono.shape[0] / max(1, sr),
                     )
                 except Exception as _direct_exc:
-                    # §SOTA: Retry mit CPU + reduzierten DDIM-Steps vor Passthrough
-                    _retry_msg = str(_direct_exc)[:120]
+                    # §SOTA Recovery: GPU-DDIM(50)→CPU-DDIM(20)→SBR-DSP→Passthrough
                     logger.warning(
-                        "AudioSR direkt-Waveform fehlgeschlagen: %s — retry mit CPU/20steps",
-                        _retry_msg,
+                        "AudioSR GPU-DDIM fehlgeschlagen: %.100s — Recovery 1/3: CPU+20steps",
+                        str(_direct_exc),
                     )
                     try:
                         _model_cpu = _model_ref
@@ -368,25 +367,13 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                             duration=_asr_duration,
                             force_cpu=True,
                         )
-                        if hasattr(z_result_raw, "detach"):
-                            _z_tmp_retry = z_result_raw.detach().cpu().numpy()
-                        else:
-                            _z_tmp_retry = np.asarray(z_result_raw, dtype=np.float32)
-                        _z_tmp_retry = np.nan_to_num(_z_tmp_retry, nan=0.0, posinf=0.0, neginf=0.0)
-                        if np.isfinite(_z_tmp_retry).all():
-                            logger.info("AudioSR retry erfolgreich — CPU-Mode mit %d steps", min(_audiosr_ddim_steps, 20))
-                            # Use the retry result by reassigning to the main path
-                            with open('/dev/null', 'w') as _null:  # Prevent overwriting earlier code
-                                pass
-                            # Actually store the result for later use
-                            _z_tmp = _z_tmp_retry
-                            z_result_raw = None  # Already consumed, prevent double-processing
-                        else:
-                            logger.warning("AudioSR retry ebenfalls fehlgeschlagen — Zone Passthrough")
-                            z_result_raw = None
+                        logger.info("AudioSR Recovery 1/3: CPU-Mode erfolgreich")
                     except Exception as _retry_exc:
-                        logger.warning("AudioSR retry fehlgeschlagen: %s — Zone Passthrough", _retry_exc)
-                        z_result_raw = None
+                        logger.warning(
+                            "AudioSR CPU-Retry fehlgeschlagen: %.100s — Recovery 2/3: SBR-DSP",
+                            str(_retry_exc),
+                        )
+                        z_result_raw = None  # Fällt durch zu SBR-DSP-Fallback (Line ~416)
             else:
                 # Fallback: WAV-Datei-Pfad (Legacy, falls make_batch_for_super_resolution fehlt)
                 _asr_tmp_dir: str | None = "/tmp" if os.access("/tmp", os.W_OK) else None  # nosec B108
