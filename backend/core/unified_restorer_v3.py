@@ -7388,7 +7388,7 @@ class UnifiedRestorerV3:
             )
         # Physischer RAM-Preflight: mind. 3 GB + 5× Audio-Puffer frei
         try:
-            pass
+            import psutil as _psutil_guard  # noqa: F811
 
             _avail_mb = float(_psutil_guard.virtual_memory().available / (1024 * 1024))
             _needed_mb = max(3072.0, (_audio_bytes * 5) / (1024 * 1024))
