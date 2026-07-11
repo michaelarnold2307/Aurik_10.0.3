@@ -1382,7 +1382,7 @@ class MediumDetector:
             # Die physikalischen Features (crackle, wow, flutter, rotation) sind
             # stärkere Evidenz als die Dateiendung. Ein rip von Vinyl→Cassette→.mp3
             # hat echte analoge Defekte, die nicht ignoriert werden dürfen.
-            _ANALOG_PENALTY = 0.25
+            _ANALOG_PENALTY = 0.50  # §Original-Medium: mildere Penalty — EraClassifier überstimmt bei pre-1990
             _adjusted: dict[str, float] = {
                 mat: (score * _ANALOG_PENALTY if mat in self._ANALOG_MATERIALS else score)
                 for mat, score in posteriors.items()

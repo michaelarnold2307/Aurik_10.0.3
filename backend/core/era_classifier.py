@@ -1480,6 +1480,23 @@ class EraClassifier:
 
         with self._ram_cache_lock:
             self._ram_cache[sha] = result
+
+        # ── §Original-Medium-Inference ───────────────────────────────────
+        # Wenn das erkannte Jahrzehnt < 1990 ist, das material_prior aber
+        # auf digital zeigt (MediumDetector-Bias durch Dateiendung),
+        # ersetze durch das für diese Ära typische Analog-Medium.
+        # Eine MP3-Datei von 1985 wurde ursprünglich auf Vinyl/Band
+        # veröffentlicht — Aurik soll das ORIGINAL-Medium restaurieren.
+        _digital_materials = {"cd_digital", "mp3_low", "mp3_high", "streaming", "unknown", "dat", "minidisc"}
+        if (result.decade < 1990 and result.material_prior in _digital_materials):
+            _original_medium = DECADE_MATERIAL_PRIOR.get(result.decade, "unknown")
+            if _original_medium not in _digital_materials:
+                logger.info(
+                    "🕰️ Original-Medium-Inference: decade=%d → %s (override %s → %s)",
+                    result.decade, _original_medium, result.material_prior, _original_medium,
+                )
+                result = dc_replace(result, material_prior=_original_medium)
+
         logger.info(
             "🕰️ EraClassifier: Jahrzehnt=%d, Konfidenz=%.2f, Material=%s, Tier=%d",
             result.decade,
