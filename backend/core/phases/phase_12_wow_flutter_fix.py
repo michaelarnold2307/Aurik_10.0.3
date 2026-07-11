@@ -828,10 +828,16 @@ class WowFlutterFix(PhaseInterface):
             )
 
         # Step 4: Calculate time-stretching factors from pitch deviation
-        # §2.46b: Store material for adaptive pitch-span threshold
+        # §2.46b: Computed wow severity for adaptive pitch-span threshold
         self._mat_type_for_stretch = str(material_type)
-        _wow_default = 0.50 if str(material_type).lower() in ("cassette", "reel_tape", "tape") else 0.0
-        self._wow_sev_for_stretch = float(kwargs.get("wow_severity", kwargs.get("flutter_severity", _wow_default)) or _wow_default)
+        _wow_sev = float(kwargs.get("wow_severity", kwargs.get("flutter_severity", 0.0)) or 0.0)
+        # Fallback: restoration_context → conservative default for analog tape
+        if _wow_sev == 0.0:
+            _ctx = getattr(self, '_restoration_context', {}) or {}
+            _wow_sev = float(_ctx.get("wow_severity", _ctx.get("flutter_severity", 0.0)) or 0.0)
+        if _wow_sev == 0.0 and str(material_type).lower() in ("cassette", "reel_tape", "tape", "vinyl"):
+            _wow_sev = 0.30  # Conservative minimum for analog tape/disc
+        self._wow_sev_for_stretch = float(_wow_sev)
         stretch_factors = self._calculate_stretch_factors(
             pitch_trajectory,
             confidence,
@@ -2908,9 +2914,11 @@ class WowFlutterFix(PhaseInterface):
                 _span_cents = 1200.0 * np.log2(_cp_p95 / _cp_p5)
                 _mat_key = str(getattr(self, "_mat_type_for_stretch", "") or "").lower()
                 _wow_sev = float(getattr(self, "_wow_sev_for_stretch", 0.0) or 0.0)
-                _adaptive_limit = 400.0 if (_mat_key in ("cassette", "reel_tape", "tape") and _wow_sev >= 0.70) else 100.0
+                # Smooth: limit = 100 + 300 × severity, clamped to [100, 400]
+                _adaptive_limit = 100.0 + 300.0 * min(_wow_sev, 1.0)
+                _adaptive_limit = max(100.0, min(_adaptive_limit, 400.0))
                 if _span_cents > _adaptive_limit:
-                    logger.warning(
+                    logger.info(
                         "Phase 12 pitch span %.0f cents > %.0f (mat=%s wow=%.2f)",
                         _span_cents, _adaptive_limit, _mat_key, _wow_sev,
                     )
