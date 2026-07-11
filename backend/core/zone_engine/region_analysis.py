@@ -29,7 +29,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as np
 
 # Handle both module import and direct execution

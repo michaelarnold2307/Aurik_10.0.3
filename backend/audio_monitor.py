@@ -27,7 +27,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as np
 import yaml  # type: ignore[import-untyped]
 

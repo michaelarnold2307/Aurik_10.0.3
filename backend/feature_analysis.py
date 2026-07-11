@@ -1,7 +1,12 @@
 import logging
 from typing import Any
 
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as np
 from backend.file_import import load_audio_file
 

@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as _np
 import numpy as np
 

@@ -1,4 +1,9 @@
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as np
 
 

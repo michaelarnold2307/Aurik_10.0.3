@@ -6,7 +6,12 @@ Enthält: LUFS-Normalisierung, Multiband-Kompression, adaptives EQing, Limiter, 
 from collections.abc import Callable
 from typing import Any, cast
 
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as np
 from scipy.signal import butter, sosfilt, sosfiltfilt
 

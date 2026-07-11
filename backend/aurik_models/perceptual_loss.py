@@ -11,7 +11,12 @@ Kombiniert klassische und psychoakustische Metriken:
 Author: Aurik KI-Team 2026
 """
 
-import torch
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    torch = None  # type: ignore[assignment]
+    _HAS_TORCH = False
 import torch.nn as nn
 import torch.nn.functional as F
 

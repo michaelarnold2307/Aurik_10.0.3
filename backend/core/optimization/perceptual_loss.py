@@ -14,7 +14,12 @@ Datum: 14. Februar 2026
 
 import logging
 
-import torch
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    torch = None  # type: ignore[assignment]
+    _HAS_TORCH = False
 import torch.nn as nn
 import torch.nn.functional as F
 

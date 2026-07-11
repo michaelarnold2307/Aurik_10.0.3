@@ -13,7 +13,12 @@ Trainingspipeline für AurikEnhancerNet
 Author: Aurik KI-Team 2026
 """
 
-import torch
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    torch = None  # type: ignore[assignment]
+    _HAS_TORCH = False
 from torch.utils.data import DataLoader
 
 from backend.aurik_models.aurik_enhancer_net import AurikEnhancerNet

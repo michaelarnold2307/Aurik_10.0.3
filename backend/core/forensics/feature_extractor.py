@@ -20,7 +20,12 @@ USAGE:
 import logging
 from dataclasses import dataclass, field
 
-import librosa
+try:
+    import librosa
+    _HAS_LIBROSA = True
+except ImportError:
+    librosa = None  # type: ignore[assignment]
+    _HAS_LIBROSA = False
 import numpy as np
 from scipy import signal as scipy_signal
 from scipy.stats import kurtosis, skew

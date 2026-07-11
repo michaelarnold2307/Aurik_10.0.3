@@ -18,7 +18,12 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import torch
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    torch = None  # type: ignore[assignment]
+    _HAS_TORCH = False
 import yaml
 from torch.utils.data import DataLoader, Dataset
 
