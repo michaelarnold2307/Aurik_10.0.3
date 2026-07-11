@@ -25,7 +25,7 @@
 | `HarmonicPreservationGuard` | `backend/core/harmonic_preservation_guard.py` | G_floor=0.85 an Harmonik-Bins |
 | `MusikalischerGlobalplanDienst` | `backend/core/musikalischer_globalplan.py` | Cross-Phase-Globalplan: 13 Ära-Profile × Genre-Modifikatoren, 17 Phase-Adjustments |
 | `PerPhaseMusicalGoalsGate` | `backend/core/per_phase_musical_goals_gate.py` | Rollback pro Phase |
-| `SongCalibrationProfile` | `backend/core/song_calibration.py` | §2.31a: materialadaptives Kalibrierungsprofil (global_scalar + family_scalars) vor Phasenkette |
+| `SongCalibrationProfile` | `backend/core/song_calibration.py` [ROADMAP] | §2.31a: materialadaptives Kalibrierungsprofil (global_scalar + family_scalars) vor Phasenkette |
 | `EraAuthenticPerceptualCompletion` | `backend/core/era_authentic_completion.py` [ROADMAP] | Ära-authentische Wahrnehmungs-Ergänzung (Quell-BW < 10 kHz); Studio-2026-Kette Schritt 8 |
 | `LyricsGuidedEnhancement` | `backend/core/lyrics_guided_enhancement.py` | §2.36 RELEASE_MUST: Whisper-Tiny ONNX → Phonem-Alignment → ContentAwareProcessor |
 | `EraClassifier` | `plugins/era_classifier_plugin.py` | Ära 1890–2025 |
@@ -1155,7 +1155,7 @@ _restoration_context["preserve_mask"] = _iac.get_preserve_mask(audio, sr, _artif
 > DSP-Übergänge — Eingriffe während einer Phrase klingen abrupt. Weltweit führende
 > Systeme (Izotope RX 11 Machine Learning) nutzen musikalische Struktur.
 
-**Datei**: `backend/core/phrase_structure_analyzer.py`  
+**Datei**: `backend/core/phrase_structure_analyzer.py` [ROADMAP]  
 **Singleton**: `get_phrase_structure_analyzer()`
 
 ```python
@@ -1232,7 +1232,7 @@ UV3 MUSS vor `PMGG.wrap_phase()` eine `vocal_zone_strength_policy` erzeugen und 
 > gesamten Titel. Das führt zu hörbaren Qualitätssprüngen in langen Titeln (> 5 min),
 > die kein einzelner Gate erkennt. Weltklasse erfordert gleichmäßige Qualität von Intro bis Outro.
 
-**Datei**: `backend/core/temporal_consistency_guard.py`
+**Datei**: `backend/core/temporal_consistency_guard.py` [ROADMAP]
 
 ```python
 class TemporalConsistencyGuard:

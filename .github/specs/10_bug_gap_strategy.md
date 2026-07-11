@@ -148,7 +148,7 @@ Dateien mit echten Typ-Bugs (keine Boilerplate) nach Fehleranzahl:
 | `authenticity_metrics_extended.py` | 21 | Dataclass vs dict-Verwechslung, `call-overload` | P1 |
 | `multi_pass_strategy.py` | 18 | Mixed | P2 |
 | `ai_framework.py` | 17 | `attr-defined` ("restoration_button"), assignment None vs Typ | P1 |
-| `forensics/unified_analyzer.py` | 14 | Mixed | P2 |
+| `forensics/unified_analyzer.py` [ROADMAP] | 14 | Mixed | P2 |
 | `forensics/feature_extractor.py` [ROADMAP] | 14 | `floating[Any]` statt `float` | P2 |
 | `real_audio_execution_golden_gate.py` | 13 | `union-attr` None.get() | P1 |
 | `backend/core/phases/phase_10_compression.py` (v10.0.0-Phantom) | 11 | Mixed | P2 |
@@ -273,7 +273,7 @@ falschen Typen im Audio-Pfad führen können.
 falsche Berechnungen verursachen können.
 
 1. `forensics/adaptive_chain_builder.py` [ROADMAP] — 21× `dict-item` (str/float vs str/int)
-2. `forensics/feature_extractor.py` [ROADMAP] + `forensics/unified_analyzer.py` — `floating[Any]` statt `float`
+2. `forensics/feature_extractor.py` [ROADMAP] + `forensics/unified_analyzer.py` [ROADMAP] — `floating[Any]` statt `float`
 3. `backend/core/phases/phase_10_compression.py` (v10.0.0-Phantom) + `backend/core/phases/phase_04_eq_correction.py` (v10.0.0-Phantom) — Mixed Typ-Bugs
 4. `multi_pass_strategy.py` — 18 Mixed
 5. `backend/core/dsp/` — ~25 echte Bugs (nach Boilerplate-Ausschluss)

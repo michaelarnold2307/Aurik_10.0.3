@@ -240,7 +240,7 @@ ErrorGuard wurde spät eingeführt und nicht systematisch auf alle Phasen angewe
 | 8.2 | `backend/core/errors/degraded_output.py` — Dataclass `DegradedOutput`: `audio: np.ndarray`, `warnings: list[str]`, `metrics: dict`. Pipeline kann damit weitermachen statt abzustürzen. | 2 h | — |
 | 8.3 | `backend/core/errors/phase_error_guard.py` — `@phase_error_guard`-Decorator: Wrap für Phasen-Funktionen. Fängt alle Exceptions, loggt, gibt `DegradedOutput` zurück. Configurable: `fail_fast=True` für kritische Phasen. | 4 h | 8.2 |
 | 8.4 | Top-10 kritischste Phasen identifizieren (nach Crash-Statistik oder Stellenwert) und `@phase_error_guard` anwenden. Batch-weise. | 4 h | 8.3, 8.1 |
-| 8.5 | `tests/unit/test_phase_error_guard.py` — Injiziert Fehler in Phasen und prüft, ob `DegradedOutput` korrekt zurückgegeben wird. | 3 h | 8.3 |
+| 8.5 | `tests/unit/test_phase_error_guard.py` [ROADMAP] — Injiziert Fehler in Phasen und prüft, ob `DegradedOutput` korrekt zurückgegeben wird. | 3 h | 8.3 |
 
 ### Erfolgskriterien
 - `audit_error_guard_coverage.py` läuft und identifiziert alle ungeschützten Phasen
@@ -266,8 +266,8 @@ Gewachsenes Design — jede Komponente managed ihre eigenen Ressourcen ohne Koor
 | 9.1 | `backend/core/ml/session_manager.py` — `InferenceSessionManager`: Singleton, verwaltet alle ONNX-Sessions. `acquire(model_name) → InferenceSession`, `release(model_name)`, `release_all()`. LRU-Cache mit konfigurierbarer Max-Größe. | 5 h | — |
 | 9.2 | `backend/core/ml/session_manager.py` — Memory-Monitoring: `get_total_memory_mb()`, `get_session_sizes()`, Warnung bei >2GB. | 2 h | 9.1 |
 | 9.3 | Migration: `lyrics_guided_enhancement.py`, `bridge.py` auf `InferenceSessionManager` umstellen. Direkte `onnxruntime.InferenceSession(...)`-Aufrufe ersetzen. | 4 h | 9.1 |
-| 9.4 | `backend/core/ml/batch_processor.py` — Batch-Verarbeitung mit Session-Recycling: Nach N Tracks Sessions freigeben und neu laden (Memory-Fragmentation vermeiden). | 3 h | 9.1 |
-| 9.5 | `tests/unit/test_session_manager.py` — Testet: Acquire/Release, LRU-Eviction, Memory-Limit, Concurrent-Access, Batch-Recycling. | 3 h | 9.1 |
+| 9.4 | `backend/core/ml/batch_processor.py` [ROADMAP] — Batch-Verarbeitung mit Session-Recycling: Nach N Tracks Sessions freigeben und neu laden (Memory-Fragmentation vermeiden). | 3 h | 9.1 |
+| 9.5 | `tests/unit/test_session_manager.py` [ROADMAP] — Testet: Acquire/Release, LRU-Eviction, Memory-Limit, Concurrent-Access, Batch-Recycling. | 3 h | 9.1 |
 
 ### Erfolgskriterien
 - `InferenceSessionManager` ist einziger ONNX-Session-Erzeuger im Codebase
