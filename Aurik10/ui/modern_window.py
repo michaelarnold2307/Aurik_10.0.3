@@ -16654,6 +16654,20 @@ class ModernMainWindow(QMainWindow):
                     }
                 _defects_payload = dict(_defects)
 
+                # ── Chain-Injection-Re-Read ──────────────────────────────
+                # Nachdem pre_analysis die Tonträgerkette per EraClassifier
+                # erweitert hat (Original-Medium-Chain-Injection), muss
+                # die GUI die aktualisierten Werte aus dem veränderten
+                # MediumDetectionResult neu einlesen.
+                _med_updated = getattr(_result, "medium", None)
+                if _med_updated is not None:
+                    _inj_chain = list(getattr(_med_updated, "transfer_chain", []) or [])
+                    if len(_inj_chain) > len(_chain_keys):
+                        _chain_keys = _inj_chain
+                        _raw_medium = getattr(_med_updated, "primary_material", None) or _raw_medium
+                        if len(_chain_keys) > 1:
+                            _lbl = _build_carrier_chain_html(_chain_keys)
+
                 # ── Single GUI dispatch (all UI updates at once) ──────────────
                 def _update_all(
                     _lbl=_lbl,
