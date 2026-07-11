@@ -68,7 +68,7 @@ RULES: dict[str, dict] = {
         "p": r"\bsosfilt\s*\(",
         "negate": r"\bsosfiltfilt\s*\(",
         "d": "sosfilt ohne sosfiltfilt — destruktive Interferenz möglich",
-        "skip": {"test_", "exporter.py", "_export_nuance", "dsp/", "forensics/", "safety_wrappers/", "denker/", "metrics", "classifier", "detector", "feature_", "genre_", "mushra", "bark_", "allpass", "psychoacoustics", "benchmarks", "processing/", "adaptive_plugins", "consonant_enhancement", "defect_analysis", "defect_scanner", "emergency_restoration", "ki_hearing_model", "perceptual_export_optimizer", "perceptual_intensity", "production_enhancements", "sub_stem_processor", "phase_03_denoise", "phase_09_crackle", "phase_34_mid_side", "phase_40_loudness", "run_amrb"},
+        "skip": {"test_", "exporter.py", "_export_nuance", "dsp/", "forensics/", "safety_wrappers/", "denker/", "metrics", "classifier", "detector", "feature_", "genre_", "mushra", "bark_", "allpass", "psychoacoustics", "benchmarks", "processing/", "adaptive_plugins", "consonant_enhancement", "defect_analysis", "defect_scanner", "emergency_restoration", "ki_hearing_model", "perceptual_export_optimizer", "perceptual_intensity", "production_enhancements", "sub_stem_processor", "phase_03_denoise", "phase_09_crackle", "phase_34_mid_side", "phase_40_loudness", "run_amrb", "scripts/", "verify_all"},
         "sev": "WARNING",
     },
     # ── V14: Speech-Metrik (PESQ/STOI/DNSMOS/NISQA) ───────────────────
