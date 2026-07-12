@@ -61,3 +61,58 @@
 | G38 | Path | Pfade MÜSSEN `pathlib.Path` verwenden | `Path(` |
 | G39 | Encoding | Dateien MÜSSEN UTF-8 sein | `encoding="utf-8"` |
 | G40 | License | Jede neue Datei MUSS den Aurik-Lizenzheader haben | Lizenzheader |
+
+## Teil E — Wohlklang & Reproduzierbarkeit (G41-G50)
+
+| ID | Kategorie | PFLICHT | Erkennung |
+|----|----------|---------|-----------|
+| G41 | Pleasantness | HPE-Check MUSS vor/nach JEDER Phase laufen | `compute_pleasantness` |
+| G42 | Consistency | Gleicher Input MUSS gleichen Output produzieren | `deterministic\|seed\|reproducible` |
+| G43 | CLP | NR-Stärke MUSS CLP-Maske respektieren (2-5kHz) | `clp_max_attenuation\|CLPZone` |
+| G44 | Whisper | Leise-Passagen (< -40dBFS) MÜSSEN geschützt werden | `whisper_detail\|whisper_preservation` |
+| G45 | Dynamics | Nach Kompressor/Limiter MUSS Dynamik geprüft werden | `dynamics_preserver\|check_phase` |
+| G46 | Adaptive | Goal-Schwellen MÜSSEN aus Materialphysik berechnet werden | `compute_adaptive_thresholds` |
+| G47 | Version | Versionsnummer MUSS aus `version.py` kommen | `from backend.core.version import` |
+| G48 | Error | Jeder `except`-Block MUSS die Exception loggen | `logger.\|exc_info=True` |
+| G49 | Dither | 16-bit Export MUSS gedithert werden | `dither\|TPDF\|triangular` |
+| G50 | PhaseOrder | Phasen-Reihenfolge MUSS materialabhängig sein | `phase_order.*material\|adaptive.*phase.*order` |
+
+## Teil F — Runtime-Garantien (G51-G55)
+
+| ID | Kategorie | PFLICHT | Erkennung |
+|----|----------|---------|-----------|
+| G51 | Watchdog | Watchdog MUSS in JEDEM Pipeline-Lauf aktiv sein | `WatchdogMonitor\|get_watchdog` |
+| G52 | Timeout | Jede Phase MUSS ein Timeout haben | `timeout\|_MAX_PHASE_SECONDS\|phase_timeout` |
+| G53 | Memory | Speicher-Limit MUSS vor ML-Modell-Ladung geprüft werden | `ml_memory_budget\|try_allocate\|memory_limit` |
+| G54 | ColdStart | Cold-Start MUSS eigenes Zeitbudget haben | `COLDSTART\|_coldstart\|first_run` |
+| G55 | GPUFallback | Nach GPU-Fehler MUSS ONNX auf CPU weitermachen | `CPUExecutionProvider\|cpu.*fallback.*onnx` |
+
+## Teil G — Ketten-Intelligenz (G56-G60)
+
+| ID | Kategorie | PFLICHT | Erkennung |
+|----|----------|---------|-----------|
+| G56 | Chain | Transfer-Ketten (tape→mp3) MÜSSEN erkannt werden | `transfer_chain\|chain_string\|Tontraegerkette` |
+| G57 | Bandwidth | ÄLTESTER Träger bestimmt Bandbreiten-Ziel | `oldest.*carrier\|primary.*bandwidth\|original.*medium` |
+| G58 | Codec | Codec-Artefakte (MP3/AAC) MÜSSEN getrennt behandelt werden | `codec.*artifact\|mpeg.*frame\|mp3.*artifact` |
+| G59 | Dolby | Dolby-NR-Typ MUSS vor Rauschunterdrückung erkannt werden | `DolbyNR\|dolby_nr\|dolby_type` |
+| G60 | RIAA | RIAA-EQ MUSS vor Vinyl-Verarbeitung invers angewendet werden | `RIAA\|riaa_eq\|riaa_curve` |
+
+## Teil H — Vokal-Garantien (G61-G65)
+
+| ID | Kategorie | PFLICHT | Erkennung |
+|----|----------|---------|-----------|
+| G61 | Primus | Bei panns_singing ≥ 0.25: Stimmqualität VORRANG | `panns_singing.*0\\.25\|primus.*inter.*pares\|vocal.*priority` |
+| G62 | Formant | Formant-Integrität MUSS nach Vokal-Phase geprüft werden | `formant.*guard\|formant.*integrity\|vocal_formant` |
+| G63 | Sibilance | Sibilanten MÜSSEN nach De-Essing unterscheidbar bleiben | `sibilance.*preserv\|deesser.*intelligibility\|sibilant` |
+| G64 | Vibrato | Vibrato MUSS erhalten bleiben | `vibrato.*preserv\|vibrato.*guard\|vibrato_continuity` |
+| G65 | Breath | Atemgeräusche MÜSSEN als musikalisch intentional gelten | `breath.*preserv\|breath.*emotion\|breath.*intentional` |
+
+## Teil I — Qualitäts-Garantien (G66-G70)
+
+| ID | Kategorie | PFLICHT | Erkennung |
+|----|----------|---------|-----------|
+| G66 | Export | Vor Export: artifact_freedom ≥ 0.95 UND pleasantness ≥ 0.35 | `artifact_freedom.*0\\.95.*pleasantness\|export.*guard` |
+| G67 | PleasantnessGate | Wenn Pleasantness SCHLECHTER → Original ausgeben | `pleasantness.*worse\|hpe.*rollback\|restored.*worse` |
+| G68 | Regression | Jede Spec-Änderung MUSS einen Regression-Test haben | `test.*regression\|regression.*test\|spec.*test` |
+| G69 | Agent | KI-Agenten MÜSSEN SpecConstitution nutzen | `get_constitution\|SpecConstitution\|spec_constitution` |
+| G70 | VersionCheck | Keine hartcodierten Versionsnummern | `__version__\|AURIK_VERSION\|from.*version import` |
