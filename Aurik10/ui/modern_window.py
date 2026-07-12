@@ -16358,8 +16358,12 @@ class ModernMainWindow(QMainWindow):
                 # _CARRIER_ANALOG_MEDIA, _render_carrier_html(), _build_carrier_chain_html()
 
                 def _on_scan_progress(pct: float) -> None:
+                    # DefectScan is only 1 of 3-4 parallel steps.
+                    # Cap at 70 %% so there's room for era/genre/restorability
+                    # (75->90%%) and post-processing (93->99%%).
+                    _capped = min(pct * 0.70, 70.0)
                     try:
-                        self.emit_load_progress(float(pct))
+                        self.emit_load_progress(float(_capped))
                     except RuntimeError:
                         pass  # Window closed
 
