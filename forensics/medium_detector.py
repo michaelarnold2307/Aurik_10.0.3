@@ -287,22 +287,64 @@ class MediumDetector:
 
     # Zeitliche Ordnung für Kettensortierung (niedrig = früher)
     _MEDIUM_ORDER: dict[str, int] = {
+        # Disc-era (pre-1940s → 1950s)
         "wax_cylinder": 0,
-        "lacquer_disc": 0,
-        "shellac": 0,
-        "vinyl": 0,
-        "wire_recording": 0,
-        "reel_tape": 1,
-        "tape": 1,
-        "cassette": 1,
-        "dat": 2,
-        "cd_digital": 2,
-        "mp3_low": 3,
-        "mp3_high": 3,
-        "aac": 3,
-        "streaming": 3,
-        "minidisc": 3,
+        "lacquer_disc": 1,
+        "shellac": 2,
+        "wire_recording": 3,
+        # Vinyl-era (1950s → 1980s)
+        "vinyl": 4,
+        # Tape-era — reel_tape (recording) BEFORE cassette (consumer copy)
+        "reel_tape": 5,
+        "tape": 5,
+        "cassette": 6,
+        # Digital-era
+        "dat": 7,
+        "cd_digital": 8,
+        "minidisc": 9,
+        # Lossy-era
+        "mp3_low": 10,
+        "mp3_high": 10,
+        "aac": 10,
+        "streaming": 10,
     }
+
+    # ── Transfer chain knowledge base ────────────────────────────────
+    # Known plausible chains.  The detector matches detected sources
+    # against these templates and prefers chains that match known patterns.
+    _KNOWN_CHAINS: list[list[str]] = [
+        # Studio → Release → Consumer → Digital
+        ["reel_tape", "vinyl", "cassette", "mp3_low"],
+        ["reel_tape", "vinyl", "cassette", "mp3_high"],
+        ["reel_tape", "vinyl", "mp3_low"],
+        ["reel_tape", "vinyl", "mp3_high"],
+        ["reel_tape", "vinyl", "cd_digital"],
+        ["reel_tape", "cassette", "mp3_low"],
+        ["reel_tape", "cassette", "mp3_high"],
+        # Vinyl → Consumer → Digital
+        ["vinyl", "cassette", "mp3_low"],
+        ["vinyl", "cassette", "mp3_high"],
+        ["vinyl", "mp3_low"],
+        ["vinyl", "mp3_high"],
+        ["vinyl", "cd_digital"],
+        # Shellac-era → Modern
+        ["shellac", "vinyl", "cassette", "mp3_low"],
+        ["shellac", "vinyl", "mp3_low"],
+        ["shellac", "vinyl", "cd_digital"],
+        ["wax_cylinder", "shellac", "vinyl", "mp3_low"],
+        ["lacquer_disc", "vinyl", "cassette", "mp3_low"],
+        # Pure digital chains
+        ["cd_digital", "mp3_high"],
+        ["cd_digital", "mp3_low"],
+        ["cd_digital", "aac"],
+        ["streaming", "mp3_low"],
+        # Simple chains
+        ["vinyl"],
+        ["cassette"],
+        ["cd_digital"],
+        ["reel_tape"],
+        ["shellac"],
+    ]
 
     # ── Bayesian Material-Modelle (Gaussian μ, σ) ────────────────────
     # Identisch mit MediumClassifier._MATERIAL_MODELS — kanonische Quelle.
@@ -525,6 +567,38 @@ class MediumDetector:
         "infrasonic_rms",
         "codec_type_code",
     ]
+
+    
+    def _best_matching_chain(self, detected: list[str]) -> list[str] | None:
+        """Find the best-matching known chain for a set of detected materials.
+
+        Returns the known chain that maximally overlaps with detected materials,
+        respecting chronological order.  Used to correct detection-order chains
+        into technologically plausible ones (e.g. reel_tape→vinyl→cassette
+        instead of vinyl→cassette→reel_tape).
+        """
+        if not detected or len(detected) <= 1:
+            return None
+        detected_set = set(detected)
+        best_match = None
+        best_score = 0
+        for chain in self._KNOWN_CHAINS:
+            chain_set = set(chain)
+            overlap = len(detected_set & chain_set)
+            # Prefer chains where detected materials appear in the correct order
+            order_score = 0
+            last_idx = -1
+            for m in detected:
+                if m in chain:
+                    idx = chain.index(m)
+                    if idx > last_idx:
+                        order_score += 1
+                    last_idx = idx
+            total = overlap * 2 + order_score
+            if total > best_score:
+                best_score = total
+                best_match = chain
+        return best_match
 
     def _infer_analog_source_from_fingerprint(self, fp: SpectralFingerprint) -> list[tuple[str, float]]:
         """Infer analog source materials from physical fingerprint features.
@@ -1690,6 +1764,22 @@ class MediumDetector:
                         _candidate_sources[phys_mat] = "physical"
                     else:
                         _candidate_sources[phys_mat] = _candidate_sources.get(phys_mat, "posterior") + "+physical"
+
+                # ── Chronological sort by _MEDIUM_ORDER ─────────────────
+                # Ensure chain respects technological chronology, not detection order.
+                _candidate_items = sorted(
+                    _candidate_scores.items(),
+                    key=lambda x: self._MEDIUM_ORDER.get(x[0], 99),
+                )
+                # Filter to keep only candidates that match known chain patterns
+                _candidate_materials = [m for m, _ in _candidate_items]
+                _best_chain = self._best_matching_chain(
+                    _candidate_materials + [best_analog]
+                )
+                if _best_chain:
+                    # Reorder candidates to match best known chain
+                    _ordered = [m for m in _best_chain if m in _candidate_materials or m == best_analog]
+                    _candidate_items = [(m, _candidate_scores.get(m, 0.0)) for m in _ordered if m in _candidate_scores or m == best_analog]
 
                 _analog_depth = 1
                 _last_order = self._MEDIUM_ORDER.get(best_analog, 0)
