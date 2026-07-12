@@ -75,6 +75,17 @@ PRIMUS_INTER_PARES = "Wenn panns_singing >= 0.25, erhält Stimmqualität Vorrang
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+
+@dataclass
+class RequiredPattern:
+    """Eine GEBOTEN-Regel — was MUSS vorhanden sein."""
+    id: str           # G01-G40
+    category: str     # Logging, Audio, Pipeline, Test
+    pattern: str      # Erkennungsmuster (muss vorhanden sein)
+    description: str  # Was verlangt wird
+    severity: str     # critical / warning
+
+
 @dataclass
 class ForbiddenPattern:
     """Eine VERBOTEN-Regel mit Erkennungsmuster und Begründung."""
@@ -260,6 +271,21 @@ FORBIDDEN_PATTERNS: list[ForbiddenPattern] = [
     ForbiddenPattern("V57","Masking","additive.*phase.*ohne.*ForwardMasking.*panns|phase_.*add.*ohne.*mask","Neue additive Phase ohne ForwardMaskingGuard","ForwardMaskingGuard bei panns_singing>=0.25","warning"),
     ForbiddenPattern("V58","Mypy","return.*ndarray.*no-any-return|->.*ndarray.*Any","no-any-return in ndarray-Funktionen","cast(np.ndarray,result) oder type:ignore","warning"),
 ]
+
+REQUIRED_PATTERNS: list[RequiredPattern] = [
+    RequiredPattern("G01","Logging","logger = logging.getLogger","Jede .py-Datei braucht Logger-Initialisierung","critical"),
+    RequiredPattern("G02","NaN","nan_to_num|isfinite","Ausgabe-Audio MUSS NaN/Inf-Schutz haben","critical"),
+    RequiredPattern("G03","Type","def \w+\([^)]*:\s*\w+","Oeffentliche Funktionen brauchen Type-Hints","warning"),
+    RequiredPattern("G05","Data","@dataclass","API-Rueckgaben MÜSSEN @dataclass sein","warning"),
+    RequiredPattern("G06","Lock","threading\.Lock\(\)","Singletons brauchen threading.Lock()","critical"),
+    RequiredPattern("G08","GPU","get_torch_device","GPU-Zugriff NUR via get_torch_device()","critical"),
+    RequiredPattern("G09","Audio","load_audio_file","Audio-Import NUR via load_audio_file()","critical"),
+    RequiredPattern("G12","ZeroPhase","sosfiltfilt","Signal-Addition braucht zero-phase Filter","critical"),
+    RequiredPattern("G13","Artifact","artifact_freedom.*0\.95","Ausgabe MUSS artifact_freedom>=0.95","critical"),
+    RequiredPattern("G16","Gate","reference_for_gate","Gate braucht reference_for_gate","critical"),
+    RequiredPattern("G18","Envelope","_musical_gain_envelope","Gain MUSS _musical_gain_envelope() nutzen","critical"),
+]
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 15 Musical Goals — Schwellwerte (Spec 01)
@@ -513,6 +539,29 @@ class SpecConstitution:
 
     # ── Musical Goals ───────────────────────────────────────────────────
 
+    def get_required_patterns(self) -> list[RequiredPattern]:
+        return list(REQUIRED_PATTERNS)
+
+    def check_required_in_code(self, code_text: str) -> list[tuple[RequiredPattern, bool]]:
+        """Prueft ob alle PFLICHT-Regeln im Code erfuellt sind.
+
+        Returns: list of (pattern, is_present)
+        """
+        import re
+        results: list[tuple[RequiredPattern, bool]] = []
+        for rp in REQUIRED_PATTERNS:
+            try:
+                present = bool(re.search(rp.pattern, code_text, re.MULTILINE))
+                results.append((rp, present))
+            except re.error:
+                results.append((rp, False))
+        return results
+
+    def find_missing_requirements(self, code_text: str) -> list[RequiredPattern]:
+        """Gibt alle VERLETZTEN PFLICHT-Regeln zurueck."""
+        return [rp for rp, present in self.check_required_in_code(code_text) if not present]
+
+
     def get_musical_goal_thresholds(self, material: str = "unknown") -> dict[str, float]:
         """Gibt Goal-Schwellwerte zurück, material-adaptiv mit Floor-Toleranzen.
 
@@ -695,6 +744,10 @@ class SpecConstitution:
     @property
     def forbidden_count(self) -> int:
         return len(self._forbidden)
+
+    @property
+    def required_count(self) -> int:
+        return len(REQUIRED_PATTERNS)
 
     @property
     def goal_count(self) -> int:
