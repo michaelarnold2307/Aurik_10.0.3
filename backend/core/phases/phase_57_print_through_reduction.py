@@ -26,6 +26,7 @@ import numpy as np
 import scipy.signal as sps
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # Optionale Guards/Features werden bewusst lazy geladen.
 # pylint: disable=import-outside-toplevel
@@ -467,6 +468,8 @@ class PrintThroughReductionPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="57")
+        check_ml_model_ready("Whisper", phase_name="57")
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"

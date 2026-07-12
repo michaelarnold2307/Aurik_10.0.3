@@ -42,6 +42,7 @@ from backend.core.ml_memory_budget import release as _release_ml_budget
 from backend.core.ml_memory_budget import try_allocate as _try_allocate_ml_budget
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 _clap_factory_impl: Any = None
 try:
@@ -296,6 +297,8 @@ class SemanticAudioPhase(PhaseInterface):
     def process(
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("BEATs", phase_name="53")
+        check_ml_model_ready("LAION-CLAP", phase_name="53")
         """
         Analysiert Audio semantisch, gibt unverändertes Audio zurück.
 

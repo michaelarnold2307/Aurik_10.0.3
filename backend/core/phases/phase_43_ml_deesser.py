@@ -73,6 +73,7 @@ except ImportError:  # pragma: no cover
     _get_mp_senet_plugin_43 = None  # type: ignore[assignment]
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -472,6 +473,7 @@ class AdaptiveDeEsserPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("Whisper", phase_name="43")
         """
         De-Essing: Sibilanten reduzieren (stimmtyp-adaptiv, §2.8).
 

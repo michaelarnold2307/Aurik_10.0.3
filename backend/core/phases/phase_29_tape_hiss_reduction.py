@@ -430,6 +430,8 @@ class TapeHissReductionPhase(PhaseInterface):
         **kwargs,
     ) -> PhaseResult:
         check_ml_model_ready("DeepFilterNetV3", phase_name="29")
+        check_ml_model_ready("PANNs", phase_name="29")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="29")
         """
         Verarbeitet audio to reduce tape hiss with ML-Hybrid support.
 

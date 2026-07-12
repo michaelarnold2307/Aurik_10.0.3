@@ -46,6 +46,7 @@ from backend.core.defect_scanner import MaterialType
 
 from .output_guard import evaluate_output_guard
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 try:
     from backend.core.dsp.hallucination_guard import check_hallucination as _check_hallucination39
@@ -179,6 +180,7 @@ class AirBandEnhancement(PhaseInterface):
     def process(  # type: ignore[override]
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="39")
         """
         Wendet Air-Band-Verbesserung auf Audio an.
 

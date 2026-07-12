@@ -25,6 +25,7 @@ import numpy as np
 import scipy.signal as sps
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +330,8 @@ class ModulationNoiseReductionPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="59")
+        check_ml_model_ready("Whisper", phase_name="59")
         sample_rate = kwargs.get("sample_rate", sample_rate)
         strength = float(kwargs.get("strength", 0.7))
         defect_scores: dict | None = kwargs.get("defect_scores")

@@ -391,6 +391,13 @@ class DenoisePhase(PhaseInterface):
         noise_profile_end: float | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("BS-RoFormer", phase_name="03")
+        check_ml_model_ready("CREPE", phase_name="03")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="03")
+        check_ml_model_ready("FCPE", phase_name="03")
+        check_ml_model_ready("MIIPHER", phase_name="03")
+        check_ml_model_ready("PANNs", phase_name="03")
+        check_ml_model_ready("Whisper", phase_name="03")
         check_ml_model_ready("DeepFilterNetV3", phase_name="03")
         check_ml_model_ready("BS-RoFormer", phase_name="03")
         check_ml_model_ready("MIIPHER", phase_name="03")

@@ -65,6 +65,7 @@ from backend.core.core_utils import fft_crosscorr
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +327,7 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("Whisper", phase_name="25")
         """
         Wendet an: professional-grade azimuth correction.
 

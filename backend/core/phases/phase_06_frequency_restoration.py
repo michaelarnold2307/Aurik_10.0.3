@@ -96,6 +96,7 @@ else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
 import logging  # pylint: disable=wrong-import-position
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +363,9 @@ class FrequencyRestorationPhase(PhaseInterface):
     def process(  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
+        check_ml_model_ready("AudioSR", phase_name="06")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="06")
+        check_ml_model_ready("PANNs", phase_name="06")
         """
         Professional frequency restoration with SBR + harmonic extension.
 

@@ -23,6 +23,7 @@ import time as _time
 import numpy as np
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 
 def _rms_dbfs_gated(sig: np.ndarray) -> float:
@@ -392,6 +393,8 @@ class TapeSpliceRepairPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="64")
+        check_ml_model_ready("Whisper", phase_name="64")
         sample_rate = kwargs.get("sample_rate", sample_rate)
         t0 = _time.perf_counter()
         assert sample_rate == 48000, f"SR must be 48000 Hz, got: {sample_rate}"

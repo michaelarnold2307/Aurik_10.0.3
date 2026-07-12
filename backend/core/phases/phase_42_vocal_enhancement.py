@@ -56,6 +56,7 @@ from backend.core.defect_scanner import MaterialType
 from backend.core.dsp.stem_routing_policy import prefer_demucs_native_from_material
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # VocalAI Enhancement (Spec §2.8 — Stimmtyp-adaptive Gesangsverarbeitung)
 try:
@@ -307,6 +308,10 @@ class VocalEnhancement(PhaseInterface):
     def process(  # type: ignore  # pylint: disable=arguments-renamed
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("BS-RoFormer", phase_name="42")
+        check_ml_model_ready("Demucs", phase_name="42")
+        check_ml_model_ready("PANNs", phase_name="42")
+        check_ml_model_ready("Whisper", phase_name="42")
         """
         Apply vocal enhancement to audio — with stem-based processing when separation succeeds.
 

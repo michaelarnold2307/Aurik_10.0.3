@@ -40,6 +40,7 @@ from backend.core.audio_utils import to_channels_last
 from backend.core.phase_strength_contract import resolve_phase_strength_contract
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,8 @@ class VocalNaturalnessRestorationPhase(PhaseInterface):
     def process(  # type: ignore[override]
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="65")
+        check_ml_model_ready("Whisper", phase_name="65")
         """DSP-Vocal-Naturalness-Restaurierung.
 
         Args:

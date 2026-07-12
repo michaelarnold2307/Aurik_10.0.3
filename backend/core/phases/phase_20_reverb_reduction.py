@@ -78,6 +78,7 @@ from backend.core.defect_scanner import MaterialType
 from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # Resource Management for fallback to lightweight algorithms
 try:
@@ -271,6 +272,7 @@ class ReverbReduction(PhaseInterface):
     def process(  # type: ignore[override]  # pylint: disable=arguments-renamed
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.VINYL, **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="20")
         """
         Wendet an: reverb reduction.
 

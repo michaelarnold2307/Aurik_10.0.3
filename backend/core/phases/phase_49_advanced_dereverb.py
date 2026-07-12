@@ -232,6 +232,8 @@ class AdvancedDereverbPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="49")
+        check_ml_model_ready("WPE-Dereverb", phase_name="49")
         """
         Führt WPE-Dereverberation durch.
 

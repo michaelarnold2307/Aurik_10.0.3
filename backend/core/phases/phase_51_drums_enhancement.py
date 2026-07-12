@@ -48,6 +48,7 @@ from backend.core.defect_scanner import MaterialType
 
 from .output_guard import evaluate_output_guard
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # Import Drums Enhancement DSP module
 try:
@@ -188,6 +189,7 @@ class DrumsEnhancementV1(PhaseInterface):
         material_type: MaterialType = MaterialType.CD_DIGITAL,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="51")
         """
         Enhance drums and percussion.
 

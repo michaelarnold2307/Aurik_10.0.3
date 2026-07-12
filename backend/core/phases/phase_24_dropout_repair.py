@@ -871,6 +871,11 @@ class DropoutRepairPhase(PhaseInterface):
         quality_mode: str | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("AudioLDM2", phase_name="24")
+        check_ml_model_ready("AudioSR", phase_name="24")
+        check_ml_model_ready("GACELA", phase_name="24")
+        check_ml_model_ready("PANNs", phase_name="24")
+        check_ml_model_ready("Whisper", phase_name="24")
         check_ml_model_ready("AudioSR", phase_name="24")
         check_ml_model_ready("GACELA", phase_name="24")
         check_ml_model_ready("AudioLDM2", phase_name="24")

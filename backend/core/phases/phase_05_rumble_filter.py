@@ -89,6 +89,7 @@ if __name__ == "__main__":
 else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 import logging  # pylint: disable=wrong-import-position
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +259,7 @@ class RumbleFilterPhase(PhaseInterface):
     def process(
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="05")
         """
         Professional rumble removal with transient preservation.
 

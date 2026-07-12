@@ -41,6 +41,7 @@ import scipy.signal as sig
 from backend.core.audio_utils import to_channels_last
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ class SpatialEnhancementPhase(PhaseInterface):
     def process(
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="46")
         """
         Räumliche Erweiterung via Early Reflections + M/S Diffusion.
 

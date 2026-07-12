@@ -55,6 +55,7 @@ from backend.core.defect_scanner import MaterialType
 from backend.core.phase_strength_contract import resolve_phase_strength_contract
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,10 @@ class StemTargetedNRPhase(PhaseInterface):
         material_type: str | MaterialType = MaterialType.UNKNOWN,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("BS-RoFormer", phase_name="66")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="66")
+        check_ml_model_ready("Demucs", phase_name="66")
+        check_ml_model_ready("PANNs", phase_name="66")
         """Stem-Targeted NR.
 
         Args:

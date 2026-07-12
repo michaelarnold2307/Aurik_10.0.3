@@ -823,6 +823,10 @@ class CrackleRemovalPhase(PhaseInterface):
     ) -> PhaseResult:
         check_ml_model_ready("BANQUET", phase_name="09")
         check_ml_model_ready("DeepFilterNetV3", phase_name="09")
+        check_ml_model_ready("PANNs", phase_name="09")
+        check_ml_model_ready("Whisper", phase_name="09")
+        check_ml_model_ready("BANQUET", phase_name="09")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="09")
         """
         Professional crackle removal with texture preservation.
 

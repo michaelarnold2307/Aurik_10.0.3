@@ -72,6 +72,7 @@ from backend.core.defect_scanner import MaterialType
 from backend.core.stereo_temporal_coherence_guard import get_stereo_temporal_coherence_guard
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # pylint: disable=import-outside-toplevel
 logger = logging.getLogger(__name__)
@@ -327,6 +328,11 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
         material_type: str | MaterialType = "unknown",
         **kwargs: Any,
     ) -> PhaseResult:
+        check_ml_model_ready("BasicPitch", phase_name="31")
+        check_ml_model_ready("CREPE", phase_name="31")
+        check_ml_model_ready("FCPE", phase_name="31")
+        check_ml_model_ready("PANNs", phase_name="31")
+        check_ml_model_ready("Whisper", phase_name="31")
         """
         Professional speed/pitch correction with WSOLA + Phase Vocoder.
 

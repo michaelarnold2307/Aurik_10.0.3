@@ -50,6 +50,7 @@ from backend.core.audio_utils import audio_sample_count, stereo_channel_view, st
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 try:
     from backend.core.dsp.hallucination_guard import check_hallucination as _check_hg_37_fn
@@ -156,6 +157,7 @@ class BassEnhancement(PhaseInterface):
     def process(  # type: ignore[override]
         self, audio: np.ndarray, sample_rate: int, material: MaterialType = MaterialType.CD_DIGITAL, **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="37")
         """
         Wendet Bass-Verbesserung auf Audio an.
 

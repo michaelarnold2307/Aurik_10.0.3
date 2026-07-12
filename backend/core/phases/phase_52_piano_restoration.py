@@ -70,6 +70,7 @@ from backend.core.defect_scanner import MaterialType
 
 from .output_guard import evaluate_output_guard
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
@@ -259,6 +260,8 @@ class PianoRestorationV1(PhaseInterface):
         material_type: MaterialType = MaterialType.CD_DIGITAL,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("MERT", phase_name="52")
+        check_ml_model_ready("PANNs", phase_name="52")
         """
         Restauriert piano recordings with material-adaptive processing.
 

@@ -1,19 +1,22 @@
 """ML model readiness check — centralised pre-flight for all Aurik phases.
 
-Each phase that uses an ML model MUST call `check_ml_model_ready()` before
+Every phase that uses an ML model MUST call `check_ml_model_ready()` before
 invoking inference.  If the model cannot be loaded or is unavailable, a
 WARNING is logged and the phase can fall back gracefully.
+
+Model registry is populated at import time via lazy probing — each registered
+check function probes the actual plugin/module and returns True only if the
+model is fully loaded and ready for inference.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
-# Registry of model checkers — each entry is (label, check_fn) where
-# check_fn returns True if the model is ready, False otherwise.
+# Registry: model_id -> check_fn() -> bool
 _MODEL_CHECKS: dict[str, Callable[[], bool]] = {}
 
 
@@ -63,133 +66,161 @@ def check_ml_model_ready(model_id: str, phase_name: str = "") -> bool:
     return True
 
 
-# ── Pre-registered checks for phase-level ML models ──────────────────
+# ── Generic plugin probe helpers ──────────────────────────────────────
 
-def _register_phase_checks() -> None:
-    """Register readiness checks for the ML models used directly in phases."""
-
-    # DeepFilterNet v3
-    try:
-        from plugins.deepfilternet_v3_ii_plugin import get_dfnet_plugin as _get_dfnet
-
-        def _dfnet_ready() -> bool:
-            p = _get_dfnet()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("DeepFilterNetV3", _dfnet_ready)
-    except ImportError:
-        register_ml_check("DeepFilterNetV3", lambda: False)
-
-    # BANQUET (Vinyl Crackle Removal)
-    def _banquet_ready() -> bool:
+def _probe_plugin(module_path: str, getter_name: str, attr: str | None = None) -> Callable[[], bool]:
+    """Return a check function that probes a plugin's getter + optional attr."""
+    def _check() -> bool:
         try:
-            from backend.core.phases.phase_09_crackle_removal import (
-                _get_banquet_onnx_session,
-            )
+            mod = __import__(module_path, fromlist=[getter_name])
+            getter = getattr(mod, getter_name, None)
+            if getter is None:
+                return False
+            instance = getter()
+            if instance is None:
+                return False
+            if attr is not None:
+                if isinstance(attr, str):
+                    # Check attribute
+                    val = getattr(instance, attr, None)
+                    if callable(val):
+                        return bool(val())
+                    return bool(val)
+            return True
+        except ImportError:
+            return False
+        except Exception:
+            return False
 
-            return _get_banquet_onnx_session() is not None
+    return _check
+
+
+def _probe_function(module_path: str, fn_name: str) -> Callable[[], bool]:
+    """Return a check function that probes a module-level function."""
+    def _check() -> bool:
+        try:
+            mod = __import__(module_path, fromlist=[fn_name])
+            fn = getattr(mod, fn_name, None)
+            if fn is None:
+                return False
+            result = fn()
+            return result is not None and result is not False
+        except ImportError:
+            return False
+        except Exception:
+            return False
+
+    return _check
+
+
+# ── Register all known ML models ──────────────────────────────────────
+
+def _register_all() -> None:
+    """Probe and register all ML models used in Aurik phases."""
+
+    # --- Denoising / Restoration ---
+    register_ml_check(
+        "DeepFilterNetV3",
+        _probe_plugin("plugins.deepfilternet_v3_ii_plugin", "get_deepfilternet_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "BANQUET",
+        _probe_function("backend.core.phases.phase_09_crackle_removal", "_get_banquet_onnx_session"),
+    )
+
+    # --- Bandwidth Extension / Inpainting ---
+    register_ml_check(
+        "AudioSR",
+        _probe_function("plugins.audiosr_plugin", "_get_ml_model"),
+    )
+    register_ml_check(
+        "GACELA",
+        _probe_plugin("plugins.gacela_plugin", "get_gacela_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "AudioLDM2",
+        _probe_plugin("plugins.audioldm2_plugin", "get_audioldm2_plugin", "_model_loaded"),
+    )
+
+    # --- Vocal / Stem ---
+    register_ml_check(
+        "BS-RoFormer",
+        _probe_plugin("plugins.bs_roformer_plugin", "get_bs_roformer", "_model_loaded"),
+    )
+    register_ml_check(
+        "MIIPHER",
+        _probe_plugin("plugins.miipher_plugin", "get_miipher_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "Demucs",
+        _probe_plugin("plugins.demucs_plugin", "get_demucs_plugin", "_model_loaded"),
+    )
+
+    # --- Voice Activity / Speech ---
+    register_ml_check(
+        "SileroVAD",
+        _probe_plugin("plugins.silero_vad_plugin", "get_silero_vad_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "Whisper",
+        _probe_plugin("backend.core.lyrics_guided_enhancement", "get_lyrics_guided_enhancement", "is_loaded"),
+    )
+    register_ml_check(
+        "Wav2Vec2",
+        _probe_plugin("backend.core.lyrics_guided_enhancement", "get_lyrics_guided_enhancement", "is_loaded"),
+    )
+
+    # --- Pitch / Frequency ---
+    register_ml_check(
+        "FCPE",
+        _probe_plugin("plugins.fcpe_plugin", "get_fcpe_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "CREPE",
+        _probe_plugin("plugins.crepe_plugin", "get_crepe_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "BasicPitch",
+        _probe_plugin("plugins.basicpitch_plugin", "get_basicpitch_plugin", "_model_loaded"),
+    )
+
+    # --- Audio Tagging / Classification ---
+    register_ml_check(
+        "PANNs",
+        _probe_plugin("plugins.panns_plugin", "get_panns_plugin", "_model_loaded"),
+    )
+    register_ml_check(
+        "LAION-CLAP",
+        _probe_plugin("plugins.laion_clap_plugin", "get_laion_clap", "_model_loaded"),
+    )
+    register_ml_check(
+        "BEATs",
+        _probe_plugin("plugins.beats_plugin", "get_beats_plugin", "_model_loaded"),
+    )
+
+    # --- Music Understanding ---
+    register_ml_check(
+        "MERT",
+        _probe_plugin("plugins.mert_plugin", "get_mert_plugin", "_model_loaded"),
+    )
+
+    # --- Dereverberation ---
+    register_ml_check(
+        "WPE-Dereverb",
+        _probe_plugin("plugins.wpe_plugin", "get_wpe_plugin", "_initialized"),
+    )
+
+    # --- Perceptual Quality ---
+    def _ast_ready() -> bool:
+        try:
+            from backend.core.musical_goals.perceptual_validator import get_perceptual_validator
+
+            pv = get_perceptual_validator()
+            return pv is not None and getattr(pv, "_model_loaded", False)
         except ImportError:
             return False
 
-    register_ml_check("BANQUET", _banquet_ready)
-
-    # AudioSR
-    try:
-        from plugins.audiosr_plugin import _get_ml_model as _get_audiosr
-
-        def _audiosr_ready() -> bool:
-            return _get_audiosr() is not None
-
-        register_ml_check("AudioSR", _audiosr_ready)
-    except ImportError:
-        register_ml_check("AudioSR", lambda: False)
-
-    # BS-RoFormer
-    try:
-        from plugins.bs_roformer_plugin import get_bs_roformer_plugin as _get_bsr
-
-        def _bsr_ready() -> bool:
-            p = _get_bsr()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("BS-RoFormer", _bsr_ready)
-    except ImportError:
-        register_ml_check("BS-RoFormer", lambda: False)
-
-    # MIIPHER
-    try:
-        from plugins.miipher_plugin import get_miipher_plugin as _get_miipher
-
-        def _miipher_ready() -> bool:
-            p = _get_miipher()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("MIIPHER", _miipher_ready)
-    except ImportError:
-        register_ml_check("MIIPHER", lambda: False)
-
-    # Silero VAD
-    try:
-        from plugins.silero_vad_plugin import get_silero_vad_plugin as _get_vad
-
-        def _vad_ready() -> bool:
-            p = _get_vad()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("SileroVAD", _vad_ready)
-    except ImportError:
-        register_ml_check("SileroVAD", lambda: False)
-
-    # GACELA
-    try:
-        from plugins.gacela_plugin import get_gacela_plugin as _get_gacela
-
-        def _gacela_ready() -> bool:
-            p = _get_gacela()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("GACELA", _gacela_ready)
-    except ImportError:
-        register_ml_check("GACELA", lambda: False)
-
-    # AudioLDM2
-    try:
-        from plugins.audioldm2_plugin import get_audioldm2_plugin as _get_aldm2
-
-        def _aldm2_ready() -> bool:
-            p = _get_aldm2()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("AudioLDM2", _aldm2_ready)
-    except ImportError:
-        register_ml_check("AudioLDM2", lambda: False)
-
-    # BasicPitch
-    try:
-        from plugins.basicpitch_plugin import get_basicpitch_plugin as _get_bp
-
-        def _bp_ready() -> bool:
-            p = _get_bp()
-            return p is not None and getattr(p, "_model_loaded", False)
-
-        register_ml_check("BasicPitch", _bp_ready)
-    except ImportError:
-        register_ml_check("BasicPitch", lambda: False)
-
-    # Whisper (via LGE)
-    def _whisper_ready() -> bool:
-        try:
-            from backend.core.lyrics_guided_enhancement import (
-                get_lyrics_guided_enhancement,
-            )
-
-            lge = get_lyrics_guided_enhancement()
-            return lge.is_loaded() if hasattr(lge, "is_loaded") else False
-        except ImportError:
-            return False
-
-    register_ml_check("Whisper", _whisper_ready)
+    register_ml_check("AST-Perceptual-ONNX", _ast_ready)
 
 
-# Register at import time
-_register_phase_checks()
+_register_all()

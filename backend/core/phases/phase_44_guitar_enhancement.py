@@ -39,6 +39,7 @@ import scipy.signal as sig
 from backend.core.audio_utils import safe_to_mono
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 try:
     from dsp.formant_system import FormantSystem as _FormantSystemCls
@@ -141,6 +142,9 @@ class GuitarEnhancementPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("BEATs", phase_name="44")
+        check_ml_model_ready("LAION-CLAP", phase_name="44")
+        check_ml_model_ready("PANNs", phase_name="44")
         """
         Guitar Enhancement: Transient + Exciter + EQ.
 

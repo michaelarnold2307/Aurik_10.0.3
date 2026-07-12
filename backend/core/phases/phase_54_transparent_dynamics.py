@@ -68,6 +68,7 @@ from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
 from backend.core.natural_performance_detector import get_natural_performance_detector
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +360,8 @@ class TransparentDynamicsV1(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="54")
+        check_ml_model_ready("Whisper", phase_name="54")
         """
         Wendet an: transparent psychoacoustic-aware compression.
 

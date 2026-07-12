@@ -84,6 +84,7 @@ from backend.core.audio_utils import (
 from backend.core.defect_scanner import MaterialType
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # Resource Management for fallback to lightweight algorithms
 try:
@@ -357,6 +358,11 @@ class WowFlutterFix(PhaseInterface):
     def process(  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
+        check_ml_model_ready("BasicPitch", phase_name="12")
+        check_ml_model_ready("CREPE", phase_name="12")
+        check_ml_model_ready("FCPE", phase_name="12")
+        check_ml_model_ready("PANNs", phase_name="12")
+        check_ml_model_ready("Whisper", phase_name="12")
         """
         Correct wow & flutter using professional pitch detection + Phase Vocoder.
 

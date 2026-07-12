@@ -51,6 +51,7 @@ from backend.core.defect_scanner import MaterialType
 from backend.core.phase_strength_contract import resolve_phase_strength_contract
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,7 @@ class DynamicRangeExpansion(PhaseInterface):
         material_type: str = "unknown",
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="26")
         """
         Wendet an: dynamic range expansion to audio.
 

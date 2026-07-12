@@ -637,6 +637,9 @@ class SpectralRepair(PhaseInterface):
         **kwargs: Any,
     ) -> PhaseResult:
         check_ml_model_ready("AudioSR", phase_name="23")
+        check_ml_model_ready("PANNs", phase_name="23")
+        check_ml_model_ready("Whisper", phase_name="23")
+        check_ml_model_ready("AudioSR", phase_name="23")
         """
         Wendet an: spectral repair to audio.
 

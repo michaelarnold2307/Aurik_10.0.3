@@ -382,6 +382,9 @@ class ClickRemovalPhase(PhaseInterface):
         **kwargs,
     ) -> PhaseResult:
         check_ml_model_ready("DeepFilterNetV3", phase_name="01")
+        check_ml_model_ready("PANNs", phase_name="01")
+        check_ml_model_ready("Whisper", phase_name="01")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="01")
         """
         Professional click removal with multi-scale detection and ML-Hybrid support.
 

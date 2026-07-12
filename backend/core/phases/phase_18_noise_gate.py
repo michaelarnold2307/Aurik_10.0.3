@@ -99,6 +99,7 @@ except ImportError:  # pragma: no cover
     _get_silero_plugin_18 = None  # type: ignore[assignment]
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +323,8 @@ class NoiseGate(PhaseInterface):
         material_type: str = "unknown",
         **kwargs: Any,
     ) -> PhaseResult:
+        check_ml_model_ready("PANNs", phase_name="18")
+        check_ml_model_ready("SileroVAD", phase_name="18")
         """
         Wendet an: multi-band noise gate to audio.
 

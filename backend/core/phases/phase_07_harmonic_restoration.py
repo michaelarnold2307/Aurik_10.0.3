@@ -100,6 +100,7 @@ else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
 from backend.core.audio_utils import restore_layout, to_channels_last  # pylint: disable=wrong-import-position
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +419,8 @@ class HarmonicRestorationPhase(PhaseInterface):
     def process(
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
+        check_ml_model_ready("AudioSR", phase_name="07")
+        check_ml_model_ready("PANNs", phase_name="07")
         """
         Professional harmonic restoration with saturation modeling.
 

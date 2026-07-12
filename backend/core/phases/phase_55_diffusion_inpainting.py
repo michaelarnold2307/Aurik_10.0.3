@@ -49,6 +49,7 @@ import numpy as np
 from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -1279,6 +1280,9 @@ class DiffusionInpaintingPhase(PhaseInterface):
         material_type: str = "unknown",
         **kwargs: Any,
     ) -> PhaseResult:
+        check_ml_model_ready("AudioLDM2", phase_name="55")
+        check_ml_model_ready("PANNs", phase_name="55")
+        check_ml_model_ready("Whisper", phase_name="55")
         sample_rate = int(kwargs.get("sample_rate", sample_rate))
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         t0 = time.perf_counter()
