@@ -1396,7 +1396,7 @@ class DropoutRepairPhase(PhaseInterface):
         lag_corr = self._estimate_stereo_lag_samples(corrected, max_lag_samples=max_lag_samples)
         stats["lag_corrected"] = True
         stats["lag_output_corrected_samples"] = int(lag_corr)
-        logger.warning(
+        logger.info(
             "Phase 24 stereo-lag safety: corrected introduced lag delta=%d samples (in=%d out=%d corrected=%d)",
             lag_delta,
             lag_in,
