@@ -59,6 +59,28 @@ logger = logging.getLogger(__name__)
 _SUBSTEP_TIMEOUT_S = 240.0
 
 # ---------------------------------------------------------------------------
+# Progress state (single source of truth, §G19/V71)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProgressState:
+    """Single source of truth for all pre-analysis progress callbacks.
+
+    ALL callbacks (scan_progress, progress_callback, emit_load_progress)
+    write to this object. The GUI reads from it. No more disconnected streams.
+    """
+
+    pct: float = 0.0  # 0.0–100.0 — drives the progress bar
+    step_msg: str = ""  # Human-readable step description
+    step_pct: int = 0  # Integer 0–100 for the current step
+    total_steps: int = 4  # Expected number of parallel steps
+    done_steps: int = 0  # Completed parallel steps
+    errors: list[str] = field(default_factory=list)
+    last_update: float = 0.0  # time.monotonic() of last write
+
+
+# ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 

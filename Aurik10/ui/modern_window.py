@@ -16448,6 +16448,16 @@ class ModernMainWindow(QMainWindow):
                 _era_floor_applied = False
 
                 er = _result.era
+                # §V72: Timeout/Fehler in UI anzeigen statt Leerfeld
+                _era_errors = _result.errors.get("era", "")
+                _genre_errors = _result.errors.get("genre", "")
+                if _era_errors and er is None:
+                    decade_label = "nicht verfügbar"
+                    tip_era += "Aufnahme-Ära: <b>Analyse nicht verfügbar</b><br>"
+                if _genre_errors and _result.genre is None:
+                    genre_label = "nicht verfügbar"
+                    tip_era += "Genre: <b>Analyse nicht verfügbar</b><br>"
+
                 if er is not None:
                     _raw_dec = getattr(er, "decade", None) or (er.get("decade") if isinstance(er, dict) else None)
                     if isinstance(_raw_dec, (int, float)):
