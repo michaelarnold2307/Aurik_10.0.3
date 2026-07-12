@@ -138,10 +138,21 @@ def main() -> int:
     p.add_argument("--changed", action="store_true", help="Nur git-diff Dateien")
     p.add_argument("--all", action="store_true", help="Alle Projekt-.py-Dateien (Default)")
     p.add_argument("--json", action="store_true", help="JSON-Ausgabe")
+    p.add_argument(
+        "files", nargs="*", default=None,
+        help="Explizite Datei-Liste (von pre-commit übergeben). "
+             "Wenn angegeben, werden NUR diese Dateien gescannt.",
+    )
     args = p.parse_args()
 
     mode = "staged" if args.staged else "changed" if args.changed else "all"
     files = get_target_files(mode)
+
+    # Wenn explizite Dateien übergeben wurden, nur diese scannen
+    if args.files:
+        explicit = [Path(f) for f in args.files if f.endswith(".py")]
+        if explicit:
+            files = explicit
 
     all_issues: dict[str, list[str]] = {}
     for fp in files:
