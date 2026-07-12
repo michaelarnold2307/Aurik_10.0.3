@@ -16226,6 +16226,16 @@ class ModernMainWindow(QMainWindow):
                     self.status_text.setText(_msg)
                     self._apply_status_text_style("success")
                 self._set_magic_buttons_enabled(True)
+                # Pre-load AurikDenker singleton so BatchProcessingThread
+                # doesn't hang on first import (denker.aurik_denker is heavy).
+                def _preload_denker() -> None:
+                    try:
+                        from backend.api.bridge import get_aurik_denker_instance
+                        get_aurik_denker_instance()
+                        logger.info("AurikDenker vorgeladen — bereit")
+                    except Exception as _e:
+                        logger.warning("AurikDenker-Vorladung fehlgeschlagen: %s", _e)
+                threading.Thread(target=_preload_denker, daemon=True, name="denker-preload").start()
 
             def _fail_closed_preanalysis(reason: str) -> None:
                 """Fail-closed bei Voranalysefehler: Buttons bleiben gesperrt, kein stiller Bypass."""
