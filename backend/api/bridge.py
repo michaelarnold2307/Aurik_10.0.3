@@ -1822,16 +1822,23 @@ def warmup_models_background() -> None:
         ("plugins.laion_clap_plugin", "get_laion_clap"),  # LAION-CLAP (2.2 GB)
     ]
     logger.info("bridge: warmup started (%d plugins) …", len(_plugins))
+    _loaded = 0
+    _failed = 0
     for _mod, _accessor in _plugins:
         try:
             m = importlib.import_module(_mod)
             fn = getattr(m, _accessor, None)
             if fn is not None:
                 fn()
-                logger.debug("bridge: %s.%s vorgeladen", _mod.rsplit(".", maxsplit=1)[-1], _accessor)
+                _loaded += 1
+                if "clap" in _mod.lower():
+                    logger.info("bridge: %s.%s geladen (2.2 GB)", _mod.rsplit(".", maxsplit=1)[-1], _accessor)
+                else:
+                    logger.debug("bridge: %s.%s vorgeladen", _mod.rsplit(".", maxsplit=1)[-1], _accessor)
         except Exception as _e:
-            logger.debug("bridge: %s.%s übersprungen: %s", _mod, _accessor, _e)
-    logger.info("bridge: warmup complete")
+            _failed += 1
+            logger.warning("bridge: %s.%s FEHLGESCHLAGEN: %s", _mod, _accessor, _e)
+    logger.info("bridge: warmup complete — %d geladen, %d fehlgeschlagen", _loaded, _failed)
 
 
 def warmup_rocm() -> None:
