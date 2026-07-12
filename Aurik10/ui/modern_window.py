@@ -15745,15 +15745,24 @@ class ModernMainWindow(QMainWindow):
     # ── Thread-sichere GUI-Dispatch-Helfer ─────────────────────────────────
     def _dispatch_to_gui(self, fn) -> None:
         """Ruft `fn()` thread-sicher im GUI-Thread auf (via pyqtSignal)."""
-        self._gui_dispatch.emit(fn)
+        try:
+            self._gui_dispatch.emit(fn)
+        except RuntimeError:
+            pass  # Window closed while background thread still running
 
     def dispatch_to_gui(self, fn) -> None:
         """Public wrapper for GUI-thread dispatch used by nested worker closures."""
-        self._dispatch_to_gui(fn)
+        try:
+            self._dispatch_to_gui(fn)
+        except RuntimeError:
+            pass  # Window closed during background work
 
     def emit_load_progress(self, pct: float) -> None:
         """Public wrapper for load/pre-analysis progress updates."""
-        self._load_progress.emit(float(pct))
+        try:
+            self._load_progress.emit(float(pct))
+        except RuntimeError:
+            pass  # Window closed during background work
 
     def _safe_gui_invoke(self, fn) -> None:
         """Führt aus: GUI callbacks safely so a single callback cannot crash the UI thread."""
@@ -16349,17 +16358,23 @@ class ModernMainWindow(QMainWindow):
                 # _CARRIER_ANALOG_MEDIA, _render_carrier_html(), _build_carrier_chain_html()
 
                 def _on_scan_progress(pct: float) -> None:
-                    self.emit_load_progress(float(pct))
+                    try:
+                        self.emit_load_progress(float(pct))
+                    except RuntimeError:
+                        pass  # Window closed
 
                 def _on_preanalysis_step(pct: int, msg: str) -> None:
                     """Forward pre-analysis step progress to GUI status text AND progress bar."""
                     _last_step_pct[0] = float(pct)
                     _last_step_time[0] = time.monotonic()
-                    self.dispatch_to_gui(lambda _p=pct, _m=msg: (
-                        setattr(self, '_preanalysis_step_msg', _m),
-                        setattr(self, '_preanalysis_step_pct', _p),
-                        self.emit_load_progress(float(_p)),  # Treibt den Fortschrittsbalken
-                    ))
+                    try:
+                        self.dispatch_to_gui(lambda _p=pct, _m=msg: (
+                            setattr(self, '_preanalysis_step_msg', _m),
+                            setattr(self, '_preanalysis_step_pct', _p),
+                            self.emit_load_progress(float(_p)),
+                        ))
+                    except RuntimeError:
+                        pass  # Window closed
 
                 # ── Run all analyses via unified backend entry point ──────────
                 if _bridge_run_pre_analysis is None:
@@ -16378,7 +16393,10 @@ class ModernMainWindow(QMainWindow):
                     )
                 except Exception as _pre_exc:  # pylint: disable=broad-except
                     _logger_.error("_pre_analysis_bg: run_pre_analysis fehlgeschlagen: %s", _pre_exc)
-                    self.dispatch_to_gui(lambda _msg=str(_pre_exc): _fail_closed_preanalysis(_msg))
+                    try:
+                        self.dispatch_to_gui(lambda _msg=str(_pre_exc): _fail_closed_preanalysis(_msg))
+                    except RuntimeError:
+                        pass  # Window closed
                     return
 
                 # Staleness guard — discard result if user switched file during analysis
