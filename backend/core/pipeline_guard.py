@@ -330,6 +330,80 @@ class PipelineGuard:
     def material(self) -> str:
         return self._material
 
+    # ── Phase-Integration: CLP + Dynamics + Whisper ────────────────────
+
+    def get_clp_attenuation_limit(self, freq_hz: float) -> float:
+        """Maximal erlaubte Daempfung (dB) fuer eine Frequenz basierend auf CLP-Maske.
+
+        Denoise-Phasen rufen dies pro Frequenzband auf, um Ueberdaempfung in
+        gehoerempfindlichen Bereichen (2-5 kHz Praesenz-Zone) zu verhindern.
+
+        Returns: dB-Wert (0 = keine Daempfung erlaubt, 99 = unbegrenzt)
+        """
+        if self._clp_result is None:
+            return 99.0
+        try:
+            from backend.core.pipeline_guard import get_clp_max_attenuation_for_frequency
+            return get_clp_max_attenuation_for_frequency(freq_hz, self._clp_result)
+        except Exception:
+            return 99.0
+
+    def get_clp_gain_limit(self, freq_hz: float) -> float:
+        """Maximal erlaubte Verstaerkung (dB) fuer eine Frequenz.
+
+        EQ/Enhancement-Phasen rufen dies auf, um Ueberbetonung in
+        gehoerempfindlichen Bereichen zu verhindern.
+        """
+        if self._clp_result is None:
+            return 99.0
+        try:
+            return get_clp_max_gain_for_frequency(freq_hz, self._clp_result)
+        except Exception:
+            return 99.0
+
+    def get_whisper_protection(self, time_s: float) -> float:
+        """Whisper-Schutzfaktor (0-1) fuer einen Zeitpunkt.
+
+        1.0 = voller Schutz (NR-Staerke auf Minimum reduzieren)
+        0.0 = kein Schutz (normale Verarbeitung)
+
+        NR-Phasen multiplizieren ihre Strength mit (1.0 - protection).
+        """
+        if self._whisper_result is None or self._whisper_result.preservation_mask is None:
+            return 0.0
+        try:
+            mask = self._whisper_result.preservation_mask
+            hop_s = 0.025  # 25ms (wie in Whisper-Analyse)
+            frame_idx = int(time_s / hop_s)
+            if 0 <= frame_idx < len(mask):
+                return float(mask[frame_idx])
+        except Exception:
+            pass
+        return 0.0
+
+    def check_and_restore_dynamics(self, audio: np.ndarray, sr: int, phase_name: str) -> np.ndarray:
+        """Prueft Dynamik-Verlust und stellt bei Bedarf wieder her.
+
+        Wird NACH jeder Dynamics-relevanten Phase (Kompressor, Limiter, EQ) aufgerufen.
+        Bei kumulativem Verlust >4dB wird selektiv wiederhergestellt.
+        """
+        if self._original_profile is None:
+            return audio
+        try:
+            dyn = self._dp()
+            loss = dyn.check_phase(phase_name, audio, sr)
+            if loss.severity == "severe" or dyn.should_restore():
+                from backend.core.dynamics_preserver import restore_dynamics
+                logger.info("PipelineGuard: Auto-Dynamics-Recovery after %s (loss=%.1fdB)",
+                            phase_name, dyn.cumulative_loss_db)
+                return restore_dynamics(audio, sr, self._original_profile, strength=0.5)
+            if loss.severity == "moderate":
+                logger.debug("PipelineGuard: Dynamics loss after %s: %.1fdB (moderate, no recovery)",
+                             phase_name, loss.total_loss_db)
+        except Exception as e:
+            logger.debug("PipelineGuard: dynamics check error: %s", e)
+        return audio
+
     # ── Reset ─────────────────────────────────────────────────────────
 
     def reset(self) -> None:
