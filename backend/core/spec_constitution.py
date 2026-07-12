@@ -48,7 +48,7 @@ PERCEPTUAL_IMPROVEMENT = "Der Export muss näher am Original-Klang liegen als de
 MUSIC_DEATH_SHIELD = {
     "artifact_freedom_min": 0.95,
     "hpi_min": 0.0,
-    "vqi_recovery_trigger": 0.72,
+    "vqi_recovery_trigger": 0.72,  # §0p: panns_singing >= 0.35 → Vokal-Vorrang
     "vqi_restoration_target": 0.82,
     "vqi_studio2026_target": 0.87,
     "oqs_min": 80,
@@ -246,11 +246,30 @@ MUSICAL_GOALS = {
 
 # Material-adaptive Floor-Toleranzen (fragile Materialien haben niedrigere Erwartungen)
 MATERIAL_GOAL_FLOOR: dict[str, dict[str, float]] = {
-    "wax_cylinder": {"authentizitaet": 0.55, "natuerlichkeit": 0.55, "brillanz": 0.45},
-    "shellac": {"authentizitaet": 0.60, "natuerlichkeit": 0.60, "brillanz": 0.55},
-    "vinyl": {"authentizitaet": 0.65, "natuerlichkeit": 0.65, "brillanz": 0.60},
-    "tape": {"authentizitaet": 0.65, "natuerlichkeit": 0.65, "brillanz": 0.60},
-    "cassette": {"authentizitaet": 0.60, "natuerlichkeit": 0.60, "brillanz": 0.55},
+    # Wachswalze (1877-1929): Frequenzbereich 200-5000 Hz, SNR ~20dB
+    "wax_cylinder":  {"authentizitaet": 0.55, "natuerlichkeit": 0.55, "brillanz": 0.40,
+                      "timbre": 0.50, "groove": 0.45, "artikulation": 0.55,
+                      "waerme": 0.60, "transparenz": 0.45, "kohaerenz": 0.50},
+    # Schellack (1895-1958): 100-8000 Hz, SNR ~30dB, RIAA-EQ fehlt
+    "shellac":       {"authentizitaet": 0.60, "natuerlichkeit": 0.60, "brillanz": 0.50,
+                      "timbre": 0.55, "groove": 0.55, "artikulation": 0.60,
+                      "waerme": 0.65, "transparenz": 0.50, "kohaerenz": 0.55},
+    # Vinyl (1948-): 20-20000 Hz, SNR ~60dB, RIAA-EQ
+    "vinyl":         {"authentizitaet": 0.65, "natuerlichkeit": 0.65, "brillanz": 0.60,
+                      "timbre": 0.65, "groove": 0.65, "artikulation": 0.65,
+                      "waerme": 0.70, "transparenz": 0.60, "kohaerenz": 0.65},
+    # Tonband (1930-): 30-18000 Hz, SNR ~55dB, Bandsättigung
+    "tape":          {"authentizitaet": 0.65, "natuerlichkeit": 0.65, "brillanz": 0.60,
+                      "timbre": 0.65, "groove": 0.65, "artikulation": 0.65,
+                      "waerme": 0.70, "transparenz": 0.60, "kohaerenz": 0.65},
+    # Kassette (1963-): 30-16000 Hz, SNR ~50dB, Dolby B/C/S
+    "cassette":      {"authentizitaet": 0.60, "natuerlichkeit": 0.60, "brillanz": 0.55,
+                      "timbre": 0.60, "groove": 0.60, "artikulation": 0.60,
+                      "waerme": 0.65, "transparenz": 0.55, "kohaerenz": 0.60},
+    # CD/DAT/High-Quality Digital (1982-): 20-20000 Hz, SNR >90dB
+    "cd_digital":    {"authentizitaet": 0.75, "natuerlichkeit": 0.75, "brillanz": 0.70,
+                      "timbre": 0.75, "groove": 0.75, "artikulation": 0.75,
+                      "waerme": 0.70, "transparenz": 0.75, "kohaerenz": 0.75},
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
