@@ -38,7 +38,7 @@ ACCEPTED_STUBS: frozenset[tuple[str, str]] = frozenset(
         ("core/phases/phase_interface.py", "process"),
         ("core/phases/phase_interface.py", "get_metadata"),
         ("plugins/sdk/aurik_plugin_base.py", "process_audio"),  # @abstractmethod im Plugin-SDK
-        ("core/plugin_base.py", "_model_loaded"),  # @abstractmethod in MLPluginBase (§A2)
+        ("plugin_base.py", "_model_loaded"),  # @abstractmethod in MLPluginBase (§A2)
         # Template-Method-Pattern — Subklassen überschreiben gezielt
         ("backend/ml/safety_wrappers/safety_wrapper_template.py", "_validate_pre_conditions"),
         ("backend/ml/safety_wrappers/safety_wrapper_template.py", "_assess_epistemic_confidence"),
