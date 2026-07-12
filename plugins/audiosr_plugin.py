@@ -176,7 +176,13 @@ def _get_ml_model() -> object | None:
 
                 _fsm.decode = _patched_decode.__get__(_fsm)
             _ml_model = model
-            logger.info("AudioSR: ML-Modell bereit (device=cpu, ddim_steps=50).")
+            _actual_device = "cpu"
+            if hasattr(model, "parameters"):
+                try:
+                    _actual_device = str(next(model.parameters()).device)
+                except (StopIteration, RuntimeError):
+                    _actual_device = "cpu"
+            logger.info("AudioSR: ML-Modell bereit (device=%s, ddim_steps=50).", _actual_device)
             # PLM-Registrierung für LRU-basierte Auto-Eviction
             try:
                 from backend.core.plugin_lifecycle_manager import register_plugin as _reg_plm
@@ -326,8 +332,16 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                     # §SOTA: DDIM-Diffusion auf GPU, Vocoder auf CPU (via Patch beim Modell-Load)
                     # model.cpu() NICHT aufrufen — das würde GPU-DDIM zerstören.
                     # Der HiFi-GAN-Vocoder ist bereits via _patched_mel2wav/_patched_decode auf CPU.
-                    if hasattr(batch, "to") and hasattr(model, "device"):
-                        batch = batch.to(model.device)
+                    # Robust device detection via parameters (not model.device attr)
+                    if hasattr(batch, "to"):
+                        _model_dev = "cpu"
+                        try:
+                            if hasattr(model, "parameters"):
+                                _model_dev = next(model.parameters()).device
+                        except (StopIteration, RuntimeError):
+                            _model_dev = "cpu"
+                        if hasattr(batch, "device") and batch.device != _model_dev:
+                            batch = batch.to(_model_dev)
                     with _asr_torch.no_grad():
                         z_result_raw = model.generate_batch(  # type: ignore[attr-defined]
                             batch,
@@ -357,16 +371,15 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                         str(_direct_exc),
                     )
                     try:
-                        _model_cpu = model
-                        if hasattr(_model_cpu, "cpu"):
-                            _model_cpu = _model_cpu.cpu()
-                        z_result_raw = super_resolution(
-                            zone_mono, sr,
-                            model=_model_cpu,
-                            ddim_steps=min(_audiosr_ddim_steps, 20),
-                            duration=_asr_duration,
-                            force_cpu=True,
-                        )
+                        _model_cpu = model.cpu() if hasattr(model, "cpu") else model
+                        _batch_cpu = batch.cpu() if hasattr(batch, "cpu") else batch
+                        with _asr_torch.no_grad():
+                            z_result_raw = _model_cpu.generate_batch(
+                                _batch_cpu,
+                                unconditional_guidance_scale=3.5,
+                                ddim_steps=min(_audiosr_ddim_steps, 20),
+                                duration=_asr_duration,
+                            )
                         logger.info("AudioSR Recovery 1/3: CPU-Mode erfolgreich")
                     except Exception as _retry_exc:
                         logger.warning(
