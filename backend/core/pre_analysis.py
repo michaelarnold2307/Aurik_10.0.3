@@ -404,26 +404,27 @@ def run_pre_analysis(
                         _genre_label,
                         " → ".join(_chain),
                     )
+            _cb(93, "Tonträgerkette wird validiert…")
 
-                # 2. Genre + Sprache → Kette: Chain mit erweiterten Parametern neu matchen
-                                # Sort detected materials chronologically (reel_tape before cassette etc.)
-                _detected = sorted(
-                    set(_chain),
-                    key=lambda m: _detector._MEDIUM_ORDER.get(m, 99)
+            # 2. Genre + Sprache → Kette: Chain mit erweiterten Parametern neu matchen
+            # Sort detected materials chronologically (reel_tape before cassette etc.)
+            _detected = sorted(
+                set(_chain),
+                key=lambda m: _detector._MEDIUM_ORDER.get(m, 99)
+            )
+            _refined_chain = _detector._best_matching_chain(
+                _detected, genre=_genre_label, language=_lang_code or None
+            )
+            if _refined_chain and _refined_chain != _chain:
+                logger.info(
+                    "Bidirektionale Validierung: Kette verfeinert — %s → %s "
+                    "(Genre=%s, Sprache=%s)",
+                    " → ".join(_chain),
+                    " → ".join(_refined_chain),
+                    _genre_label,
+                    _lang_code or "?",
                 )
-                _refined_chain = _detector._best_matching_chain(
-                    _detected, genre=_genre_label, language=_lang_code or None
-                )
-                if _refined_chain and _refined_chain != _chain:
-                    logger.info(
-                        "Bidirektionale Validierung: Kette verfeinert — %s → %s "
-                        "(Genre=%s, Sprache=%s)",
-                        " → ".join(_chain),
-                        " → ".join(_refined_chain),
-                        _genre_label,
-                        _lang_code or "?",
-                    )
-                    _md_val.transfer_chain = _refined_chain
+                _md_val.transfer_chain = _refined_chain
         except Exception as _bv_exc:
             logger.debug("Bidirektionale Validierung uebersprungen: %s", _bv_exc)
 
@@ -498,6 +499,8 @@ def run_pre_analysis(
         except Exception as _cv_exc:
             logger.debug("Cross-Validation uebersprungen: %s", _cv_exc)
 
+
+    _cb(96, "Kette wird rekonstruiert…")
 
     # ── §2.46a Deep-Transfer-Chain-Injection [RELEASE_MUST] ───────────
     # Spec §2.46a: Importsongs mit 3+ Tonträgerstufen müssen vollständig
@@ -614,6 +617,7 @@ def run_pre_analysis(
     # ------------------------------------------------------------------
     # Store in bridge cache so UV3 never re-runs classifiers
     # ------------------------------------------------------------------
+    _cb(99, "Ergebnisse werden gespeichert…")
     if store_in_bridge_cache and file_path:
         _store_in_cache(file_path, result)
 

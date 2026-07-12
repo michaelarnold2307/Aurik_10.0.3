@@ -15812,7 +15812,10 @@ class ModernMainWindow(QMainWindow):
                 return
 
             if _preanalysis_pending and _p >= 99.8:
-                _finalizing_text = "⏳ Analyse wird finalisiert …"
+                # Live preanalysis step from _on_preanalysis_step callback,
+                # otherwise the generic "wird finalisiert" fallback.
+                _step_msg = getattr(self, '_preanalysis_step_msg', None)
+                _finalizing_text = _step_msg if _step_msg else "⏳ Analyse wird finalisiert …"
                 _bar.setRange(0, 10000)
                 _bar.setValue(10000)
                 _bar.setFormat(_finalizing_text)
@@ -16331,6 +16334,13 @@ class ModernMainWindow(QMainWindow):
                 def _on_scan_progress(pct: float) -> None:
                     self.emit_load_progress(float(pct))
 
+                def _on_preanalysis_step(pct: int, msg: str) -> None:
+                    """Forward pre-analysis step progress to GUI status text."""
+                    self.dispatch_to_gui(lambda _p=pct, _m=msg: (
+                        setattr(self, '_preanalysis_step_msg', _m),
+                        setattr(self, '_preanalysis_step_pct', _p),
+                    ))
+
                 # ── Run all analyses via unified backend entry point ──────────
                 if _bridge_run_pre_analysis is None:
                     _logger_.error("_pre_analysis_bg: run_pre_analysis nicht importierbar")
@@ -16342,6 +16352,7 @@ class ModernMainWindow(QMainWindow):
                         _sr_native,
                         audio_48k=_audio_48k,
                         file_path=_file_key,
+                        progress_callback=_on_preanalysis_step,
                         scan_progress_callback=_on_scan_progress,
                         store_in_bridge_cache=True,
                     )
