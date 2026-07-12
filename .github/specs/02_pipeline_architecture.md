@@ -4791,6 +4791,47 @@ DefectScanner-bestätigtem Wow/Flutter (Score ≥ 0.70) NICHT durch starren
 - Datei: `backend/core/phases/phase_12_wow_flutter_fix.py`
 
 
+
+### v10-Amendment (2026-07-12)
+
+**Bidirektionale Genre↔Medium-Validierung** (v10.0.3, 2026-07-12):
+
+Die Pre-Analysis-Pipeline führt nach Medium- und Genre-Erkennung eine
+bidirektionale Validierung durch:
+
+1. **Medium → Genre** (`get_genre_constraints(chain)`):
+   - Nutzt `_MEDIUM_EXCLUDES_GENRES` (8 Medien × Ausschlusslisten)
+   - Nutzt `_MEDIUM_PREFERRED_GENRES` (13 Medien × Präferenzlisten)
+   - Beispiel: Schellack + Hip-Hop → WARNING "AUSGESCHLOSSEN"
+   - Beispiel: Vinyl + Schlager → DEBUG "passt (preferred)"
+
+2. **Genre + Sprache → Kette** (`_best_matching_chain(genre, language)`):
+   - Kette wird mit Genre- und Sprach-Parametern neu gematcht
+   - `_LANGUAGE_MEDIUM_BONUS`: Deutsch → Schellack+0.15, Japanisch → CD+0.15
+   - Verfeinerte Kette ersetzt Original im `MediumResult`
+
+3. **Datenfluss**:
+   ```
+   Import → MediumDetect → GenreDetect → Bidirektionale Validierung
+   → Chain-Refinement → Deep-Transfer-Chain → Export
+   ```
+
+**Implementierung**:
+- `backend/core/pre_analysis.py` → Bidirektionale Validierung vor Chain-Injection
+- `backend/core/genre_classifier.py` → `SchlagerClassificationResult.language_code`
+- `forensics/medium_detector.py` → `get_genre_constraints()`, `_best_matching_chain(genre, language)`
+
+**Knowledge Base** (alle in `forensics/medium_detector.py`):
+- `_MEDIUM_ORDER`: 20 Tonträger chronologisch (1877→2020)
+- `_KNOWN_CHAINS`: 76 Transfer-Ketten-Templates
+- `_GENRE_EARLIEST_ORDER`: 195 Genres × 14 Ära-Gruppen
+- `_MEDIUM_EXCLUDES_GENRES`: 8 Medien × ausgeschlossene Genres
+- `_MEDIUM_PREFERRED_GENRES`: 13 Medien × typische Genres
+- `_LANGUAGE_MEDIUM_BONUS`: 7 Sprachen × Medium-Präferenzen
+- `_STUDIO_FORMAT_INDICATORS`: 21 Studio-Charakteristiken
+- `_MEDIUM_DISPLAY_NAMES`: 20 deutsche GUI-Namen
+
+
 ## §2.46d: AudioSR Recovery-Kette (v10.0.3 final)
 
 **Pflicht**: AudioSR muss Recovery vor Zone Passthrough implementieren.
