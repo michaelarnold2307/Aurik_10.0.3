@@ -259,28 +259,30 @@ MATERIAL_GOAL_FLOOR: dict[str, dict[str, float]] = {
         "kohaerenz": 0.50,
     },
     # Schellack (1895-1958): 100-8000 Hz, SNR ~30dB, RIAA-EQ fehlt
+    # Code uebertrifft Specs konstant → angehoben per Continuous Improvement
     "shellac": {
-        "authentizitaet": 0.60,
-        "natuerlichkeit": 0.60,
+        "authentizitaet": 0.65,
+        "natuerlichkeit": 0.63,
         "brillanz": 0.50,
-        "timbre": 0.55,
-        "groove": 0.55,
-        "artikulation": 0.60,
-        "waerme": 0.65,
-        "transparenz": 0.50,
-        "kohaerenz": 0.55,
+        "timbre": 0.58,
+        "groove": 0.58,
+        "artikulation": 0.63,
+        "waerme": 0.68,
+        "transparenz": 0.53,
+        "kohaerenz": 0.58,
     },
     # Vinyl (1948-): 20-20000 Hz, SNR ~60dB, RIAA-EQ
+    # Code uebertrifft Specs konstant → angehoben per Continuous Improvement
     "vinyl": {
-        "authentizitaet": 0.65,
-        "natuerlichkeit": 0.65,
-        "brillanz": 0.60,
-        "timbre": 0.65,
-        "groove": 0.65,
-        "artikulation": 0.65,
-        "waerme": 0.70,
-        "transparenz": 0.60,
-        "kohaerenz": 0.65,
+        "authentizitaet": 0.70,
+        "natuerlichkeit": 0.68,
+        "brillanz": 0.63,
+        "timbre": 0.68,
+        "groove": 0.68,
+        "artikulation": 0.68,
+        "waerme": 0.72,
+        "transparenz": 0.63,
+        "kohaerenz": 0.68,
     },
     # Tonband (1930-): 30-18000 Hz, SNR ~55dB, Bandsättigung
     "tape": {
