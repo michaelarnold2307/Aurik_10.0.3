@@ -411,24 +411,37 @@ def run_pre_analysis(
             _analog = {"shellac", "wax_cylinder", "vinyl", "tape", "reel_tape",
                        "cassette", "lacquer_disc", "wire_recording"}
 
-            # Kette bauen: neue Stufen VOR der digitalen Stufe einfügen
-            _injected = []
-            for _src in [_era_material, _defect_material]:
+            # Kette bauen: neue Stufen VOR der digitalen Stufe einfügen.
+            # §2.46a: _era_material ist das ORIGINAL-Aufnahmemedium und gehört
+            # an den ANFANG der Kette. _defect_material ist ein Zwischenträger
+            # und gehört VOR die digitale Stufe. physical_analog_sources werden
+            # ebenfalls VOR der digitalen Stufe eingefügt.
+            _era_injected = None
+            _chain_injected: list[str] = []
+            for _src in [_defect_material]:
                 if _src and _src in _analog and _src not in _chain:
-                    _injected.append(_src)
+                    _chain_injected.append(_src)
             for _ps_mat, _ps_conf in _physical:
                 _k = str(_ps_mat).lower().replace(" ", "_")
-                if _k in _analog and _k not in _chain and _k not in _injected:
-                    _injected.append(_k)
+                if _k in _analog and _k not in _chain and _k not in _chain_injected:
+                    _chain_injected.append(_k)
+            # Era-Material separat: Original-Aufnahmemedium → Position 0
+            if _era_material and _era_material in _analog and _era_material not in _chain:
+                _era_injected = _era_material
 
-            if _injected:
-                _dpos = len(_chain)
-                for i, m in enumerate(_chain):
-                    if m in {"mp3_low", "mp3_high", "cd_digital", "streaming", "aac", "unknown"}:
-                        _dpos = i
-                        break
-                for _m in reversed(_injected):
-                    _chain.insert(_dpos, _m)
+            _any_injected = bool(_chain_injected) or _era_injected is not None
+            if _any_injected:
+                if _era_injected is not None:
+                    _chain.insert(0, _era_injected)
+                if _chain_injected:
+                    _dpos = len(_chain)
+                    for i, m in enumerate(_chain):
+                        if m in {"mp3_low", "mp3_high", "cd_digital", "streaming", "aac", "unknown"}:
+                            _dpos = i
+                            break
+                    for _m in reversed(_chain_injected):
+                        _chain.insert(_dpos, _m)
+                _injected = ([_era_injected] if _era_injected else []) + _chain_injected
 
                 # ── §2.46a Vinyl-Inference ─────────────────────────
                 # Wenn reel_tape + cassette in der Kette sind und die
