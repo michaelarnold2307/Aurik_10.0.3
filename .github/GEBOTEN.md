@@ -70,3 +70,13 @@ Jede G-Regel kann durch einen Linter automatisiert geprüft werden:
 | G12 | Alle `.py` | `logger.info("... geladen")` in `__init__`/Getter ohne `_was_loaded`-Check → INFO |
 | G13 | `backend/core/unified_restorer_v3.py` | Kein `_detect_and_correct_global_interchannel_lag()` vor `_execute_pipeline()` → ERROR |
 | G14 | `backend/core/unified_restorer_v3.py` | Kein `_verify_stereo_integrity()` nach `_execute_pipeline()` → ERROR |
+
+## Kategorie G: Architektur-Evolution (2026-07-12)
+
+| ID | Gebot | Begründung | Fundstelle |
+|----|-------|-----------|------------|
+| **G18** | Bei Refactoring eines Subsystems MÜSSEN ALLE Konsumenten der alten Signale auditiert werden. `grep` über alle Call-Sites VOR und NACH dem Umbau | Gate-Race: `defect_scan`-Flag wurde im neuen Unified-Pfad nur konditional gesetzt → Buttons gesperrt | `_try_signal_preanalysis_done` |
+| **G19** | Nur EIN Progress-State-Objekt pro UI-Phase. Alle Callbacks (`scan_progress`, `progress_callback`, `emit_load_progress`) MÜSSEN in dasselbe Objekt schreiben | Balken-Wert und Schritt-Text waren entkoppelt → Balken stand bei 100% während Text lief | `_on_preanalysis_step` / `emit_load_progress` |
+| **G20** | Jeder Timeout MUSS ein UI-Event emittieren. Degradierte Ergebnisse MÜSSEN als "Analyse nicht verfügbar" markiert werden | Era/Genre-Timeout → leere Prognose-Felder ohne Erklärung | `_SUBSTEP_TIMEOUT_S` |
+| **G21** | Jeder Stateful-Prozess MUSS eine `_reset_*()`-Methode haben, die ALLE Guard-Flags zurücksetzt. Aufruf am Anfang jedes neuen Durchlaufs | `_preanalysis_finalized_for` blockte Wiederholung | `_finalize_preanalysis` Double-Fire-Guard |
+| **G22** | Kein stiller `except: pass`. Jeder except-Block MUSS loggen (`logger.debug` mindestens) ODER einen Kommentar enthalten, warum Stille korrekt ist | PANNs 6 Monate DSP-Fallback, `phase_human_name`-Crash im Fallback-Pfad | Diverse |

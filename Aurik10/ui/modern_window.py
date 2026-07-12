@@ -16353,6 +16353,8 @@ class ModernMainWindow(QMainWindow):
 
                 def _on_preanalysis_step(pct: int, msg: str) -> None:
                     """Forward pre-analysis step progress to GUI status text AND progress bar."""
+                    _last_step_pct[0] = float(pct)
+                    _last_step_time[0] = time.monotonic()
                     self.dispatch_to_gui(lambda _p=pct, _m=msg: (
                         setattr(self, '_preanalysis_step_msg', _m),
                         setattr(self, '_preanalysis_step_pct', _p),
@@ -16791,6 +16793,32 @@ class ModernMainWindow(QMainWindow):
                 self.dispatch_to_gui(_update_all)
 
             threading.Thread(target=_pre_analysis_bg, daemon=True).start()
+
+            # ── §W-PREANALYSIS-LIVENESS Watchdog ──────────────────────────
+            # Falls die Pre-Analysis hängt (kein _cb()-Update > 60s), loggen
+            # und ggf. Timeout-Force-Finalize triggern.
+            _last_step_pct = [0.0]
+            _last_step_time = [time.monotonic()]
+
+            def _preanalysis_liveness_check() -> None:
+                while getattr(self, '_preanalysis_pending', False):
+                    time.sleep(15.0)
+                    if not getattr(self, '_preanalysis_pending', False):
+                        break
+                    _elapsed = time.monotonic() - _last_step_time[0]
+                    if _elapsed > 60.0:
+                        _cur_step = getattr(self, '_preanalysis_step_msg', '')
+                        logger.warning(
+                            "§W-PREANALYSIS-LIVENESS: Kein Fortschritt seit %.0fs. "
+                            "Letzter Schritt: '%s'. Erzwinge Gate-Time-out.",
+                            _elapsed, _cur_step or '(keiner)',
+                        )
+                        self._preanalysis_timeout_fired = True
+                        self._try_signal_preanalysis_done("era_genre")
+                        self._try_signal_preanalysis_done("defect_scan")
+                        break
+
+            threading.Thread(target=_preanalysis_liveness_check, daemon=True, name="aurik-preanalysis-watchdog").start()
             # ── Ende Unified Pre-Analysis-Hintergrund ─────────────────────
 
             # ── Synchronisations-Timeout (15 s) ───────────────────────────

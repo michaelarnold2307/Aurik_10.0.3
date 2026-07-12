@@ -103,6 +103,45 @@ def scan_file(filepath: Path) -> list[str]:
     return issues
 
 
+def check_silent_except_pass(filepath: Path) -> list[str]:
+    """V74: Findet 'except ... : pass' ohne logging oder Kommentar."""
+    if not filepath.exists() or filepath.suffix != '.py':
+        return []
+    if '.venv' in str(filepath) or '__pycache__' in str(filepath):
+        return []
+    if '/tests/' in str(filepath) or str(filepath).startswith('tests/'):
+        return []  # Tests may have intentional pass in mocks
+
+    content = filepath.read_text(encoding="utf-8", errors="replace")
+    lines = content.splitlines()
+    issues = []
+    in_except = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # Detect except block start
+        if stripped.startswith('except') and ':' in stripped:
+            in_except = True
+            continue
+        if in_except:
+            # Check if the body is just 'pass' without logging
+            if stripped == 'pass':
+                # Look for logger in the surrounding context (±3 lines)
+                context = lines[max(0,i-3):min(len(lines),i+4)]
+                has_logger = any('logger.' in l for l in context)
+                has_comment = any(l.strip().startswith('#') and ('expected' in l.lower() or 'intentional' in l.lower() or 'noqa' in l.lower()) for l in context)
+                if not has_logger and not has_comment:
+                    issues.append(
+                        f"{filepath.relative_to(_PROJECT_ROOT)}:{i+1}: "
+                        f"V74 Silent except:pass without logging — add logger.debug() or comment"
+                    )
+                in_except = False
+                continue
+            if stripped and not stripped.startswith('#'):
+                in_except = False  # Non-pass body found, not a silent except
+    return issues
+
+
 def get_target_files(mode: str = "all") -> list[Path]:
     """Bestimmt welche Dateien gescannt werden."""
     if mode == "staged":
@@ -159,6 +198,11 @@ def main() -> int:
         issues = scan_file(fp)
         if issues:
             all_issues[str(fp.relative_to(_PROJECT_ROOT))] = issues
+        # §V74: Check for silent except:pass
+        silent_issues = check_silent_except_pass(fp)
+        if silent_issues:
+            key = str(fp.relative_to(_PROJECT_ROOT))
+            all_issues.setdefault(key, []).extend(silent_issues)
 
     if args.json:
         import json
