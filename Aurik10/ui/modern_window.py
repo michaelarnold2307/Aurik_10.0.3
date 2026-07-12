@@ -18250,16 +18250,6 @@ class ModernMainWindow(QMainWindow):
         if hasattr(self, "quality_meter_widget"):
             self._prime_live_quality_meter()
 
-        # ── §WATCHDOG-STARTUP-CHECK ──────────────────────────────────
-        # Einmaliger Selbsttest aller Watchdog-Regeln beim Start.
-        _wd_checks = []
-        _wd_checks.append(("W-PREANALYSIS-LIVENESS", "✅", "60s ohne _cb() → Force-Finalize"))
-        _wd_checks.append(("W-PROGRESS-STALE", "✅", "Bar-Step-Abweichung >15% → WARNING"))
-        _wd_checks.append(("W-GATE-STUCK", "✅", "1-Flag >120s → Force-Finalize"))
-        _wd_checks.append(("W-WALL-CLOCK", "✅", f"Timeout: {_watchdog_ms/1000:.0f}s"))
-        for _name, _status, _desc in _wd_checks:
-            logger.info("Watchdog: %s %s — %s", _status, _name, _desc)
-
         # Watchdog-Timer: feuert wenn Verarbeitung zu lange hängt (z. B. blockierender ONNX-Call).
         # Budget muss großzügiger sein als PerformanceGuard (LIMIT_MAXIMUM=32×, plus
         # Post-Pipeline-Analytik, FeedbackChain 5×5 Iterationen, PMGG-Retries).
@@ -18271,6 +18261,11 @@ class ModernMainWindow(QMainWindow):
             _audio_dur_s = _ww.audio_data.shape[0] / _sr
         _per_file_ms = max(5_400_000, int(_audio_dur_s * 32_000) + 1_800_000)  # 32xRT + 30min overhead (Spec §11.4)
         _watchdog_ms = max(5_400_000, stats["pending"] * _per_file_ms)
+        # ── §WATCHDOG-STARTUP-CHECK ──────────────────────────────────
+        logger.info("Watchdog: W-PREANALYSIS-LIVENESS ✅ — 60s ohne _cb() → Force-Finalize")
+        logger.info("Watchdog: W-PROGRESS-STALE ✅ — Bar-Step-Abweichung >15% → WARNING")
+        logger.info("Watchdog: W-GATE-STUCK ✅ — 1-Flag >120s → Force-Finalize")
+        logger.info("Watchdog: W-WALL-CLOCK ✅ — Timeout: %.0fs", _watchdog_ms / 1000)
         if self._watchdog_timer is None:
             self._watchdog_timer = QTimer(self)
             self._watchdog_timer.setSingleShot(True)
@@ -18550,10 +18545,13 @@ class ModernMainWindow(QMainWindow):
         _step_pct = getattr(self, '_preanalysis_step_pct', 0)
         _step_msg = getattr(self, '_preanalysis_step_msg', '')
         if _step_msg and abs(_bar_pct - _step_pct) > 15.0:
-            logger.warning(
-                "§W-PROGRESS-STALE: Bar=%.1f%% Step=%d%% Msg='%s' — Progress-Streams entkoppelt",
-                _bar_pct, _step_pct, _step_msg,
-            )
+            _last_stale_warn = getattr(self, '_last_progress_stale_warn', 0.0)
+            if time.monotonic() - _last_stale_warn > 30.0:
+                logger.warning(
+                    "§W-PROGRESS-STALE: Bar=%.1f%% Step=%d%% Msg='%s' — Progress-Streams entkoppelt",
+                    _bar_pct, _step_pct, _step_msg,
+                )
+                self._last_progress_stale_warn = time.monotonic()
         QTimer.singleShot(0, lambda: setattr(self, "_in_tick_heartbeat", False))
 
         # Off-Track-Liveguard: externe Interventionsanforderung vor UI-Update prüfen.
