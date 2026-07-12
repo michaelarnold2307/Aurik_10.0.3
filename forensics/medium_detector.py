@@ -556,6 +556,32 @@ class MediumDetector:
         "es": {"shellac": 0.05, "vinyl": 0.10, "cassette": 0.05},
         "pt": {"shellac": 0.05, "vinyl": 0.10, "cd_digital": 0.05},
     }
+    # German display names for GUI
+    _MEDIUM_DISPLAY_NAMES: dict[str, str] = {
+        "tinfoil_cylinder":   "Zinnfolien-Walze (Edison 1877)",
+        "wax_cylinder":       "Wachswalze (Edison 1888-1929)",
+        "lacquer_disc":       "Lackplatte / Acetat-Mitschnitt",
+        "shellac":            "Schellackplatte (78 rpm)",
+        "shellac_vertical":   "Schellackplatte, vertikaler Schnitt (Pathe/Edison Diamond Disc)",
+        "wire_recording":     "Stahldraht-Aufnahme (Webster-Chicago)",
+        "vinyl":              "Vinyl-Schallplatte (LP/45rpm)",
+        "reel_tape":          "Tonband (Studio-Master)",
+        "tape":               "Tonband (allgemein)",
+        "cartridge_4track":   "4-Spur-Cartridge (Fidelipac)",
+        "cartridge_8track":   "8-Spur-Cartridge (Lear Jet)",
+        "cassette":           "Compact Cassette (Philips 1963)",
+        "elcaset":            "Elcaset (Sony 1976-1980)",
+        "playtape":           "PlayTape (Miniatur-Kassette)",
+        "cd_digital":         "Compact Disc (CD, 44.1 kHz/16 bit)",
+        "dat":                "Digital Audio Tape (R-DAT)",
+        "dcc":                "Digital Compact Cassette (Philips 1992)",
+        "minidisc":           "MiniDisc (Sony, ATRAC)",
+        "mp3_high":           "MP3 (hohe Bitrate, >=192 kbps)",
+        "mp3_low":            "MP3 (niedrige Bitrate, <192 kbps)",
+        "aac":                "AAC / M4A (Advanced Audio Codec)",
+        "streaming":          "Streaming (Spotify/Apple Music/YouTube)",
+    }
+
 
 
     # ── Transfer chain knowledge base ────────────────────────────────
