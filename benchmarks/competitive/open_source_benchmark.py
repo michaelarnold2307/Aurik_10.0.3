@@ -193,8 +193,8 @@ def tool_librosa_hpss(audio, sr=48000):
         S = np.abs(librosa.stft(audio.astype(np.float64), n_fft=2048, hop_length=512))
         H, P = librosa.decompose.hpss(S, kernel_size=31, margin=3.0)
         return librosa.istft(H, hop_length=512, length=len(audio)).astype(np.float32)
-    except ImportError:
-        raise RuntimeError("librosa not installed")
+    except ImportError as e:
+        raise RuntimeError("librosa not installed") from e
 
 
 def tool_scipy_wiener(audio, sr=48000):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 """Unit-Tests für core/emotional_arc_preservation.py — EmotionalArcPreservationMetric.
@@ -18,6 +20,8 @@ from backend.core.emotional_arc_preservation import (
     EmotionalArcResult,
     apply_waveform_plausibility_guard,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen

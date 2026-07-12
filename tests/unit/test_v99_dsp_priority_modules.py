@@ -14,12 +14,15 @@ Konventionen:
   np.random.seed(42) je Test für Reproduzierbarkeit
 """
 
+import logging
 import math
 import sys
 
 import numpy as np
 import pytest
 from scipy.signal import stft as scipy_stft
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, ".")
 

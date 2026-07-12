@@ -125,6 +125,7 @@ class AurikPlugin(ABC):
         """
         ...
 
+    @abstractmethod
     def on_phase_start(
         self,
         audio: np.ndarray,  # noqa: F821
@@ -134,6 +135,7 @@ class AurikPlugin(ABC):
     ) -> None:
         """Hook: Wird VOR einer Phase aufgerufen (optional)."""
 
+    @abstractmethod
     def on_phase_end(
         self,
         audio: np.ndarray,  # noqa: F821

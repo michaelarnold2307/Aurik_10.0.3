@@ -13,6 +13,7 @@ Opazitäts-Übergänge werden von main() via setWindowOpacity()
 mit kurzen processEvents()-Schleifen gesteuert — kein QPropertyAnimation nötig.
 """
 
+import logging
 import math
 import re
 from pathlib import Path
@@ -31,6 +32,8 @@ from PyQt5.QtGui import (  # pylint: disable=no-name-in-module
     QRadialGradient,
 )
 from PyQt5.QtWidgets import QApplication, QWidget  # pylint: disable=no-name-in-module
+
+logger = logging.getLogger(__name__)
 
 _RES = Path(__file__).parent.parent / "resources"
 

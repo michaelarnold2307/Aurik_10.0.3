@@ -158,8 +158,8 @@ def get_onnx_session_options(config: MLEngineConfig) -> onnxruntime.SessionOptio
     """
     try:
         import onnxruntime as ort
-    except ImportError:
-        raise RuntimeError("onnxruntime ist nicht installiert.")
+    except ImportError as err:
+        raise RuntimeError("onnxruntime ist nicht installiert.") from err
 
     options = ort.SessionOptions()
 

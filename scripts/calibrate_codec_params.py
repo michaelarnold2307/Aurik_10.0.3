@@ -17,7 +17,6 @@ import os
 import time
 from pathlib import Path
 
-
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("calibrate")
 

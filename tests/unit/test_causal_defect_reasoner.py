@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """Unit-Tests für backend/core/causal_defect_reasoner.py.
 
 Spec §2.4: Bayesianische Ursachendiagnose. 11 Ursachen, materialspezifische
@@ -25,6 +27,8 @@ from backend.core.causal_defect_reasoner import (
     get_reasoner,
     reason_about_defects,
 )
+
+logger = logging.getLogger(__name__)
 
 SR = 48000
 

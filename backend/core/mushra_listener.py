@@ -182,8 +182,8 @@ def create_mushra_app(manager: MUSHRASessionManager | None = None):
     """Erzeugt Flask-App mit MUSHRA-Endpoints."""
     try:
         from flask import Flask, jsonify, request
-    except ImportError:
-        raise RuntimeError("Flask nicht installiert. pip install flask")
+    except ImportError as err:
+        raise RuntimeError("Flask nicht installiert. pip install flask") from err
 
     if manager is None:
         manager = MUSHRASessionManager()

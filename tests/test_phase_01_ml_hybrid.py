@@ -1,4 +1,5 @@
 import pytest
+
 """
 Test Phase 1 Click Removal ML-Hybrid Integration
 
@@ -18,6 +19,7 @@ print("=" * 80)
 
 # Import phase
 from backend.core.phases.phase_01_click_removal import ClickRemovalPhase
+
 # Create test phase
 phase = ClickRemovalPhase()
 print(f"\n✅ Phase instantiated: {phase.get_metadata().name}")

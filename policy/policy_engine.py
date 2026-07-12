@@ -1,3 +1,4 @@
+import logging
 from typing import Any, TypedDict
 
 import numpy as np
@@ -17,6 +18,8 @@ from backend.core.validate_musical_goals import (
     VoiceMatchChecker,
 )
 from dsp.feedback import UserFeedback
+
+logger = logging.getLogger(__name__)
 
 
 class AdaptiveController:

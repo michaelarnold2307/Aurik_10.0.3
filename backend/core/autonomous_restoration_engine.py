@@ -869,7 +869,7 @@ class AutonomousRestorationEngine:
                 logger.warning("autonomous_restoration_engine.py::unknown fallback: %s", e)
 
         # Audio unverändert zurückgeben (Parameter werden downstream angewandt)
-        _all_scores: dict[str, float] = {name: score for name, score in results}
+        _all_scores: dict[str, float] = dict(results)
         return audio, best_variant.name, _winner_params, _all_scores
 
     def _run_mini_restore(

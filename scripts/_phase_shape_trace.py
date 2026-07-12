@@ -176,6 +176,8 @@ _input_n_samples = audio_48k.shape[0]
 
 from denker.aurik_denker import get_aurik_denker
 
+logger = logging.getLogger(__name__)
+
 t0 = time.perf_counter()
 
 

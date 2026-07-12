@@ -656,7 +656,7 @@ def _repair_inner_groove_distortion(audio: np.ndarray, sr: int, **kwargs) -> np.
                     # Progressive HF-Anhebung (max +4dB für innerste Sektion)
                     boost_db = (sec + 1) * 1.0
                     boost_linear = 10 ** (boost_db / 20.0)
-                    sos_high_shelf = butter(2, 8000, "highshelf", fs=sr, output="sos")
+                    _sos_high_shelf = butter(2, 8000, "highshelf", fs=sr, output="sos")
                     # Shelf-Filter mit Gain
                     from scipy.signal import sosfilt
 

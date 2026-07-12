@@ -8,9 +8,13 @@ damit der Wizard nur einmal erscheint.
 
 from __future__ import annotations
 
+import logging
+
 from PyQt5 import QtCore, QtWidgets
 
 from Aurik10.i18n import t
+
+logger = logging.getLogger(__name__)
 
 
 class OnboardingWizard(QtWidgets.QDialog):

@@ -8,6 +8,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+logger = logging.getLogger(__name__)
+
 try:
     import scipy.signal as _sig
 except ImportError:
@@ -855,9 +857,7 @@ def main():
                 json_mode = True
             elif arg == "--abx":
                 abx_mode = True
-            elif arg == "--progress":
-                pass
-            elif arg == "--resume":
+            elif arg == "--progress" or arg == "--resume":
                 pass
         elif arg == "--album":
             if i + 1 < len(args):

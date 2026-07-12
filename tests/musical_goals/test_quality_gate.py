@@ -18,6 +18,8 @@ HIPS Compliance Testing:
 30+ Test Scenarios covering Pass/Fail/Edge Cases
 """
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -29,6 +31,8 @@ from backend.core.musical_goals.quality_gate import (
     QualityGateDecision,
     QualityGateReport,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)

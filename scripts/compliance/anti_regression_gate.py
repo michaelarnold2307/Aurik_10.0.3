@@ -18,9 +18,12 @@ Bug-Abdeckung:
   Bug 9: except Exception: pass → dieser Check
 """
 
+import logging
 import re
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 

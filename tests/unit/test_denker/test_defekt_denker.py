@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 """tests/unit/test_denker/test_defekt_denker.py
@@ -11,6 +13,8 @@ Tests für DefektDenker — Defekterkennung & -klassifikation.
 import math
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 SR = 48_000
 np.random.seed(42)

@@ -9,9 +9,13 @@ Spektrale De-Esser Implementierung:
   4. ISTFT -> Zeitbereich
 """
 
+import logging
+
 import numpy as np
 import soundfile as sf
 from scipy.signal import istft, stft
+
+logger = logging.getLogger(__name__)
 
 
 class MLDeEsser:

@@ -9,8 +9,11 @@ Exit: 1 if issues found, 0 otherwise.
 """
 
 import ast
+import logging
 import re
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 def check_file(filepath: str) -> list[str]:

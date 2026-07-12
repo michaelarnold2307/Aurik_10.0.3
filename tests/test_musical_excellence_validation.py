@@ -1,4 +1,5 @@
 import pytest
+
 """
 Musikalische Exzellenz - Validierung aller 42 Phasen
 ====================================================

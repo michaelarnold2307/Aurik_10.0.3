@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """tests/unit/test_denker/test_aurik_denker.py
 
 Tests für AurikDenker — Orchestrator aller Domänen-Denker.
@@ -17,6 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from denker.aurik_denker import AurikErgebnis

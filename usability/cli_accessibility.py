@@ -35,6 +35,8 @@ import sys
 from dataclasses import dataclass
 from typing import Literal
 
+logger = logging.getLogger(__name__)
+
 # Optional dependencies with graceful fallback
 # WICHTIG: colorama.init() wird NICHT auf Modulebene aufgerufen.
 # Auf Linux funktionieren ANSI-Codes nativ im Terminal ohne init().

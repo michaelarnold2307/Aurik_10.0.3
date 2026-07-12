@@ -1,4 +1,5 @@
 import pytest
+
 """
 Test Phase 24 Dropout Repair ML-Hybrid Integration
 
@@ -18,6 +19,7 @@ print("=" * 80)
 
 # Import phase
 from backend.core.phases.phase_24_dropout_repair import DropoutRepairPhase
+
 # Create test phase
 phase = DropoutRepairPhase()
 print(f"\n✅ Phase instantiated: {phase.get_metadata().name}")

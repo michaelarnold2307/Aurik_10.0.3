@@ -21,10 +21,7 @@ _SKIP_PREFIXES = (".venv", "__pycache__", "models/", "temp_repro/", ".git/")
 
 def _should_skip(rel_path: str) -> bool:
     """True wenn Datei/Verzeichnis übersprungen werden soll."""
-    for prefix in _SKIP_PREFIXES:
-        if prefix in rel_path:
-            return True
-    return False
+    return any(prefix in rel_path for prefix in _SKIP_PREFIXES)
 
 
 def check_path_separators() -> tuple[bool, list[str]]:

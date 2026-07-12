@@ -9,6 +9,7 @@ Output is formatted for audit/uat_report_generator.py machine parsing.
 """
 
 import json
+import logging
 import multiprocessing as mp
 import os
 import re
@@ -22,6 +23,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 
 def _run_real_audio_restore_child(

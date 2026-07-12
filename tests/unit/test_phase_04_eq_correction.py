@@ -9,10 +9,13 @@ Aurik 9.10 — Phase 04 EQ Correction
 20 Unit-Tests. Alle synthetisch (keine echten Audio-Dateien).
 """
 
+import logging
 import math
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 SR = 48000
 

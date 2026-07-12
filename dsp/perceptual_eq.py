@@ -23,6 +23,8 @@ except ImportError:
 
 from dsp._memory_budget_guard import check_budget
 
+logger = logging.getLogger(__name__)
+
 _logger = logging.getLogger(__name__)
 
 

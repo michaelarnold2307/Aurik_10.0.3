@@ -517,7 +517,7 @@ class TransientPreservationPhase(PhaseInterface):
 
                     _win_sm = max(32, int(sample_rate * 0.005))
 
-                    def _band_env(band):
+                    def _band_env(band, _win_sm=_win_sm):
                         _env = np.zeros(len(band), dtype=np.float64)
                         for _k in range(0, len(band), _win_sm // 2):
                             _ke = min(_k + _win_sm, len(band))

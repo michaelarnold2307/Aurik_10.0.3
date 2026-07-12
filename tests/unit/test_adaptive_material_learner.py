@@ -4,7 +4,6 @@ import pytest
 import tempfile
 
 
-
 @pytest.mark.unit
 class TestAdaptiveLearner:
     def test_01_init(self):

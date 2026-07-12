@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 """
@@ -18,6 +20,8 @@ Anforderungen laut Spec §5.1:
 import math
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Gemeinsame Hilfsfunktionen

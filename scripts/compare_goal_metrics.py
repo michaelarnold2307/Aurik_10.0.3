@@ -70,7 +70,7 @@ def main() -> int:
     parser.add_argument(
         "--metrics",
         type=str,
-        default=",".join(DEFAULT_METRICS + ["vqi", "final_hpi"]),
+        default=",".join([*DEFAULT_METRICS, "vqi", "final_hpi"]),
         help="Komma-separierte Metrikliste",
     )
     args = parser.parse_args()

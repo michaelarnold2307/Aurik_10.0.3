@@ -493,7 +493,7 @@ class TestMetricsPlugins:
         try:
             pass
 
-            pytest.fail("plugins.dnsmos_plugin ist noch vorhanden — §4.4 verbietet es (Sprach-MOS)")  # noqa: F821 — pytest fixture
+            pytest.fail("plugins.dnsmos_plugin ist noch vorhanden — §4.4 verbietet es (Sprach-MOS)")
         except ModuleNotFoundError:
             pass  # Korrekt: Plugin ist entfernt
 
@@ -502,7 +502,7 @@ class TestMetricsPlugins:
         try:
             pass
 
-            pytest.fail("plugins.nisqa_plugin ist noch vorhanden — §4.4 verbietet es (Sprach-Metrik)")  # noqa: F821 — pytest fixture
+            pytest.fail("plugins.nisqa_plugin ist noch vorhanden — §4.4 verbietet es (Sprach-Metrik)")
         except ModuleNotFoundError:
             pass  # Korrekt: Plugin ist entfernt
 
@@ -511,7 +511,7 @@ class TestMetricsPlugins:
         try:
             pass
 
-            pytest.fail("plugins.pesq_plugin ist noch vorhanden — §4.4 verbietet es (Telefonband-PESQ)")  # noqa: F821 — pytest fixture
+            pytest.fail("plugins.pesq_plugin ist noch vorhanden — §4.4 verbietet es (Telefonband-PESQ)")
         except ModuleNotFoundError:
             pass  # Korrekt: Plugin ist entfernt
 

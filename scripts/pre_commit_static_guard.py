@@ -40,7 +40,7 @@ def find_undefined_names(filepath: Path) -> list[tuple[int, str]]:
         return []
 
     issues = []
-    builtins = set(dir(__builtins__)) if hasattr(__builtins__, '__dict__') else set()
+    _ = set(dir(__builtins__)) if hasattr(__builtins__, '__dict__') else set()
 
     for node in ast.walk(tree):
         # Suche nach try/except mit `pass` gefolgt von Name-Nutzung
@@ -85,7 +85,7 @@ def scan_file(filepath: Path) -> list[str]:
                     # Suche nach _identifier = ... oder _identifier.method()
                     import re
                     match = re.match(r'^(\w+)\s*[=\.(]', check)
-                    if match and not match.group(1) in ('if', 'for', 'while', 'return', 'import', 'from', 'with', 'else', 'elif', 'except', 'finally', 'raise', 'assert', 'yield', 'break', 'continue'):
+                    if match and match.group(1) not in ('if', 'for', 'while', 'return', 'import', 'from', 'with', 'else', 'elif', 'except', 'finally', 'raise', 'assert', 'yield', 'break', 'continue'):
                         var_name = match.group(1)
                         # Prüfe ob die Variable im try-Block definiert wird
                         defined_in_try = any(
@@ -158,8 +158,8 @@ def main() -> int:
             for fname, issues in all_issues.items():
                 for issue in issues:
                     print(f"  {issue}")
-            print(f"\n🚫 Commit blockiert: undefined-name Verdacht.")
-            print(f"   Wenn false-positive: `# noqa: F821` am Zeilenende hinzufügen.\n")
+            print("\n🚫 Commit blockiert: undefined-name Verdacht.")
+            print("   Wenn false-positive: `# noqa: F821` am Zeilenende hinzufügen.\n")
             return 1
         else:
             print(f"✅ Static Guard: {len(files)} Dateien geprüft, keine undefined-name-Verdachtsfälle.")

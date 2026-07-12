@@ -22,9 +22,12 @@ Usage:
 """
 
 import argparse
+import logging
 import re
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # logger.LEVEL(f"...", ...) — capture the full argument list as one group
 _LOG_RE = re.compile(

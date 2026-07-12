@@ -243,7 +243,7 @@ def _restore_transient_punch(
     try:
         is_stereo = restored.ndim == 2
         rst_mono = np.mean(restored, axis=0) if is_stereo else restored
-        ref_mono = np.mean(reference, axis=0) if is_stereo else reference
+        _ref_mono = np.mean(reference, axis=0) if is_stereo else reference
 
         # Einfacher Transient-Detektor: Energie-Spitzen > 3× lokaler Mittelwert
         win_short = int(_TRANSIENT_ATTACK_MS * sample_rate / 1000)

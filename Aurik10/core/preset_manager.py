@@ -8,10 +8,13 @@ Speichert und verwaltet Restaurierungs-Presets lokal in
 from __future__ import annotations
 
 import json
+import logging
 import pathlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class PresetCategory(Enum):

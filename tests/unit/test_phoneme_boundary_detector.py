@@ -1,8 +1,12 @@
+import logging
+
 import pytest
 
 """Unit tests for the productive DSP phoneme boundary detector."""
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _fricative_noise(sr: int = 48000, duration: float = 0.25) -> np.ndarray:

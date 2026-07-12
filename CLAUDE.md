@@ -12,6 +12,9 @@
 - **Artistic Intent vor Defect-Scan**: `get_artistic_intent()` wird VOR dem Defect-Scan aufgerufen.
 - **Glue Stage immer**: Die Glue-Stage läuft in ALLEN Modi als vorletzte Phase.
 - **62 DefectTypes**: Keine willkürlichen neuen DefectTypes ohne Phase-Mapping und Material-Sensitivity.
+- **NaN/Inf-Schutz für ALLE Phasen**: Jede der 68 Phasen MUSS `np.nan_to_num()` oder `np.isfinite()` auf Ausgabe-Audio anwenden (§0a). PhaseInterface bietet Basis-Schutz; explizite Prüfung in jeder Phase als Defense-in-Depth.
+- **Logger-Pflicht**: Jede Python-Datei, die `logger` verwendet, MUSS `import logging` und `logger = logging.getLogger(__name__)` auf Modulebene definieren. F821 (undefined name) ist Null-Toleranz.
+- **Test-Assertion-Konvention**: `np.testing.assert_allclose` nimmt Toleranzen (`rtol`, `atol`). NIEMALS Toleranzen an numpy-Mathefunktionen übergeben (`np.abs(x, rtol=1e-5)` → `np.abs(x)`).
 
 ### v9.20.3 Präzisions-Invarianten
 
@@ -123,9 +126,11 @@ mp3_low  (Physical)       → IQR-Guard, Bandbreiten-Cap, Pre-Echo-Schutz
 
 ### 3. **Linting** (ruff select=[E,W,F,I,N,UP,B,C4,SIM,RUF])
 
+- **F821 Null-Toleranz**: Kein undefined name im gesamten Projekt. Jeder Build mit F821 ist FAIL.
 - Automatische Fixes: `ruff check --fix`
 - Per-File-Ignores nur für bewusste DSP-Konventionen
 - Pre-Commit: ruff, black, isort
+- Projektweit: `ruff check .` → "All checks passed!" als CI-Gate
 
 ### 4. **Konsistenz**
 

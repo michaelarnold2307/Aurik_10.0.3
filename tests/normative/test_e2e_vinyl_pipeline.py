@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """E2E-Pipeline-Test: Synthetisches Vinyl-Signal durch vollständige UV3-Pipeline.
 
 [RELEASE_MUST] §2.44 HPI > 0 nach Restaurierung.
@@ -20,6 +22,8 @@ import types
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 # E2E pipeline tests are excluded from fast normative runs via marker filters.
 pytestmark = [pytest.mark.normative, pytest.mark.e2e, pytest.mark.timeout(180)]

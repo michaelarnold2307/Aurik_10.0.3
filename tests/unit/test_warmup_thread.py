@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 """test_warmup_thread.py — §9.7.4 Modell-Warmup im Hintergrund.
@@ -12,6 +14,8 @@ Alle Tests laufen ohne echte ML-Modelle (Stubs/Mocks).
 import threading
 import time
 import types
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktion — isolierte Kopie der Warmup-Logik

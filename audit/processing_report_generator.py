@@ -549,7 +549,7 @@ class ReportExporter:
                 indent=2,
                 default=ReportExporter._json_default,
             ).splitlines()
-            all_lines = meta_lines + [""] + ["Raw-Report:"] + json_lines
+            all_lines = [*meta_lines, "", "Raw-Report:", *json_lines]
 
             lines_per_page = 54
             pages: list[list[str]] = []

@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 """Tests for Micro-Temporal Envelope Fidelity (MTEF) module.
@@ -18,6 +20,8 @@ from backend.core.micro_temporal_envelope_fidelity import (
     measure,
     morph,
 )
+
+logger = logging.getLogger(__name__)
 
 SR = 48000
 

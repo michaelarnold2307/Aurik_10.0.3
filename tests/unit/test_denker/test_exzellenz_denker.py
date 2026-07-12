@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """tests/unit/test_denker/test_exzellenz_denker.py
 
 Tests für ExzellenzDenker — Excellence-Optimierung + Musical-Goals-Messung.
@@ -14,6 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 SR = 48_000
 np.random.seed(42)

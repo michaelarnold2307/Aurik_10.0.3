@@ -17,7 +17,6 @@ import sys
 import time
 
 
-
 def test_import_chain() -> int:
     """Testet den kompletten Import-Chain, der im echten Run durchlaufen wird."""
     errors = 0

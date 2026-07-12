@@ -122,7 +122,7 @@ def build_fahrplan(
         Fahrplan mit per-Segment-Anweisungen
     """
     sections = sections or [(0.0, 1.0, "full")]
-    audio_ctx or {}
+    audio_ctx = audio_ctx or {}
 
     plan = Fahrplan(
         sections=sections,

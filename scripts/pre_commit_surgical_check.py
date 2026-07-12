@@ -23,11 +23,11 @@ if _VENV:
 try:
     from backend.core.surgical_defect_analyzer import SURGICAL_DEFECT_TYPES
     from backend.core.surgical_repair import _SURGICAL_REPAIR_FUNCTIONS
-except ImportError:
+except ImportError as e:
     # Git hook läuft außerhalb venv → silently pass (kein Fehler)
     print("⚠️ Pre-commit skipped — venv nicht aktiv. Führe manuell aus:")
     print(f"   cd {_REPO} && python scripts/pre_commit_surgical_check.py")
-    raise SystemExit(EXIT_OK)
+    raise SystemExit(EXIT_OK) from e
 
 s_types = set(SURGICAL_DEFECT_TYPES)
 r_keys = set(_SURGICAL_REPAIR_FUNCTIONS.keys())

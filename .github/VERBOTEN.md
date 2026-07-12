@@ -135,6 +135,10 @@
 | Phase iteriert über mehrere Defekt-Ereignisse desselben Typs (Schleife über `bump_locations`, `splice_points`, Dropout-Regionen …) mit **einheitlicher** `strength` für alle Events | Einheitliche Stärke ist für disparate Ereignisse immer falsch: leichte Events werden über-prozessiert (musikalische Artefakte), schwere Events in VFA-Schutzzonen (Vibrato, Frisson, Flüster, Passaggio) werden nicht beschränkt. Hörbar als inkonsistente Klangveränderungen zwischen Events derselben Defekt-Klasse — menschliches Ohr registriert feinen Stärke-Mismatch zuverlässig. Bestätigt: `phase_12_wow_flutter_fix` (145 Kassetten-Bumps einheitlich → Überkorrektur in Frisson-Passagen), `phase_64_tape_splice_repair` (Mai 2026, V38) | Per-Event-Strength-Oracle Pflicht: `_compute_<defect>_local_strength(mono_ref, event_start, event_end, sample_rate, base_strength, protected_zones)` mit lokalem Energie-Anomalie-Proxy (250 ms Kontext-RMS) + VFA-Schutzzonen-Cap `[(start_s, end_s, max_cap), ...]` (Vibrato 0.20, Frisson 0.30, Flüster 0.25, Passaggio 0.35); `base_strength < 1e-6` → 0.0 (Passthrough invariant); `defect_event_metadata` aus `_restoration_context` via `_profiled_phase_call` verfügbar (§0l, V38) |
 
 ---
+| MD5 ohne `usedforsecurity=False` [NEU 2026-07-12] | `hashlib.md5(data)` in Fingerprint/Non-Crypto-Kontext → Bandit B324 HIGH | `hashlib.md5(data, usedforsecurity=False)` — MD5 ist für Audio-Fingerprinting akzeptabel, aber der Security-Parameter MUSS explizit deklariert sein. |
+| Toleranzen in numpy-Funktionen statt `assert_allclose` [NEU 2026-07-12] | `np.abs(x, rtol=1e-5, atol=1e-8)`, `np.tanh(x, rtol=...)`, `np.zeros(N, rtol=...)` → TypeError | `np.testing.assert_allclose(actual, np.abs(x), rtol=1e-5, atol=1e-8)` — Toleranzen gehören NUR in `assert_allclose`, nicht in numpy-Mathefunktionen. |
+| F821 undefined `logger` [NEU 2026-07-12] | `logger.warning(...)` ohne `import logging` / `logger = logging.getLogger(__name__)` → NameError zur Laufzeit | Jede Datei, die `logger` verwendet, MUSS beides auf Modulebene definieren. Projektweit `ruff check . --select F821` = 0 als CI-Gate. |
+
 
 ## Linter-Referenz
 

@@ -8,7 +8,10 @@ Referenz: §2.37 CPU-Aware Pipeline Scheduling (copilot-instructions.md)
 OMP_NUM_THREADS / OPENBLAS_NUM_THREADS / MKL_NUM_THREADS = cpu_count()
 """
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 # Use ALL logical CPUs for maximum throughput on Ryzen 7 (8C/16T).
 # For ONNX sessions, intra/inter_op_num_threads is set additionally

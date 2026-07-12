@@ -360,7 +360,7 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                         _model_cpu = model
                         if hasattr(_model_cpu, "cpu"):
                             _model_cpu = _model_cpu.cpu()
-                        z_result_raw = asr_obj.super_resolution(
+                        z_result_raw = super_resolution(
                             zone_mono, sr,
                             model=_model_cpu,
                             ddim_steps=min(_audiosr_ddim_steps, 20),
@@ -401,14 +401,14 @@ def _run_audiosr_ml(audio: np.ndarray, sr: int) -> np.ndarray | None:
                     _fb_mono = _fallback_zone.mean(axis=0) if _fallback_zone.ndim > 1 else _fallback_zone
                     from backend.core.dsp.sbr_extend import _sbr_extend
 
-                    _fb_result = _sbr_extend(_fb_mono, sample_rate)
+                    _fb_result = _sbr_extend(_fb_mono, sr)
                     if _fallback_zone.ndim > 1:
                         _fb_stereo = np.stack([_fb_result, _fb_result], axis=0)
                         zone_results.append(np.ascontiguousarray(_fb_stereo.astype(np.float32)))
                     else:
                         zone_results.append(np.ascontiguousarray(_fb_result.astype(np.float32)))
                     logger.debug(
-                        "AudioSR Zone %d: SBR-DSP-Fallback (%.1f s)", z_idx + 1, len(_fb_mono) / max(1, sample_rate)
+                        "AudioSR Zone %d: SBR-DSP-Fallback (%.1f s)", z_idx + 1, len(_fb_mono) / max(1, sr)
                     )
                 except Exception:
                     zone_results.append(np.ascontiguousarray(_fallback_zone))

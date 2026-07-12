@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """
 Unit tests for SOTA vocal enhancement improvements (v9.10.x):
 
@@ -25,6 +27,8 @@ Scientific basis:
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 SR = 48_000
 

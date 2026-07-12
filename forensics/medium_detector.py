@@ -1537,9 +1537,7 @@ class MediumDetector:
                         if _via_rotation_gate:
                             _detection_method = f"Vinyl-Rotation-Gate (rotation={fp.rotation_strength:.3f}≥0.30, infrasonic={fp.infrasonic_rms:.4f}≥0.008)"
                         elif _cand_analog == "cassette":
-                            _detection_method = "Cassette wow/flutter+bandwidth (wow=%.3f, conf≥0.35)" % (
-                                fp.wow_flutter_index
-                            )
+                            _detection_method = f"Cassette wow/flutter+bandwidth (wow={fp.wow_flutter_index:.3f}, conf≥0.35)"
                         elif _cand_analog == "vinyl":
                             _detection_method = f"Vinyl crackle+infrasonic (crackle={fp.crackle_density:.4f}, infrasonic={fp.infrasonic_rms:.4f})"
                         else:

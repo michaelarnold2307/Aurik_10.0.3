@@ -3,10 +3,13 @@ tests/unit/test_reference_anchor_synthesizer.py — ReferenceAnchorSynthesizer T
 Alle Tests synthetisch, kein externer Download.
 """
 
+import logging
 import math
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 SR = 48_000
 np.random.seed(42)

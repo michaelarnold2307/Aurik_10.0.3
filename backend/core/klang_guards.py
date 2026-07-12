@@ -566,7 +566,7 @@ class HumanizationPass:
         out = np.zeros_like(channel)
         buf = 0.0
         for i in range(n):
-            delayed = channel[i - delay_samples] if i >= delay_samples else 0.0
+            _delayed = channel[i - delay_samples] if i >= delay_samples else 0.0
             # Allpass: y[n] = -g * x[n] + x[n-1] + g * y[n-1]
             x_del = channel[i - 1] if i > 0 else 0.0
             out[i] = -g * channel[i] + x_del + g * buf

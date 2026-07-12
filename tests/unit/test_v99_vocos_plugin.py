@@ -8,6 +8,7 @@ Standard: tests/unit/test_v99_vocos_plugin.py
 Pytest-Konfiguration: --timeout=30, kein reales Audio, np.random.seed(42)
 """
 
+import logging
 import os
 
 # Sicherstellen dass der VEnv-Pfad stimmt
@@ -36,6 +37,8 @@ from plugins.vocos_plugin import (
     VocosResult,
     get_vocos_plugin,
 )
+
+logger = logging.getLogger(__name__)
 
 pytestmark = [pytest.mark.ml, pytest.mark.slow]
 

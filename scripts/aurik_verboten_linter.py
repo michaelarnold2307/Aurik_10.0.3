@@ -5,7 +5,11 @@ Abdeckung: 15 von 26 regex-detectable Regeln (AST/Runtime-Regeln separat).
 Referenz: .github/VERBOTEN.md — Linter-Referenz-Tabelle.
 """
 from __future__ import annotations
-import json, os, re, sys
+
+import json
+import os
+import re
+import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -156,10 +160,7 @@ def _should_skip_rule(fp: Path, rid: str) -> bool:
     rule = RULES.get(rid)
     if rule is None:
         return True
-    for s in rule.get("skip", set()):
-        if s in r:
-            return True
-    return False
+    return any(s in r for s in rule.get("skip", set()))
 
 
 def scan(fp: Path) -> list[str]:

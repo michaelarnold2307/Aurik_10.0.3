@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-
-
 """
 test_pipeline_health.py — Pre-Pipeline Health Check Tests
 ==========================================================

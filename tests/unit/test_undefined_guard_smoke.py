@@ -64,7 +64,7 @@ class TestPsutilGuardSmoke:
 
     def test_comfort_guard_imports_correctly(self):
         """ComfortGuard importiert lfilter, nicht biquad."""
-        from scipy.signal import lfilter  # noqa: F401
+        from scipy.signal import lfilter
 
         # Der eigentliche Test: ComfortGuard soll ohne ImportError importierbar sein
         from backend.core.comfort_guard import apply_comfort_guard

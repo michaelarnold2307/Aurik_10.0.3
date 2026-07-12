@@ -232,7 +232,7 @@ class CodecAwareProcessor:
                     if "butter" in dir()
                     else None
                 )
-                if sos is not None and False:
+                if False:
                     pass  # scipy not guaranteed
 
             # 2. Lowpass (Anti-Aliasing vor Codec)

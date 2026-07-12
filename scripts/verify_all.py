@@ -5,7 +5,12 @@ Führt alle Gates aus und produziert einen Abschlussbericht.
 """
 from __future__ import annotations
 
-import json, os, re, subprocess, sys, time
+import json
+import os
+import re
+import subprocess
+import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,7 +65,7 @@ def main():
     rc, out, dur = run([str(VENV), "scripts/aurik_verboten_linter.py", "--json"], 60)
     try:
         linter_data = json.loads(out.split('\n')[-2] if '\n' in out else out)
-    except:
+    except Exception:
         linter_data = {"clean": False, "issues": -1}
     c = Check("VERBOTEN Linter", "pass" if linter_data.get("clean") else "fail", dur)
     c.details = linter_data
@@ -130,7 +135,8 @@ def main():
                 "backend/core/unified_restorer_v3.py"]
     p1_violations = []
     for fp in p1_files:
-        if not (ROOT / fp).exists(): continue
+        if not (ROOT / fp).exists():
+            continue
         text = (ROOT / fp).read_text(encoding="utf-8", errors="replace")
         for i, line in enumerate(text.split('\n'), 1):
             s = line.strip()
@@ -145,7 +151,7 @@ def main():
                 p1_violations.append((fp, i, s[:120]))
             if re.search(r'\bALIASING\b', s) and 'phase_03' in s:
                 p1_violations.append((fp, i, s[:120]))
-    
+
     c = Check("P1: V27-V31 Code-Audit", "pass" if not p1_violations else "fail", 0)
     c.details = {"violations_in_code": len(p1_violations), "samples": p1_violations[:3]}
     results.append(c)
@@ -158,7 +164,8 @@ def main():
     sosfilt_signal = []
     phase_dir = ROOT / "backend" / "core" / "phases"
     for pf in sorted(phase_dir.glob("*.py")):
-        if pf.name == "__init__.py": continue
+        if pf.name == "__init__.py":
+            continue
         text = pf.read_text(encoding="utf-8", errors="replace")
         lines = text.split('\n')
         for i, line in enumerate(lines):
@@ -168,7 +175,7 @@ def main():
                     if any(kw in lines[j] for kw in ['audio_out +=', 'audio_out =', 'output =']):
                         sosfilt_signal.append((pf.name, i+1, line.strip()[:100]))
                         break
-    
+
     c = Check("P2: sosfilt im Signalpfad", "pass" if not sosfilt_signal else "fail", 0)
     c.details = {"signal_mod_count": len(sosfilt_signal)}
     results.append(c)
@@ -182,7 +189,8 @@ def main():
             continue
         try:
             text = py_file.read_text(encoding="utf-8", errors="replace")
-        except: continue
+        except Exception:
+            continue
         if 'np.max(np.abs(audio))' in text:
             lines = text.split('\n')
             for i, line in enumerate(lines):
@@ -191,7 +199,7 @@ def main():
                         if re.search(r'(?:gain|scale|norm)\s*=', lines[j]):
                             np_max_gain.append((rp, i+1, line.strip()[:120]))
                             break
-    
+
     c = Check("P2: np.max in Gain-Pfad", "pass" if not np_max_gain else "fail", 0)
     c.details = {"gain_context_count": len(np_max_gain)}
     results.append(c)
@@ -202,7 +210,7 @@ def main():
     total = len(results)
     passed = sum(1 for r in results if r.status == "pass")
     failed = sum(1 for r in results if r.status == "fail")
-    
+
     report = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": f"{passed}/{total} gates passed",
@@ -212,17 +220,17 @@ def main():
             for r in results
         ]
     }
-    
+
     (ROOT / "reports").mkdir(exist_ok=True)
     (ROOT / "reports" / "verify_all_report.json").write_text(json.dumps(report, indent=2))
-    
+
     for r in results:
         icon = "✅" if r.status == "pass" else "❌"
         print(f"  {icon} {r.name}")
-    
+
     print(f"\nGESAMT: {passed}/{total} bestanden, {failed} fehlgeschlagen")
-    print(f"Report: reports/verify_all_report.json")
-    
+    print("Report: reports/verify_all_report.json")
+
     return 0 if failed == 0 else 1
 
 if __name__ == "__main__":

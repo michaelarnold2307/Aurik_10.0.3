@@ -400,7 +400,8 @@ def run_pre_analysis(
                     for _suffix in [".cassette", ".vinyl", ".reel_tape", ".tape", ".shellac",
                                     ".lacquer_disc", ".wire_recording", ".wax_cylinder"]:
                         if _adm.endswith(_suffix):
-                            _adm = _suffix[1:]; break
+                            _adm = _suffix[1:]
+                            break
                     _adm_mapped = _defmap.get(_adm)
                     if _adm_mapped and _adm_mapped != _defect_material:
                         logger.info("pre_analysis: DefectScanner auto-detected %s (overrides hint %s)", _adm_mapped, _defect_material or "none")
@@ -424,7 +425,8 @@ def run_pre_analysis(
                 _dpos = len(_chain)
                 for i, m in enumerate(_chain):
                     if m in {"mp3_low", "mp3_high", "cd_digital", "streaming", "aac", "unknown"}:
-                        _dpos = i; break
+                        _dpos = i
+                        break
                 for _m in reversed(_injected):
                     _chain.insert(_dpos, _m)
 

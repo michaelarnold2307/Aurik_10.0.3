@@ -15,7 +15,11 @@ Profile:
   - 'broadband': Breitbandiges Rauschen ohne klare Charakteristik
 """
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class NoiseProfileMatcher:

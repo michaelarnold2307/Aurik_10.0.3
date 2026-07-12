@@ -8,7 +8,10 @@ Usage: python scripts/compliance/check_debug_guard.py file1.py ...
 """
 
 import ast
+import logging
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 def check_file(filepath: str) -> list[str]:

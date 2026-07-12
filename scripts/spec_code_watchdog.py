@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """spec_code_watchdog.py v1 — Spec↔Code Sync, fast mode using pre-computed caches."""
 from __future__ import annotations
-import json, os, re, sys
+
+import json
+import os
+import re
+import sys
 from pathlib import Path
 
 PROJECT = Path(__file__).parent.parent
@@ -55,7 +59,9 @@ def verify_claims(claims: list[dict], index: dict[str, set[str]]) -> dict:
                 found = False
                 for ipath in index:
                     if ipath.endswith(c["ref"]) or ipath == c["ref"]:
-                        verified.append(c); found = True; break
+                        verified.append(c)
+                        found = True
+                        break
                 if not found:
                     # Try partial match
                     partial = c["ref"].split("/")[-1]
@@ -72,7 +78,8 @@ def verify_claims(claims: list[dict], index: dict[str, set[str]]) -> dict:
             for t in terms[:8]:
                 for names in index.values():
                     if t.lower() in {n.lower() for n in names}:
-                        found_terms += 1; break
+                        found_terms += 1
+                        break
             if found_terms >= max(1, len(terms[:4])):
                 verified.append(c)
             elif len(terms) == 0:
@@ -104,7 +111,7 @@ def main():
         cov = round(100 * result["verified"] / max(1, result["verified"] + result["missing"]), 1)
         print(f"Spec-Code Watchdog: {result['verified']} verified, {result['missing']} missing, {result['roadmap']} roadmap ({cov}%)")
         if result["missing"]:
-            print(f"\nMissing claims (first 15):")
+            print("\nMissing claims (first 15):")
             for m in result["missing_detail"][:15]:
                 print(f"  {m['spec']}: [{m['type']}] {m['ref'][:100]}")
     return 0 if result["missing"] == 0 else 1

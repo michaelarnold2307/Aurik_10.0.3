@@ -7,11 +7,14 @@ Aurik 9.9 — TransientDecoupledProcessor (§2.27)
 Alle Tests synthetisch (keine echten Audio-Dateien).
 """
 
+import logging
 import math
 import threading
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 SR = 48000
 

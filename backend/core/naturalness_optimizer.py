@@ -501,7 +501,7 @@ def _transient_preservation(audio: np.ndarray, original: np.ndarray, sr: int) ->
             return audio, 0
 
         env = np.array([float(np.max(np.abs(mono[i * win : (i + 1) * win]))) for i in range(n_windows)])
-        orig_env = np.array([float(np.max(np.abs(orig_mono[i * win : (i + 1) * win]))) for i in range(n_windows)])
+        _orig_env = np.array([float(np.max(np.abs(orig_mono[i * win : (i + 1) * win]))) for i in range(n_windows)])
 
         # Detect attacks: rapid envelope rise
         diff = np.diff(env)
@@ -549,7 +549,7 @@ def _gentle_de_ess(audio: np.ndarray, sr: int, material: str) -> tuple[np.ndarra
 
         mono = audio.mean(axis=1) if audio.ndim == 2 else audio
         sib_band = sosfiltfilt(sos, mono)
-        full = sosfiltfilt(sos, np.ones_like(mono)) if False else mono
+        _full = sosfiltfilt(sos, np.ones_like(mono)) if False else mono
 
         rms_sib = float(np.sqrt(np.mean(sib_band**2)) + 1e-12)
         rms_full = float(np.sqrt(np.mean(mono**2)) + 1e-12)
@@ -693,7 +693,7 @@ def _loudness_balance(audio: np.ndarray, original: np.ndarray, mode: str) -> np.
     rms_cur = float(np.sqrt(np.mean(audio**2)) + 1e-12)
     rms_orig = float(np.sqrt(np.mean(original**2)) + 1e-12)
     cur_db = 20.0 * np.log10(rms_cur + 1e-12)
-    orig_db = 20.0 * np.log10(rms_orig + 1e-12)
+    _orig_db = 20.0 * np.log10(rms_orig + 1e-12)
 
     target = -15.0 if mode == "RESTORATION" else -11.0
     diff = target - cur_db

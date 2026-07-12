@@ -24,9 +24,12 @@ Usage:
 
 import argparse
 import ast
+import logging
 import re
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _LOG_METHODS = {"debug", "info", "warning", "error", "critical", "exception"}
 

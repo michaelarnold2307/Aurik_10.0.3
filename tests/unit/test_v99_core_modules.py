@@ -26,11 +26,14 @@ Aurik-9-Richtlinien:
 Pytest-Konfiguration: --timeout=30 (aus pytest.ini)
 """
 
+import logging
 import math
 from pathlib import Path
 
 import numpy as np
 import pytest
+
+logger = logging.getLogger(__name__)
 
 SR = 48_000
 RNG = np.random.default_rng(42)

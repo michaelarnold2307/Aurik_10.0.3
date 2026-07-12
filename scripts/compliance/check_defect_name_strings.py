@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 from pathlib import Path
@@ -20,6 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from backend.core.defect_scanner import DefectType
+
+logger = logging.getLogger(__name__)
 
 CANONICAL: set[str] = {e.value for e in DefectType} | {e.name.lower() for e in DefectType}
 SYNTHETIC_OK: set[str] = {"wow_flutter", "tape_hiss"}
@@ -124,7 +127,6 @@ _NON_DEFECT = {
     "has_clipping",
     "hf_loss_db",
     "get_per_phase_musical_goals_gate",
-    "description",
     "destination",
 }
 

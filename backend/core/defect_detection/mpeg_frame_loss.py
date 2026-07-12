@@ -193,7 +193,7 @@ def detect_mpeg_frame_loss(
     if len(all_locations) > 200:
         all_locations = all_locations[:200]
 
-    metadata = {
+    _metadata = {
         "brickwall_regions": len(brickwall_locations),
         "energy_drops": len(energy_drop_locations),
         "temporal_gaps": len(temporal_gap_locations),
@@ -207,7 +207,4 @@ def detect_mpeg_frame_loss(
 
 def _overlaps_existing(start: float, end: float, existing: list[tuple[float, float]], margin: float = 0.05) -> bool:
     """Prüft, ob ein Zeitintervall mit bestehenden Locations überlappt."""
-    for es, ee in existing:
-        if start < ee + margin and end > es - margin:
-            return True
-    return False
+    return any(start < ee + margin and end > es - margin for es, ee in existing)

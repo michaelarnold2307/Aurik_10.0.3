@@ -482,7 +482,6 @@ __all__ = [
     "MaskingResult",
     "PsychoacousticMaskingModel",
     "compute_masking_threshold",
-    "compute_interaural_cross_correlation",
     "get_masking_model",
     "get_psychoacoustic_masking_model",
 ]

@@ -114,7 +114,7 @@ class UNet(nn.Module):
 # Daten-Pipeline
 # ═══════════════════════════════════════════════════════════════════════════
 
-MEL_PARAMS = dict(n_fft=2048, hop_length=512, n_mels=256, sample_rate=48000)
+MEL_PARAMS = {"n_fft": 2048, "hop_length": 512, "n_mels": 256, "sample_rate": 48000}
 CUTOFF_FREQUENCIES = [5000, 8000, 10000]  # Shellac, Wax, Draht, Lackfolie
 
 

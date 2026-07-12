@@ -12258,7 +12258,7 @@ class ModernMainWindow(QMainWindow):
             btn = getattr(self, btn_name, None)
             if btn is not None:
                 btn.setEnabled(enabled)
-                btn.setVisible(enabled or not enabled)  # immer sichtbar, nur deaktiviert
+                btn.setVisible(True)  # immer sichtbar, nur deaktiviert
         # Also disable the batch start button
         if hasattr(self, "start_batch_btn"):
             self.start_batch_btn.setEnabled(enabled)
@@ -12275,7 +12275,7 @@ class ModernMainWindow(QMainWindow):
                 _tone = str(_lbl.property("aurikCardTone") or "neutral")
                 self._set_info_card_state(_lbl, _tone, animate=False)
 
-        self._refresh_top_info_row(w)
+        self._refresh_top_info_row()
         self._refresh_defect_summary_height()
 
     def _pulse_info_card(self, widget: QWidget) -> None:

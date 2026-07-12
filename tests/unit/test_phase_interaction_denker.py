@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """
 tests/unit/test_phase_interaction_denker.py
 ============================================
@@ -36,6 +38,8 @@ from denker.phase_interaction_denker import (
     _goal_risk_threshold_from_signal,
     get_phase_interaction_denker,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Fixtures

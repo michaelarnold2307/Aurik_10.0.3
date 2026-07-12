@@ -306,7 +306,7 @@ class ReflectiveListeningPass:
     def _apply_corrections(self, audio: np.ndarray, sr: int, issues: list[RLPIssue], material: str) -> np.ndarray:
         """Wendet Mikro-Korrekturen an — kumulativ, aber mit strengen Limits."""
         arr = np.asarray(audio, dtype=np.float64).copy()
-        mono = arr.mean(axis=0) if arr.ndim == 2 else arr
+        _mono = arr.mean(axis=0) if arr.ndim == 2 else arr
 
         for issue in issues:
             corr = issue.correction

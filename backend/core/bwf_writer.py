@@ -76,7 +76,7 @@ def _build_bext_chunk(
     )
 
     # Coding History: leer lassen (wird von Aurik nicht genutzt)
-    coding_history = b"\x00" * 602
+    _coding_history = b"\x00" * 602
     # Tatsächlich: bext ist 602 Bytes FEST (ohne Coding History variabel)
     # Für striktes BWF v1: 602 Bytes total
 
@@ -203,7 +203,7 @@ def _write_bwf_chunks_raw(filepath: str | Path, bext: bytes, ixml: bytes) -> boo
                 return False
 
             # Neuen Inhalt bauen: RIFF-Header + plugin-chunks + data-Chunk
-            riff_header = entire_file[:12]
+            _riff_header = entire_file[:12]
 
             # Alle chunks zwischen RIFF-Header und data-Chunk sammeln
             pre_data_chunks = entire_file[12:data_chunk_offset]

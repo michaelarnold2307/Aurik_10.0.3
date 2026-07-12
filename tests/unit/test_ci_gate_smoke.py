@@ -1,6 +1,7 @@
 """CI-Gate Smoke Test — End-to-End Pipeline (§Schutzschicht-3)."""
 import numpy as np
 
+
 def test_ci_gate_regression_baseline_runs():
     """Regression Gate läuft und produziert Baseline."""
     from benchmarks.regression.regression_gate import generate_baseline

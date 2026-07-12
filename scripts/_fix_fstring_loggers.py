@@ -16,8 +16,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ── Pattern: logger.<level>(f"...") — capture the f-string content ─────────
 # Only matches single-line calls with a plain f"..." argument (no concatenation)

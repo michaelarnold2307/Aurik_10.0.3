@@ -17,6 +17,7 @@ import argparse
 import importlib.machinery
 import importlib.metadata
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -31,6 +32,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 STAGING = ROOT / "models" / ".dropin"

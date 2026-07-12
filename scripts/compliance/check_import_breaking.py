@@ -11,9 +11,12 @@ Usage: python scripts/compliance/check_import_breaking.py file1.py file2.py ...
 """
 
 import ast
+import logging
 import re
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -81,7 +84,7 @@ def get_exports(filepath: str) -> set[str]:
 
     exports: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) or isinstance(node, ast.ClassDef):
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
             exports.add(node.name)
         elif isinstance(node, ast.Assign):
             for target in node.targets:
