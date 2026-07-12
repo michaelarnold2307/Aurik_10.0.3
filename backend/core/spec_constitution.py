@@ -257,6 +257,12 @@ MATERIAL_GOAL_FLOOR: dict[str, dict[str, float]] = {
         "waerme": 0.60,
         "transparenz": 0.45,
         "kohaerenz": 0.50,
+        "micro_dynamics": 0.40,
+        "fokus": 0.45,
+        "balance": 0.50,
+        "tiefe": 0.45,
+        "durchsetzung": 0.48,
+        "stimmung": 0.55,
     },
     # Schellack (1895-1958): 100-8000 Hz, SNR ~30dB, RIAA-EQ fehlt
     # Code uebertrifft Specs konstant → angehoben per Continuous Improvement
@@ -270,6 +276,12 @@ MATERIAL_GOAL_FLOOR: dict[str, dict[str, float]] = {
         "waerme": 0.68,
         "transparenz": 0.53,
         "kohaerenz": 0.58,
+        "micro_dynamics": 0.52,
+        "fokus": 0.55,
+        "balance": 0.58,
+        "tiefe": 0.55,
+        "durchsetzung": 0.58,
+        "stimmung": 0.60,
     },
     # Vinyl (1948-): 20-20000 Hz, SNR ~60dB, RIAA-EQ
     # Code uebertrifft Specs konstant → angehoben per Continuous Improvement
@@ -307,6 +319,12 @@ MATERIAL_GOAL_FLOOR: dict[str, dict[str, float]] = {
         "waerme": 0.65,
         "transparenz": 0.55,
         "kohaerenz": 0.60,
+        "micro_dynamics": 0.50,
+        "fokus": 0.55,
+        "balance": 0.58,
+        "tiefe": 0.55,
+        "durchsetzung": 0.58,
+        "stimmung": 0.58,
     },
     # CD/DAT/High-Quality Digital (1982-): 20-20000 Hz, SNR >90dB
     "cd_digital": {
