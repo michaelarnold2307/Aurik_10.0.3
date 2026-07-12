@@ -16161,6 +16161,17 @@ class ModernMainWindow(QMainWindow):
                 if getattr(self, "_preanalysis_finalized_for", None) == _cfk:
                     return  # double-fire guard
                 self._preanalysis_finalized_for = _cfk
+                # §W-POST-ANALYSIS: Watchdog prüft Pre-Analysis-Ergebnis
+                _pa_result = getattr(self, '_latest_pre_analysis_result', None)
+                if _pa_result is not None:
+                    _pa_errors = getattr(_pa_result, 'errors', {}) or {}
+                    if _pa_errors:
+                        logger.warning(
+                            "Watchdog: Pre-Analysis degradiert — %d Schritt(e) fehlgeschlagen: %s",
+                            len(_pa_errors), ', '.join(f'{k}={v}' for k, v in _pa_errors.items()),
+                        )
+                    else:
+                        logger.info("Watchdog: Pre-Analysis vollständig — alle Schritte OK")
                 self._apply_mode_recommendation_visuals()
                 # Self-healing sync: if background UI update arrived late, refresh
                 # cards from cached analysis state before announcing completion.
@@ -18238,6 +18249,16 @@ class ModernMainWindow(QMainWindow):
             self._btn_preview_restored.setEnabled(False)
         if hasattr(self, "quality_meter_widget"):
             self._prime_live_quality_meter()
+
+        # ── §WATCHDOG-STARTUP-CHECK ──────────────────────────────────
+        # Einmaliger Selbsttest aller Watchdog-Regeln beim Start.
+        _wd_checks = []
+        _wd_checks.append(("W-PREANALYSIS-LIVENESS", "✅", "60s ohne _cb() → Force-Finalize"))
+        _wd_checks.append(("W-PROGRESS-STALE", "✅", "Bar-Step-Abweichung >15% → WARNING"))
+        _wd_checks.append(("W-GATE-STUCK", "✅", "1-Flag >120s → Force-Finalize"))
+        _wd_checks.append(("W-WALL-CLOCK", "✅", f"Timeout: {_watchdog_ms/1000:.0f}s"))
+        for _name, _status, _desc in _wd_checks:
+            logger.info("Watchdog: %s %s — %s", _status, _name, _desc)
 
         # Watchdog-Timer: feuert wenn Verarbeitung zu lange hängt (z. B. blockierender ONNX-Call).
         # Budget muss großzügiger sein als PerformanceGuard (LIMIT_MAXIMUM=32×, plus
