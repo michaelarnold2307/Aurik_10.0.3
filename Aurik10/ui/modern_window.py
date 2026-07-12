@@ -16349,10 +16349,11 @@ class ModernMainWindow(QMainWindow):
                     self.emit_load_progress(float(pct))
 
                 def _on_preanalysis_step(pct: int, msg: str) -> None:
-                    """Forward pre-analysis step progress to GUI status text."""
+                    """Forward pre-analysis step progress to GUI status text AND progress bar."""
                     self.dispatch_to_gui(lambda _p=pct, _m=msg: (
                         setattr(self, '_preanalysis_step_msg', _m),
                         setattr(self, '_preanalysis_step_pct', _p),
+                        self.emit_load_progress(float(_p)),  # Treibt den Fortschrittsbalken
                     ))
 
                 # ── Run all analyses via unified backend entry point ──────────
