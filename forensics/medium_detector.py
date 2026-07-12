@@ -544,6 +544,19 @@ class MediumDetector:
         "phonk": 17,
 
     }
+    # Language -> Medium-Era Preference matrix.
+    # German: strong shellac/vinyl tradition, late mp3 adoption (GEMA).
+    # Japanese: world's fastest CD adoption (1982), Minidisc stronghold.
+    _LANGUAGE_MEDIUM_BONUS: dict[str, dict[str, float]] = {
+        "de": {"shellac": 0.15, "vinyl": 0.10, "cassette": 0.05, "cd_digital": 0.05, "mp3_low": -0.10},
+        "en": {"vinyl": 0.05, "cd_digital": 0.05, "mp3_low": 0.05, "streaming": 0.05},
+        "ja": {"cd_digital": 0.15, "minidisc": 0.10, "vinyl": 0.05, "dat": 0.05},
+        "fr": {"shellac": 0.10, "vinyl": 0.10, "cd_digital": 0.05},
+        "it": {"shellac": 0.10, "vinyl": 0.10, "cd_digital": 0.05},
+        "es": {"shellac": 0.05, "vinyl": 0.10, "cassette": 0.05},
+        "pt": {"shellac": 0.05, "vinyl": 0.10, "cd_digital": 0.05},
+    }
+
 
     # ── Transfer chain knowledge base ────────────────────────────────
     # Known plausible chains.  The detector matches detected sources
@@ -856,7 +869,7 @@ class MediumDetector:
 
     
     def _best_matching_chain(
-        self, detected: list[str], genre: str | None = None
+        self, detected: list[str], genre: str | None = None, language: str | None = None
     ) -> list[str] | None:
         """Find the best-matching known chain for a set of detected materials.
 
@@ -877,6 +890,9 @@ class MediumDetector:
         # Genre-era validation
         _genre_earliest = self._GENRE_EARLIEST_ORDER.get(
             (genre or "").lower().replace(" ", "_").replace("-", "_"), 0
+        )
+        _lang_bonuses = self._LANGUAGE_MEDIUM_BONUS.get(
+            (language or "").lower()[:2], {}
         )
 
         for chain in self._KNOWN_CHAINS:
@@ -901,7 +917,9 @@ class MediumDetector:
                         order_score += 1
                     last_idx = idx
 
-            total = overlap * 2 + order_score + (1 if genre_penalty == 0 else -genre_penalty)
+            lang_bonus = sum(_lang_bonuses.get(m, 0.0) for m in chain) if _lang_bonuses else 0.0
+            lang_bonus = min(0.3, lang_bonus)
+            total = overlap * 2 + order_score + lang_bonus + (1 if genre_penalty == 0 else -genre_penalty)
             if total > best_score:
                 best_score = total
                 best_match = chain
