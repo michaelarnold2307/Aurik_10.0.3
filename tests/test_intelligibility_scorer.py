@@ -37,7 +37,6 @@ def sample_rate() -> int:
 
 
 @pytest.fixture
-@pytest.mark.unit
 def test_audio_mono(sample_rate: int) -> np.ndarray:
     """Generate test audio with formants and transients."""
     duration = 2.0  # seconds

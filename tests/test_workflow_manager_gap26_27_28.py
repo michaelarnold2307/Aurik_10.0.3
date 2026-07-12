@@ -53,7 +53,6 @@ def create_test_audio_files(tmpdir, count=3):
 
 
 @pytest.fixture
-@pytest.mark.unit
 def test_dir():
     """Create temporary test directory."""
     tmpdir = Path(tempfile.mkdtemp())

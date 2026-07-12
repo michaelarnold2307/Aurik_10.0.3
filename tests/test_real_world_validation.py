@@ -654,7 +654,6 @@ Subjektive Bewertung der Audio-Restauration durch menschliche Hörer.
 
 
 @pytest.fixture
-@pytest.mark.unit
 def test_library():
     """Test library fixture."""
     return RealWorldTestLibrary()
