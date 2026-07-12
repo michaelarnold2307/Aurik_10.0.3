@@ -2578,7 +2578,7 @@ class UnifiedRestorerV3:
         # ist das Ergebnis unsicher → global_scalar zusätzlich um 10% reduzieren.
         _era_disagreement = False
         _medium_disagreement = False
-        if False and era_decade is not None:  # static context — CLAP decade check skipped
+        if False:  # static context — CLAP decade check skipped
             _clap_d = None  # static context — _clap_decade unavailable
             if _clap_d is not None and abs(int(_clap_d) - int(era_decade)) >= 20:
                 _era_disagreement = True
@@ -7836,7 +7836,7 @@ class UnifiedRestorerV3:
                         # §6.8 Inject reel_tape precursor into chain immediately
                         _tc = self._restoration_context.get("transfer_chain", [])
                         if _tc and "reel_tape" not in _tc and "tape" not in _tc:
-                            _tc = ["reel_tape"] + list(_tc)
+                            _tc = ["reel_tape", *list(_tc)]
                             self._restoration_context["transfer_chain"] = _tc
                             self._restoration_context["era_precursor_material"] = "reel_tape"
                         logger.info(
@@ -18626,7 +18626,16 @@ class UnifiedRestorerV3:
                     return cast(np.ndarray, np.asarray(_a.T, dtype=np.float32))
                 return cast(np.ndarray, _a)
 
-            _final_gate_ref = _channels_first_for_final_gate(np.asarray(analysis_audio, dtype=np.float32))
+            # §2.44/§2.49: Restoration mode must reference best_carrier_checkpoint,
+            # not degraded input. A good restoration sounds *different* (cleaner)
+            # than the degraded original → artifact_freedom against degraded input
+            # would penalize successful denoising as "100% artifact" (af=0.000).
+            if not self.is_studio_mode():
+                _carrier_ref = getattr(self, "_best_carrier_checkpoint", None)
+                _final_gate_ref = _channels_first_for_final_gate(
+                    np.asarray(_carrier_ref if _carrier_ref is not None else analysis_audio, dtype=np.float32))
+            else:
+                _final_gate_ref = _channels_first_for_final_gate(np.asarray(analysis_audio, dtype=np.float32))
             _final_gate_audio = _channels_first_for_final_gate(np.asarray(restored_audio, dtype=np.float32))
             _final_gate_sr = int(max(1, int(original_sample_rate)))
             _final_gate_material = str(getattr(material_type, "value", material_type) or "digital").lower()
