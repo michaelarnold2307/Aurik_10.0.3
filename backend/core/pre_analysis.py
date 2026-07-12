@@ -367,32 +367,36 @@ def run_pre_analysis(
                 _fut = {name: _pool.submit(fn) for name, fn in _step_fns.items()}
                 _total_steps = len(_fut)
                 _done_steps = 0
+                _fut_to_name: dict[_cf.Future, str] = {v: k for k, v in _fut.items()}
 
-                for name, fut in _fut.items():
+                # as_completed: collect results as they finish, not sequentially.
+                # Fast steps (defect, restorability) report immediately instead
+                # of being blocked behind slow steps (era, genre).
+                for fut in _cf.as_completed(_fut_to_name, timeout=_SUBSTEP_TIMEOUT_S):
+                    name = _fut_to_name[fut]
                     try:
-                        sub = fut.result(timeout=_SUBSTEP_TIMEOUT_S)
+                        sub = fut.result(timeout=0.0)
                         setattr(result, name, sub)
-                        _done_steps += 1
-                        # Per-step progress: 75% → 80% → 85% → 90% je nach Anzahl
-                        _step_pct = 75 + int((_done_steps / max(_total_steps, 1)) * 15)
-                        _cb(_step_pct, f"Analyse: {name} abgeschlossen ({_done_steps}/{_total_steps})…")
-                        logger.debug("pre_analysis: step=%s done", name)
-                    except (TimeoutError, _cf.TimeoutError):  # Python 3.10: cf.TimeoutError != builtins.TimeoutError
-                        _had_substep_timeout = True
-                        result.errors[name] = f"timeout_after={_SUBSTEP_TIMEOUT_S:.1f}s"
-                        fut.cancel()
-                        logger.warning(
-                            "pre_analysis: step=%s timed out after %.1fs; degrading without this sub-result",
-                            name,
-                            _SUBSTEP_TIMEOUT_S,
-                        )
                     except Exception as exc:
                         result.errors[name] = str(exc)
                         logger.warning("pre_analysis: step=%s failed (%s)", name, exc)
+                    _done_steps += 1
+                    _step_pct = 75 + int((_done_steps / max(_total_steps, 1)) * 15)
+                    _cb(_step_pct, f"Analyse: {name} abgeschlossen ({_done_steps}/{_total_steps})…")
+                    logger.debug("pre_analysis: step=%s done", name)
+            except (_cf.TimeoutError, TimeoutError):
+                _had_substep_timeout = True
+                for fut in _fut_to_name:
+                    if not fut.done():
+                        name = _fut_to_name[fut]
+                        result.errors[name] = f"timeout_after={_SUBSTEP_TIMEOUT_S:.1f}s"
+                        fut.cancel()
+                        logger.warning(
+                            "pre_analysis: step=%s timed out after %.1fs",
+                            name, _SUBSTEP_TIMEOUT_S,
+                        )
             finally:
-                # Die Futures wurden oben bereits konsumiert; hier wollen wir die Worker
-                # deterministisch beenden statt sie bis zum Interpreter-Exit offen zu lassen.
-                _pool.shutdown(wait=not _had_substep_timeout, cancel_futures=True)
+                _pool.shutdown(wait=False, cancel_futures=True)
     else:
         logger.debug("pre_analysis: steps 2-5 vollständig aus Cache geladen")
 
