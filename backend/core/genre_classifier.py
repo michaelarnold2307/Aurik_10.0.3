@@ -44,6 +44,15 @@ class SchlagerClassificationResult:
         return self.genre_label
 
     @property
+    def language_code(self) -> str:
+        """ISO 639-1 language code inferred from vocal language score.
+
+        Returns 'de' when German is likely (score ≥ 0.40), 'en' otherwise.
+        Used by MediumDetector for language-aware chain building.
+        """
+        return "de" if self.vocal_language_score >= 0.40 else "en"
+
+    @property
     def primary_genre_confidence(self) -> float:
         """Primäre Genre-Klassifikationssicherheit — maximaler verfügbarer Score.
 

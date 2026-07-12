@@ -370,6 +370,59 @@ def run_pre_analysis(
 
     _cb(90, "Analyse abgeschlossen — Ergebnisse werden gespeichert…")
 
+    # ── Bidirektionale Genre↔Medium-Validierung (SOTA 2026) ──────
+    # Nutzt die Knowledge Base des MediumDetectors um Genre und
+    # Tonträgerkette gegenseitig zu validieren.  Schellack → kein
+    # Hip-Hop.  Deutscher Schlager → kein Streaming-Only.
+    if result.medium is not None and result.genre is not None:
+        try:
+            _md_val = result.medium
+            _genre_label = str(getattr(result.genre, "genre_label", "") or "")
+            _lang_code = str(getattr(result.genre, "language_code", "") or
+                           getattr(result.genre, "lang_code", "") or "")
+            _chain = list(getattr(_md_val, "transfer_chain", []) or [])
+
+            if _chain and _genre_label:
+                _detector = _load_symbol("forensics.medium_detector", "get_medium_detector")()
+
+                # 1. Medium → Genre: Sind die erkannten Medien mit dem Genre vereinbar?
+                _constraints = _detector.get_genre_constraints(_chain)
+                _excluded = set(_constraints.get("excluded", []))
+                _preferred = set(_constraints.get("preferred", []))
+                _genre_key = _genre_label.lower().replace(" ", "_").replace("-", "_")
+
+                if _genre_key in _excluded:
+                    logger.warning(
+                        "Bidirektionale Validierung: Genre '%s' ist auf Tonträgerkette %s "
+                        "AUSGESCHLOSSEN. Medium→Genre-Konflikt.",
+                        _genre_label,
+                        " → ".join(_chain),
+                    )
+                elif _genre_key in _preferred:
+                    logger.debug(
+                        "Bidirektionale Validierung: Genre '%s' passt zur Kette %s (preferred)",
+                        _genre_label,
+                        " → ".join(_chain),
+                    )
+
+                # 2. Genre + Sprache → Kette: Chain mit erweiterten Parametern neu matchen
+                _detected = list(set(_chain))
+                _refined_chain = _detector._best_matching_chain(
+                    _detected, genre=_genre_label, language=_lang_code or None
+                )
+                if _refined_chain and _refined_chain != _chain:
+                    logger.info(
+                        "Bidirektionale Validierung: Kette verfeinert — %s → %s "
+                        "(Genre=%s, Sprache=%s)",
+                        " → ".join(_chain),
+                        " → ".join(_refined_chain),
+                        _genre_label,
+                        _lang_code or "?",
+                    )
+                    _md_val.transfer_chain = _refined_chain
+        except Exception as _bv_exc:
+            logger.debug("Bidirektionale Validierung uebersprungen: %s", _bv_exc)
+
     # ── §2.46a Deep-Transfer-Chain-Injection [RELEASE_MUST] ───────────
     # Spec §2.46a: Importsongs mit 3+ Tonträgerstufen müssen vollständig
     # modelliert werden. Drei Quellen für die Ketten-Rekonstruktion:
