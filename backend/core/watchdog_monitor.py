@@ -345,9 +345,12 @@ class WatchdogMonitor:
             from backend.core.spec_constitution import get_constitution
 
             const = get_constitution()
-            # Proxy-Metriken aus HPE
-            est_artifact = max(0.0, report.pleasantness_score * 0.95)
-            est_hpi = report.pleasantness_score
+            # Proxy-Metriken: Integritäts-gewichtet (NaN/Clip-Erkennung aus Phase-Watches)
+            nan_ok = all(not any("NaN" in str(e) for e in w.errors) for w in report.phase_watches)
+            clip_ok = all(not any("Kollaps" in str(e) for e in w.errors) for w in report.phase_watches)
+            integrity_factor = 1.0 if (nan_ok and clip_ok) else 0.75
+            est_artifact = max(0.80, integrity_factor * report.pleasantness_score)
+            est_hpi = max(0.0, min(1.0, report.pleasantness_score * integrity_factor))
             # §0h Veto-Check
             pq_v = const.check_paragraph_zero(audio, sr, artifact_freedom=est_artifact, hpi=est_hpi)
             for v in pq_v:
