@@ -383,7 +383,7 @@ def run_pre_analysis(
                     _done_steps += 1
                     _step_pct = 75 + int((_done_steps / max(_total_steps, 1)) * 15)
                     _cb(_step_pct, f"Analyse: {name} abgeschlossen ({_done_steps}/{_total_steps})…")
-                    logger.debug("pre_analysis: step=%s done", name)
+                    logger.info("pre_analysis: step=%s done (%d/%d)", name, _done_steps, _total_steps)
             except (_cf.TimeoutError, TimeoutError):
                 _had_substep_timeout = True
                 for fut in _fut_to_name:
