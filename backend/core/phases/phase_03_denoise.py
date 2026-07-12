@@ -73,6 +73,7 @@ import numpy as np
 import scipy.signal as signal
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # Resource Management for fallback to lightweight algorithms
 try:
@@ -390,6 +391,9 @@ class DenoisePhase(PhaseInterface):
         noise_profile_end: float | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("DeepFilterNetV3", phase_name="03")
+        check_ml_model_ready("BS-RoFormer", phase_name="03")
+        check_ml_model_ready("MIIPHER", phase_name="03")
         """
         Professional noise reduction with adaptive tracking.
 

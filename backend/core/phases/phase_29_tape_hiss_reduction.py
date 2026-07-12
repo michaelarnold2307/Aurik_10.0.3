@@ -75,6 +75,7 @@ from backend.core.defect_scanner import MaterialType
 from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # ML-Hybrid Support
 try:
@@ -428,6 +429,7 @@ class TapeHissReductionPhase(PhaseInterface):
         quality_mode: str | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("DeepFilterNetV3", phase_name="29")
         """
         Verarbeitet audio to reduce tape hiss with ML-Hybrid support.
 

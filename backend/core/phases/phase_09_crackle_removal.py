@@ -88,6 +88,7 @@ from backend.core.ml_memory_budget import try_allocate as _try_allocate
 from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # ML-Hybrid Quality Mode System
 try:
@@ -820,6 +821,8 @@ class CrackleRemovalPhase(PhaseInterface):
     def process(
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs
     ) -> PhaseResult:
+        check_ml_model_ready("BANQUET", phase_name="09")
+        check_ml_model_ready("DeepFilterNetV3", phase_name="09")
         """
         Professional crackle removal with texture preservation.
 

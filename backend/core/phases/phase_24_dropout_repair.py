@@ -86,6 +86,7 @@ from backend.core.audio_utils import (
 )
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 try:
     from backend.core.quality_mode import QualityMode, should_use_ml  # type: ignore[attr-defined]
@@ -870,6 +871,9 @@ class DropoutRepairPhase(PhaseInterface):
         quality_mode: str | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("AudioSR", phase_name="24")
+        check_ml_model_ready("GACELA", phase_name="24")
+        check_ml_model_ready("AudioLDM2", phase_name="24")
         """
         Professional dropout repair with context-aware inpainting and ML-Hybrid support.
 

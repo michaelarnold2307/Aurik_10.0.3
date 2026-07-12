@@ -73,6 +73,7 @@ from backend.core.audio_utils import compute_gated_rms_dbfs as _gated_rms_dbfs_0
 from backend.core.audio_utils import to_channels_last
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 # ML-Hybrid Support
 try:
@@ -258,6 +259,7 @@ class HumRemovalPhase(PhaseInterface):
         quality_mode: str | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("DeepFilterNetV3", phase_name="02")
         """
         Professional hum removal with adaptive harmonic tracking and ML-Hybrid refinement.
 

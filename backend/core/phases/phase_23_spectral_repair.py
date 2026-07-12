@@ -77,6 +77,7 @@ from backend.core.plugin_lifecycle_manager import (
 from backend.core.quality_mode import QualityModeConfig, is_phase_ml_enabled, log_mode_decision
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -635,6 +636,7 @@ class SpectralRepair(PhaseInterface):
         material_type: str = "unknown",
         **kwargs: Any,
     ) -> PhaseResult:
+        check_ml_model_ready("AudioSR", phase_name="23")
         """
         Wendet an: spectral repair to audio.
 

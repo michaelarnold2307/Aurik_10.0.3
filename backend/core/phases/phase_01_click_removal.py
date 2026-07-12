@@ -68,6 +68,7 @@ from backend.core.dsp.silence_mask import apply_silence_preservation
 from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 try:
     import librosa as _librosa_lpc
@@ -380,6 +381,7 @@ class ClickRemovalPhase(PhaseInterface):
         quality_mode: str | None = None,
         **kwargs,
     ) -> PhaseResult:
+        check_ml_model_ready("DeepFilterNetV3", phase_name="01")
         """
         Professional click removal with multi-scale detection and ML-Hybrid support.
 
