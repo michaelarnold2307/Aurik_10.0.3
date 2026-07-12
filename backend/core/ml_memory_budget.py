@@ -344,11 +344,20 @@ def _preflight_system_memory(required_mb: float) -> bool:
     available_mb = _available_memory_mb()
 
     if _size_gb >= 1.0:
-        # Load-peak formula: require enough free RAM to survive the peak
-        # (1.6× model size) PLUS a systemd-oomd safety margin (12 % of total).
+        # Load-peak formula: adaptive to total system RAM.
+        # ≥24 GB → 1.30× peak, 8 % oomd (more headroom → tighter margins safe)
+        # ≥16 GB → 1.45× peak, 10 % oomd
+        #  <16 GB → 1.60× peak, 12 % oomd (conservative)
+        _total_ram_gb = float(_psutil.virtual_memory().total) / (1024.0**3)
+        if _total_ram_gb >= 24.0:
+            _load_peak = 1.30; _oomd_pct = 0.08
+        elif _total_ram_gb >= 16.0:
+            _load_peak = 1.45; _oomd_pct = 0.10
+        else:
+            _load_peak = 1.60; _oomd_pct = 0.12
         _total_ram_mb = float(_psutil.virtual_memory().total) / (1024.0 * 1024.0)
-        _oomd_safe_mb = max(2048.0, _total_ram_mb * 0.12)
-        _peak_required_mb = required_mb * 1.6 + _oomd_safe_mb
+        _oomd_safe_mb = max(2048.0, _total_ram_mb * _oomd_pct)
+        _peak_required_mb = required_mb * _load_peak + _oomd_safe_mb
         required_with_margin = max(_peak_required_mb, required_mb * _scaled_margin(_size_gb), _MIN_FREE_MB_HARD)
     else:
         _margin = _scaled_margin(_size_gb)
