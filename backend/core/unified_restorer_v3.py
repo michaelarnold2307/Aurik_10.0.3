@@ -19545,6 +19545,25 @@ class UnifiedRestorerV3:
             quality_estimate * 100,
         )
 
+        # Laienfreundliche Zusammenfassung
+        try:
+            from backend.core.phase_fazit import log_restoration_summary
+            _summary_chain = (
+                self._restoration_context.get("transfer_chain")
+                or self._restoration_context.get("chain")
+            )
+            log_restoration_summary(
+                total_time_s=total_time,
+                rt_factor=rt_factor,
+                quality_pct=quality_estimate * 100,
+                chain=_summary_chain,
+                genre=str(self._restoration_context.get("genre_label", "")),
+                era_decade=int(self._restoration_context.get("decade", 0)),
+                phases_count=0,
+            )
+        except Exception as _summary_exc:
+            logger.debug("Restoration summary skipped: %s", _summary_exc)
+
         # --- Aggressive end-of-run memory cleanup (OOM hardening) ---
         _cleanup_report: dict[str, Any] = {"unloaded": [], "errors": []}
         try:

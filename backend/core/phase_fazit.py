@@ -114,3 +114,115 @@ def _wrap_text(text: str, width: int) -> list[str]:
     if text.strip():
         lines.append(text)
     return lines
+
+
+def log_restoration_summary(
+    total_time_s: float,
+    rt_factor: float,
+    quality_pct: float,
+    chain: list[str] | None = None,
+    genre: str = "",
+    era_decade: int = 0,
+    phases_count: int = 0,
+    mushra_score: float = 0.0,
+    hpi_score: float = 0.0,
+) -> None:
+    """Post-restoration summary in plain German for non-expert users.
+
+    Produces a comprehensive, human-readable box explaining what was done,
+    what was found, and how good the result is.
+    """
+    W = 72
+    quality_label = _quality_label_de(quality_pct)
+    chain_story = _chain_story_de(chain) if chain else ""
+
+    lines = []
+    lines.append("┌" + "─" * (W - 2) + "┐")
+    lines.append(_center("✨ AURIK RESTAURATION ABGESCHLOSSEN ✨", W))
+
+    # Quality
+    lines.append(_center(f"Qualität: {quality_pct:.0f}% — {quality_label}", W))
+
+    # Chain story
+    if chain_story:
+        lines.append("│" + " " * (W - 2) + "│")
+        lines.append(_center("📀 Tonträgerkette", W))
+        for cl in _wrap_text(chain_story, W - 4):
+            lines.append("│ " + cl.ljust(W - 4) + " │")
+
+    # Genre + Era
+    if genre or era_decade:
+        parts = []
+        if genre:
+            parts.append(f"Genre: {genre}")
+        if era_decade:
+            parts.append(f"Aufnahme: {era_decade}er Jahre")
+        lines.append("│" + " " * (W - 2) + "│")
+        lines.append(_center(" ⋂ ".join(parts), W))
+
+    # Stats
+    lines.append("│" + " " * (W - 2) + "│")
+    lines.append(_center(
+        f"⏱ {total_time_s:.0f}s  ⋂  {rt_factor:.1f}× Echtzeit  ⋂  {phases_count} Phasen",
+        W,
+    ))
+    if mushra_score > 0:
+        lines.append(_center(f"🎯 MUSHRA: {mushra_score:.0f}/100", W))
+
+    lines.append("│" + " " * (W - 2) + "│")
+    lines.append(_center("ℹ️  Details in den Phasen-Fazits oberhalb", W))
+    lines.append("└" + "─" * (W - 2) + "┘")
+
+    logger.info("\n".join(lines))
+
+
+def _quality_label_de(pct: float) -> str:
+    if pct >= 95:   return "🏆 Weltklasse — wie Studio-Aufnahme"
+    elif pct >= 85: return "✅ Ausgezeichnet — kaum vom Original zu unterscheiden"
+    elif pct >= 70: return "👍 Sehr gut — deutliche Verbesserung"
+    elif pct >= 50: return "⚡ Gut — hörbare Verbesserung, leichte Restdefekte"
+    elif pct >= 30: return "⚠️  Ausreichend — das Material limitiert die Qualität"
+    else:           return "❌ Schwieriges Material — starke Degradation"
+
+
+def _chain_story_de(chain: list[str]) -> str:
+    """Convert a technical chain into a human-readable German story."""
+    names = {
+        "reel_tape": "Tonband (Studio-Aufnahme)",
+        "vinyl": "Vinyl-Schallplatte (Veröffentlichung)",
+        "shellac": "Schellackplatte (78rpm)",
+        "wax_cylinder": "Wachswalze",
+        "lacquer_disc": "Lackplatte (Mitschnitt)",
+        "wire_recording": "Stahldraht-Aufnahme",
+        "cassette": "Compact Cassette (Überspielung)",
+        "cartridge_8track": "8-Spur-Cartridge",
+        "cd_digital": "Compact Disc (CD)",
+        "dat": "Digital Audio Tape (DAT)",
+        "dcc": "Digital Compact Cassette (DCC)",
+        "minidisc": "MiniDisc",
+        "mp3_low": "MP3 (niedrige Bitrate, Digitalisierung)",
+        "mp3_high": "MP3 (hohe Bitrate)",
+        "aac": "AAC/M4A",
+        "streaming": "Streaming-Dienst",
+    }
+    parts = []
+    for i, m in enumerate(chain):
+        name = names.get(m, m)
+        if i == 0:
+            parts.append(f"📀 {name}")
+        elif i == len(chain) - 1 and m.startswith("mp3"):
+            parts.append(f"💾 {name}")
+        else:
+            parts.append(f"→ {name}")
+    return " ".join(parts)
+
+
+def _center(text: str, width: int) -> str:
+    """Center text in a box line."""
+    visible = len(text)
+    pad = width - 2 - visible
+    if pad < 0:
+        return "│ " + text[:width - 4] + " │"
+    left = pad // 2
+    right = pad - left
+    return "│" + " " * left + text + " " * right + "│"
