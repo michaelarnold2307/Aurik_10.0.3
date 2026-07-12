@@ -82,12 +82,17 @@ PY
 }
 
 # GPU-Erkennung: ROCm-venv (ext4) + KFD-Device vorhanden und nicht explizit deaktiviert
-if [[ "${AURIK_FORCE_CPU:-0}" != "1" && -x "$VENV_GPU" && -e "/dev/kfd" ]]; then
-    VENV_PYTHON="$VENV_GPU"
+# Prüft sowohl .venv_gpu (neu) als auch venv_rocm (legacy)
+_GPU_PYTHON="$VENV_GPU"
+if [[ ! -x "$_GPU_PYTHON" ]]; then
+    _GPU_PYTHON="$HOME/.local/share/aurik/venv_rocm/bin/python"
+fi
+if [[ "${AURIK_FORCE_CPU:-0}" != "1" && -x "$_GPU_PYTHON" && -e "/dev/kfd" ]]; then
+    VENV_PYTHON="$_GPU_PYTHON"
     _GPU_MODE="ROCm (AMD GPU)"
     # ORT's libonnxruntime_providers_rocm.so benötigt libhipblas.so.2, libhipfft.so etc.
     # Diese liegen im PyTorch-lib-Verzeichnis des ROCm-venv (ext4).
-    _TORCH_LIB="$HOME/.local/share/aurik/venv_gpu/lib/python3.10/site-packages/torch/lib"
+    _TORCH_LIB="$HOME/.local/share/aurik/venv_rocm/lib/python3.10/site-packages/torch/lib"
     if [[ -d "$_TORCH_LIB" ]]; then
         export LD_LIBRARY_PATH="${_TORCH_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
