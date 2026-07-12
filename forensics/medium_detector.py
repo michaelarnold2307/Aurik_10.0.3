@@ -544,6 +544,66 @@ class MediumDetector:
         "phonk": 17,
 
     }
+
+    _MEDIUM_DISPLAY_NAMES: dict[str, str] = {
+        "tinfoil_cylinder": "Zinnfolien-Walze (Edison 1877)",
+        "wax_cylinder": "Wachswalze (Edison 1888-1929)",
+        "lacquer_disc": "Lackplatte / Acetat-Mitschnitt",
+        "shellac": "Schellackplatte (78 rpm)",
+        "shellac_vertical": "Schellackplatte, vertikaler Schnitt",
+        "wire_recording": "Stahldraht-Aufnahme",
+        "vinyl": "Vinyl-Schallplatte (LP/45rpm)",
+        "reel_tape": "Tonband (Studio-Master)",
+        "cartridge_4track": "4-Spur-Cartridge (Fidelipac)",
+        "cartridge_8track": "8-Spur-Cartridge (Lear Jet)",
+        "cassette": "Compact Cassette (Philips 1963)",
+        "elcaset": "Elcaset (Sony 1976-1980)",
+        "cd_digital": "Compact Disc (CD)",
+        "dat": "Digital Audio Tape (R-DAT)",
+        "dcc": "Digital Compact Cassette (Philips 1992)",
+        "minidisc": "MiniDisc (Sony, ATRAC)",
+        "mp3_high": "MP3 (hohe Bitrate)",
+        "mp3_low": "MP3 (niedrige Bitrate)",
+        "aac": "AAC / M4A",
+        "streaming": "Streaming (Spotify/Apple/YouTube)",
+    }
+
+    _LANGUAGE_MEDIUM_BONUS: dict[str, dict[str, float]] = {
+        "de": {"shellac": 0.15, "vinyl": 0.10, "cassette": 0.05, "cd_digital": 0.05, "mp3_low": -0.10},
+        "en": {"vinyl": 0.05, "cd_digital": 0.05, "mp3_low": 0.05, "streaming": 0.05},
+        "ja": {"cd_digital": 0.15, "minidisc": 0.10, "vinyl": 0.05, "dat": 0.05},
+        "fr": {"shellac": 0.10, "vinyl": 0.10, "cd_digital": 0.05},
+        "it": {"shellac": 0.10, "vinyl": 0.10, "cd_digital": 0.05},
+        "es": {"shellac": 0.05, "vinyl": 0.10, "cassette": 0.05},
+        "pt": {"shellac": 0.05, "vinyl": 0.10, "cd_digital": 0.05},
+    }
+
+    _MEDIUM_EXCLUDES_GENRES: dict[str, list[str]] = {
+        "wax_cylinder": ["rock", "pop", "jazz", "blues", "hip_hop", "electronic", "metal", "punk", "disco", "funk", "reggae", "soul", "rnb", "rap", "techno", "house", "trance", "dubstep", "trap", "edm"],
+        "shellac": ["rock", "hip_hop", "electronic", "metal", "punk", "disco", "funk", "reggae", "techno", "house", "trance", "dubstep", "trap", "edm", "rap", "grunge", "synth_pop", "drum_and_bass"],
+        "wire_recording": ["rock", "hip_hop", "electronic", "metal", "punk", "disco", "funk", "reggae", "techno", "house", "trance", "dubstep", "trap", "edm", "rap", "synth_pop"],
+        "cartridge_8track": ["hip_hop", "electronic", "techno", "house", "trance", "dubstep", "trap", "edm", "grunge", "drum_and_bass", "vaporwave"],
+        "elcaset": ["hip_hop", "techno", "house", "trance", "dubstep", "trap", "edm", "grunge", "drum_and_bass", "vaporwave"],
+        "dcc": ["vaporwave", "trap", "dubstep", "edm", "phonk"],
+        "minidisc": ["vaporwave", "trap", "dubstep", "phonk"],
+        "dat": ["vaporwave"],
+    }
+
+    _MEDIUM_PREFERRED_GENRES: dict[str, list[str]] = {
+        "wax_cylinder": ["classical", "opera", "march", "folk_traditional"],
+        "shellac": ["jazz", "blues", "swing", "country", "gospel", "classical", "opera", "schlager", "folk"],
+        "vinyl": ["rock", "pop", "soul", "funk", "jazz", "classical", "disco", "punk", "reggae", "metal", "schlager"],
+        "reel_tape": ["classical", "jazz", "rock", "pop", "soul", "progressive_rock"],
+        "cassette": ["rock", "pop", "metal", "punk", "hip_hop", "electronic", "synth_pop", "new_wave", "schlager"],
+        "cartridge_8track": ["rock", "soul", "country", "funk", "disco", "pop"],
+        "cd_digital": ["rock", "pop", "electronic", "hip_hop", "techno", "house", "classical", "metal", "grunge", "trip_hop"],
+        "dat": ["classical", "jazz", "electronic", "ambient"],
+        "minidisc": ["pop", "rock", "electronic", "j_pop", "anime_music"],
+        "mp3_high": ["electronic", "hip_hop", "rock", "pop", "metal", "indie"],
+        "mp3_low": ["electronic", "hip_hop", "pop", "lofi_hip_hop"],
+        "streaming": ["pop", "hip_hop", "electronic", "edm", "trap", "latin", "k_pop"],
+    }
+
     # Language -> Medium-Era Preference matrix.
     # German: strong shellac/vinyl tradition, late mp3 adoption (GEMA).
     # Japanese: world's fastest CD adoption (1982), Minidisc stronghold.
@@ -943,13 +1003,22 @@ class MediumDetector:
                         order_score += 1
                     last_idx = idx
 
-            lang_bonus = sum(_lang_bonuses.get(m, 0.0) for m in chain) if _lang_bonuses else 0.0
-            lang_bonus = min(0.3, lang_bonus)
-            total = overlap * 2 + order_score + lang_bonus + (1 if genre_penalty == 0 else -genre_penalty)
-            if total > best_score:
-                best_score = total
-                best_match = chain
-        return best_match
+
+    def get_genre_constraints(self, chain: list[str]) -> dict[str, list[str]]:
+        """Bidirectional medium->genre validation.
+
+        Returns genres that CANNOT appear on this chain ('excluded')
+        and genres that TYPICALLY appear ('preferred').
+        Example: chain=['shellac'] -> excluded=['hip_hop','rock'], preferred=['jazz','blues']
+        """
+        excluded = set()
+        preferred = set()
+        for medium in chain:
+            for g in self._MEDIUM_EXCLUDES_GENRES.get(medium, []):
+                excluded.add(g)
+            for g in self._MEDIUM_PREFERRED_GENRES.get(medium, []):
+                preferred.add(g)
+        return {"excluded": sorted(excluded), "preferred": sorted(preferred)}
     def _infer_analog_source_from_fingerprint(self, fp: SpectralFingerprint) -> list[tuple[str, float]]:
         """Infer analog source materials from physical fingerprint features.
 
