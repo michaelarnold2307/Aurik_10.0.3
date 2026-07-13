@@ -341,6 +341,35 @@ class StereoTemporalCoherenceGuard:
         if len(ch_l) < sr // 4:
             return audio  # < 250 ms — too short to measure
 
+        # §G13/F2: Multi-Point-Messung als PRIMÄRE Lag-Quelle.
+        # Das Single-Mid-Window verfehlt zeitlich variierende Lags
+        # (z.B. 0%→-8900, 50%→0, 100%→-7297). Multi-Point-Median
+        # erfasst die dominante Charakteristik. Single-Window nur Fallback.
+        _mp_verified = self._verify_lag_multi_point(ch_l, ch_r, sr)
+        if _mp_verified.get("num_points", 0) >= 2:
+            _mp_median = _mp_verified["median_lag"]
+            _mp_spread = _mp_verified.get("max_spread", 0)
+            if abs(_mp_median) < _CORRECTION_THRESHOLD_SAMPLES:
+                logger.debug(
+                    "STCG [%s]: multi-point median=%d samples — within threshold, no correction",
+                    phase_id, int(_mp_median),
+                )
+                return audio
+            delay = float(_mp_median)
+            delay_ms = delay / sr * 1000.0
+            logger.info(
+                "STCG [%s]: multi-point median=%d samples (%.1f ms, spread=%d) — correcting R channel",
+                phase_id, int(delay), delay_ms, _mp_spread,
+            )
+            ch_r_corrected = _apply_correction_shift(ch_r, shift_samples=delay)
+            orig_dtype = audio.dtype
+            if channels_first:
+                result = np.vstack([ch_l[np.newaxis, :], ch_r_corrected[np.newaxis, :]])
+            else:
+                result = np.column_stack([ch_l, ch_r_corrected])
+            return result.astype(orig_dtype)
+
+        # Fallback: single mid-window measurement
         delay = _estimate_delay_subsample(ch_l, ch_r, sr)
         delay_ms = delay / sr * 1000.0
 
@@ -353,14 +382,37 @@ class StereoTemporalCoherenceGuard:
             )
             return audio
 
-        # §0 Plausibility guard for pre-pipeline source-file corrections:
-        # Single-window GCC-PHAT can produce false positives > 20 ms when stereo
-        # panning or mid-song decorrelation mimics a channel delay.
-        # Instead of unconditionally rejecting large lags, we run a MULTI-POINT
-        # verification (3 positions across the song). If the lag is CONSISTENT
-        # (spread ≤ 20 samples) and the correlation peak is strong (> 0.04), it
-        # is a genuine hardware alignment issue (tape head, A/D offset) and MUST
-        # be corrected. Inconsistent or weak signals are skipped as false positives.
+        # §G13/F2: Multi-Point-Messung als PRIMÄRE Lag-Quelle.
+        # Das Single-Mid-Window (10s Mitte) verfehlt zeitlich variierende Lags
+        # (z.B. 0%→-8900, 50%→0, 100%→-7297). Multi-Point-Median über 3
+        # Positionen erfasst die dominante Charakteristik und korrigiert
+        # repräsentativ. Single-Window nur als Fallback bei zu kurzem Audio.
+        _mp_verified = self._verify_lag_multi_point(ch_l, ch_r, sr)
+        if _mp_verified.get("num_points", 0) >= 2:
+            _mp_median = _mp_verified["median_lag"]
+            _mp_spread = _mp_verified.get("max_spread", 0)
+            if abs(_mp_median) < _CORRECTION_THRESHOLD_SAMPLES:
+                logger.debug(
+                    "STCG [%s]: multi-point median=%d samples — within threshold, no correction",
+                    phase_id, int(_mp_median),
+                )
+                return audio
+            delay = float(_mp_median)
+            delay_ms = delay / sr * 1000.0
+            logger.info(
+                "STCG [%s]: multi-point median=%d samples (%.1f ms, spread=%d) — correcting R channel",
+                phase_id, int(delay), delay_ms, _mp_spread,
+            )
+            ch_r_corrected = _apply_correction_shift(ch_r, shift_samples=delay)
+            orig_dtype = audio.dtype
+            if channels_first:
+                result = np.vstack([ch_l[np.newaxis, :], ch_r_corrected[np.newaxis, :]])
+            else:
+                result = np.column_stack([ch_l, ch_r_corrected])
+            return result.astype(orig_dtype)
+
+        # Fallback: single mid-window measurement (original behavior)
+        # Only reached when multi-point has < 2 valid points (very short audio)
         _PRE_PIPELINE_MAX_MS: float = 20.0
         if phase_id == "pre_pipeline" and abs(delay_ms) > _PRE_PIPELINE_MAX_MS:
             _verified = self._verify_lag_multi_point(ch_l, ch_r, sr)
