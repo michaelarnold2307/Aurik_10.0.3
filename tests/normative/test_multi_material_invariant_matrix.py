@@ -81,10 +81,10 @@ def test_phase41_pipeline_safety_material_mode_matrix(material: MaterialType, qu
 
 
 @pytest.mark.parametrize("layout", ["mono", "samples_first", "channels_first"])
-def test_phase23_audiosr_helper_shape_invariant_matrix(layout: str):
-    """Phase 23 AudioSR helper must preserve shape/orientation for all layouts."""
+def test_phase23_flashsr_helper_shape_invariant_matrix(layout: str):
+    """Phase 23 FlashSR helper must preserve shape/orientation for all layouts."""
 
-    class _FakeAudioSR:
+    class _FakeFlashSR:
         def process(self, audio, sr, target_sr):
             assert sr == SR
             assert target_sr == SR
@@ -100,12 +100,12 @@ def test_phase23_audiosr_helper_shape_invariant_matrix(layout: str):
     else:
         inp = _make_stereo_channels_first()
 
-    out = phase._repair_with_audiosr(
+    out = phase._repair_with_flashsr(
         inp,
         SR,
         np.zeros((8, 8), dtype=bool),
         0.25,
-        _FakeAudioSR(),
+        _FakeFlashSR(),
     )
 
     assert out.shape == inp.shape

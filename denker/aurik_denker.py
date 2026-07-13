@@ -793,6 +793,24 @@ class AurikDenker:
         }
         return opportunities
 
+
+    def _wd_phase_start(self, name: str) -> None:
+        """Non-blocking watchdog phase start (ignores all errors)."""
+        try:
+            from backend.core.watchdog_monitor import get_watchdog
+            get_watchdog().on_phase_start(name)
+        except Exception:
+            pass
+
+    def _wd_phase_end(self, name: str, audio: "np.ndarray | None" = None, sr: int = 48000) -> None:
+        """Non-blocking watchdog phase end (ignores all errors)."""
+        try:
+            from backend.core.watchdog_monitor import get_watchdog
+            if audio is not None:
+                get_watchdog().on_phase_end(name, audio, sr)
+        except Exception:
+            pass
+
     @staticmethod
     def _compute_signal_intelligence_signature(audio: np.ndarray, sr: int) -> dict[str, float]:
         """Berechnet robuste, leichtgewichtige Signal-Indikatoren für Risikoentscheidungen."""
@@ -845,14 +863,15 @@ class AurikDenker:
             transient_ratio = 0.0
 
         # Mikrodynamik-Proxy: P95-P05 der Frame-RMS in dB.
+        # Vektorisiert via reshape statt Python-for-loop — für 225s Audio
+        # (~5280 Frames) ist das der Unterschied zwischen <10ms und >500ms.
         frame_len = 2048
         if arr64.size >= frame_len:
-            frame_rms_db: list[float] = []
-            for start in range(0, arr64.size - frame_len + 1, frame_len):
-                chunk = arr64[start : start + frame_len]
-                chunk_rms = float(np.sqrt(np.mean(chunk * chunk) + 1e-12))
-                frame_rms_db.append(float(20.0 * np.log10(max(chunk_rms, 1e-12))))
-            if frame_rms_db:
+            n_frames = arr64.size // frame_len
+            if n_frames > 0:
+                frames = arr64[: n_frames * frame_len].reshape(n_frames, frame_len)
+                frame_rms = np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1) + 1e-12)
+                frame_rms_db = 20.0 * np.log10(np.maximum(frame_rms, 1e-12))
                 p95 = float(np.percentile(frame_rms_db, 95))
                 p05 = float(np.percentile(frame_rms_db, 5))
                 micro_dynamic_db = max(0.0, p95 - p05)
@@ -1410,6 +1429,7 @@ class AurikDenker:
                 _emit(7, f"Hauptproblem erkannt: {_prim.replace('_', ' ').title()} — wird gezielt behandelt")
 
         # ── Stufe 4: Musikalischer Globalplan (§Dach) ────────────────────────
+        self._wd_phase_start("globalplan")
         _emit(8, "Musikalischer Restaurierungsplan erstellt …")
         _globalplan: Any = None
         try:
@@ -1458,12 +1478,29 @@ class AurikDenker:
         except Exception as exc:
             _record_stage_failure("globalplan", "MusikalischerGlobalplan", exc)
             logger.warning("AurikDenker [4/10] MusikalischerGlobalplan: %s", exc)
+            # Fallback: minimaler Dummy-Plan verhindert Folge-AttributeErrors
+            if _globalplan is None:
+                try:
+                    _globalplan = erstelle_globalplan(
+                        aktuelles_audio, sr, material=material,
+                        use_ml_classifiers=False, chain_info=chain_info,
+                    )
+                except Exception:
+                    pass  # auch DSP-Fallback fehlgeschlagen — downstream-Code muss None tolerieren
+        finally:
+            self._wd_phase_end("globalplan", aktuelles_audio, sr)
 
         # Wissenschaftliche Signal-Signatur einmal zentral berechnen und in
         # Strategie-, Orchestrierungs- und Rollout-Entscheidungen wiederverwenden.
+        logger.debug("AurikDenker: berechne Signal-Signatur (%.1fs Audio, %d samples) …",
+                     audio_duration_s, aktuelles_audio.size)
+        _t0_sig = time.perf_counter()
         _signal_signature = self._compute_signal_intelligence_signature(aktuelles_audio, sr)
+        _dt_sig = time.perf_counter() - _t0_sig
+        logger.info("AurikDenker: Signal-Signatur berechnet in %.2fs", _dt_sig)
 
         # ── Stufe 5: Strategie (8×RT-Budget) ────────────────────────────────
+        self._wd_phase_start("strategie")
         _emit(10, "Restaurierungsstrategie geplant …")
         strategie = None
         _strat_mode = "quality"
@@ -1496,6 +1533,8 @@ class AurikDenker:
         except Exception as exc:
             _record_stage_failure("strategie", "StrategieDenker", exc)
             logger.warning("AurikDenker [5/10] StrategieDenker: %s", exc)
+        finally:
+            self._wd_phase_end("strategie", aktuelles_audio, sr)
 
         try:
             effective_mode, autopilot_note = self._recommend_autopilot_mode(

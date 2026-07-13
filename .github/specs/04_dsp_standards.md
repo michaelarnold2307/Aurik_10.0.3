@@ -160,7 +160,7 @@ def hz_to_mel(f_hz: float) -> float:
 | Diffuses Raumrauschen / Dereverb | ML: **SGMSE+** (ONNX) | WPE (nara_wpe) → NumPy-WPE → OMLSA | ~~einfacher Bandpass~~ |
 | Stem-Separation Vocals | ML: **MelBandRoformer** (`bs_roformer_plugin`, 860 MB ONNX) | NMF-β | — |
 | Stem-Separation Instrumental | ML: **MDX23C** (`mdx23c_plugin`, Kim_Vocal_2/Kim_Inst) | NMF-β | — |
-| Bandbreiten-Erweiterung | ML: **AudioSR** | Sinusoidal + Stoch. Modeling | ~~Harmonics-EQ~~ |
+| Bandbreiten-Erweiterung | ML: **FlashSR** | Sinusoidal + Stoch. Modeling | ~~Harmonics-EQ~~ |
 | Dropout < 50 ms | DSP: **NMF-β + Sinusoidal** | Consistent Wiener | ~~Yule-Walker AR~~ |
 | Dropout 50–999 ms | ML: **CQTdiff+** → DiffWave | Spectral Interpolation | ~~einfaches AR~~ |
 | Codec-Artefakte | ML: **Apollo** (Band-Sequence Mamba) | Spectral Repair + PGHI | ~~EQ-Anhebung~~ |
@@ -595,7 +595,7 @@ assert G_floor[band] >= 0.10 for band where signal_energy_db[band] > -60.0
 ### §4.5e [RELEASE_MUST] Hallucination-Guard-Referenz für additive DSP-Phasen (v9.12.0)
 
 Jede additive DSP-Phase in Spec 04 MUSS `hallucination_guard.py` (`§2.46e`) aufrufen.
-Insbesondere betroffen: Bandbreiten-Extension (phase_06), Harmonik-Synthese (phase_07), AudioSR (phase_23).
+Insbesondere betroffen: Bandbreiten-Extension (phase_06), Harmonik-Synthese (phase_07), FlashSR (phase_23).
 
 Vollständige Spec: **Spec 02 §2.46e** (Hallucination-Guard).
 
@@ -1048,23 +1048,23 @@ In `CAUSE_TO_PHASES` in Spec 06 §7.2:
 
 ---
 
-## §4.9 [RELEASE_MUST] AudioSR Wall-Time-Budget (v9.11.14)
+## §4.9 [RELEASE_MUST] FlashSR Wall-Time-Budget (v9.11.14)
 
-AudioSR-Zonen-Schleifen (BWE in phase_06, phase_23, phase_24) können bei extremen Songstrukturen (>180 s, komplexe Texturen) zeitlich unbegrenzt laufen → Pipeline-Hänger.
+FlashSR-Zonen-Schleifen (BWE in phase_06, phase_23, phase_24) können bei extremen Songstrukturen (>180 s, komplexe Texturen) zeitlich unbegrenzt laufen → Pipeline-Hänger.
 
 **Normative Regel**:
 
 ```python
-_AUDIOSR_WALL_BUDGET_S = 900.0  # 15 min maximal für AudioSR-Zonenschleife
+_AUDIOSR_WALL_BUDGET_S = 900.0  # 15 min maximal für FlashSR-Zonenschleife
 ```
 
 - Vor der Zonenschleife: `wall_start = time.monotonic()`
 - Jede Zone prüft: `if time.monotonic() - wall_start > _AUDIOSR_WALL_BUDGET_S: break`
 - Zonen jenseits des Budgets: **Passthrough** (Original-Audio), kein Inpainting
-- `metadata["audiosr_wall_budget_exceeded"]` = True bei Budget-Überschreitung
-- Telemetrie: `metadata["audiosr_zones_completed"]` / `metadata["audiosr_zones_total"]`
+- `metadata["flashsr_wall_budget_exceeded"]` = True bei Budget-Überschreitung
+- Telemetrie: `metadata["flashsr_zones_completed"]` / `metadata["flashsr_zones_total"]`
 
-**Invariante**: AudioSR-Timeout darf die Pipeline nicht crashen — verbleibende Zonen werden als Original-Audio beibehalten, nicht abgebrochen oder leer gelassen.
+**Invariante**: FlashSR-Timeout darf die Pipeline nicht crashen — verbleibende Zonen werden als Original-Audio beibehalten, nicht abgebrochen oder leer gelassen.
 
 ---
 
@@ -1345,8 +1345,8 @@ finally:
 | `phase_12_wow_flutter_fix` | FCPE | RMVPE, CREPE, pYIN (DSP) | `{"FCPE", "RMVPE", "CREPE"}` |
 | `phase_18_noise_gate` | SileroVAD | Energy-Gate (DSP) | `{"SileroVAD"}` |
 | `phase_20_reverb_reduction` | SGMSE+ | WPE (DSP) | `{"SGMSE+"}` |
-| `phase_23_spectral_repair` | Apollo | AudioSR, PGHI (DSP) | `{"Apollo", "AudioSR"}` |
-| `phase_24_dropout_repair` | AudioSR | AR-Interpolation (DSP) | `{"AudioSR"}` |
+| `phase_23_spectral_repair` | Apollo | FlashSR, PGHI (DSP) | `{"Apollo", "FlashSR"}` |
+| `phase_24_dropout_repair` | FlashSR | AR-Interpolation (DSP) | `{"FlashSR"}` |
 | `phase_29_tape_hiss_reduction` | DeepFilterNetV3 | OMLSA (DSP) | `{"DeepFilterNetV3"}` |
 | `phase_42_vocal_enhancement` | BSRoFormer | NMF-β (DSP) | `{"BSRoFormer"}` |
 | `phase_43_ml_deesser` | MP-SENet | OMLSA (DSP) | `{"MP-SENet"}` |
@@ -1362,7 +1362,7 @@ finally:
 
 ### §2.38a Headroom-Guard (RELEASE_MUST)
 
-Für schwere ML-Pfade (SGMSE+, ResembleEnhance, AudioSR, CQTdiff/FlowMatching):
+Für schwere ML-Pfade (SGMSE+, ResembleEnhance, FlashSR, CQTdiff/FlowMatching):
 
 1. Vor Load: Physischer RAM-Headroom prüfen (mono/stereo, Dateilänge)
 2. Bei knappem RAM: `evict_stale_plugins()` + `gc.collect()` + `malloc_trim(0)`
@@ -1409,7 +1409,7 @@ opts.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_AL
 
 | Modell | Größe | Lazy-Load |
 | --- | --- | --- |
-| AudioSR | 5.9 GB | Pflicht |
+| FlashSR | 5.9 GB | Pflicht |
 | MERT-v1-330M | 3.9 GB | Pflicht |
 
 ### Hybrid-Release-Mode (RELEASE_MUST)
@@ -1429,7 +1429,7 @@ Jeder Fallback in `metadata["ml_fallbacks_used"]` protokollieren.
 | phase_18 | SileroVAD | ⬜ leicht (CPU) | nicht nötig (<100 MB) |
 | phase_20 | SGMSE+ | ✅ | v9.11.0 |
 | phase_23 | Apollo | ✅ | v9.11.14 |
-| phase_24 | AudioSR | ⬜ TODO | — |
+| phase_24 | FlashSR | ⬜ TODO | — |
 | phase_29 | DeepFilterNetV3 | ✅ | v9.10.x |
 | phase_42 | BSRoFormer/MDX23C | ⬜ TODO | — |
 | phase_43 | MP-SENet | ⬜ TODO | — |

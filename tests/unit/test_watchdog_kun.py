@@ -110,6 +110,7 @@ check("whisper_ratio valid", 0.0 <= w_result.whisper_ratio <= 1.0)
 check("segments is list", isinstance(w_result.segments, list))
 
 # ── Summary ──
-print(f"\n{'=' * 50}")
-print(f"Result: {PASSED} passed, {FAILED} failed")
-sys.exit(0 if FAILED == 0 else 1)
+if __name__ == "__main__":
+    print(f"\n{'=' * 50}")
+    print(f"Result: {PASSED} passed, {FAILED} failed")
+    sys.exit(0 if FAILED == 0 else 1)

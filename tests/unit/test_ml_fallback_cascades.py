@@ -2,7 +2,7 @@
 tests/unit/test_ml_fallback_cascades.py — §2.47 ML-Failure-Degradationskaskade
 
 Tests the 5 untested ML fallback cascade patterns:
-  1. AudioSR → Harmonische Oberton-Synthese + PGHI → Spectral-Band-Replication
+  1. FlashSR → Harmonische Oberton-Synthese + PGHI → Spectral-Band-Replication
   2. MDX23C → NMF-β-Separation (sdB ≥ 5) → HPSS
   3. MP-SENet → OMLSA/IMCRA → Bypass
   4. CREPE → pYIN → YIN
@@ -41,24 +41,24 @@ def _audio(dur: float = 2.0) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# 1. AudioSR cascade
+# 1. FlashSR cascade
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestAudioSRFallback:
-    """AudioSR → Harmonische+PGHI → SBR."""
+    """FlashSR → Harmonische+PGHI → SBR."""
 
-    def test_audiosr_plugin_has_fallback_attribute(self):
-        """AudioSR plugin must declare DSP fallback capability."""
+    def test_flashsr_plugin_has_fallback_attribute(self):
+        """FlashSR plugin must declare DSP fallback capability."""
         try:
-            from plugins.audiosr_plugin import AudioSRPlugin
+            from plugins.flashsr_plugin import FlashSRPlugin
 
-            plugin = AudioSRPlugin()
+            plugin = FlashSRPlugin()
             # Must have process method and handle OOM internally
             assert hasattr(plugin, "process") or hasattr(plugin, "enhance")
         except ImportError:
-            pytest.skip("audiosr_plugin not available")
+            pytest.skip("flashsr_plugin not available")
 
     def test_phase23_has_ml_fallback_path(self):
         """phase_23 spectral repair must have non-ML fallback."""
@@ -74,7 +74,7 @@ class TestAudioSRFallback:
             pytest.skip("phase_23 not available")
 
     def test_phase06_frequency_restoration_fallback(self):
-        """phase_06 frequency restoration must not crash without AudioSR."""
+        """phase_06 frequency restoration must not crash without FlashSR."""
         try:
             import backend.core.phases.phase_06_frequency_restoration as p06
 

@@ -14,8 +14,8 @@ Abgedeckte Phasen:
     Phase 18 — Noise Gate          (Silero VAD-Hybrid)
     Phase 19 — De-Esser            (Phoneme Detection-Hybrid)
     Phase 20 — Reverb Reduction    (DCCRN-Hybrid)
-    Phase 23 — Spectral Repair     (AudioSR-Hybrid)
-    Phase 24 — Dropout Repair      (AudioSR-Hybrid)
+    Phase 23 — Spectral Repair     (FlashSR-Hybrid)
+    Phase 24 — Dropout Repair      (FlashSR-Hybrid)
     Phase 29 — Tape Hiss Reduction (DeepFilterNet-Hybrid)
 
 Jede Phase wird getestet auf:
@@ -144,7 +144,7 @@ _HYBRID_PHASES = [
         "SpectralRepair",
         AUDIO_NOISY,
         {},
-        marks=pytest.mark.ml,  # AudioSR (5.9 GB) — Heavy-ML; nur mit --run-heavy-tests
+        marks=pytest.mark.ml,  # FlashSR (5.9 GB) — Heavy-ML; nur mit --run-heavy-tests
     ),
     ("phase_24_dropout_repair", "DropoutRepairPhase", AUDIO_DROPOUT, {}),
     ("phase_29_tape_hiss_reduction", "TapeHissReductionPhase", AUDIO_NOISY, {}),
@@ -393,7 +393,7 @@ class TestPhase12WowFlutterRegression:
 
 
 class TestPhase24DropoutRepairRegression:
-    """Regressionstests für Phase 24 (AudioSR Dropout-Interpolation)."""
+    """Regressionstests für Phase 24 (FlashSR Dropout-Interpolation)."""
 
     @staticmethod
     def _load():

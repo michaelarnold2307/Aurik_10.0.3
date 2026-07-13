@@ -2,14 +2,14 @@
 High-Frequency Extension
 ========================
 
-Neural HF-Extension via AudioSR für "Frische" und "Air".
+Neural HF-Extension via FlashSR für "Frische" und "Air".
 
 Problem: Alte Aufnahmen haben oft gedämpfte Höhen:
 - Tape degradation (HF rolloff)
 - Low-quality ADC (Nyquist < 20kHz)
 - Resampling artifacts
 
-Lösung: AudioSR (bereits vorhanden!) kann:
+Lösung: FlashSR (bereits vorhanden!) kann:
 - 16kHz → 48kHz upsample (echte HF-Extension)
 - Harmonics intelligent re-generate
 - Natürliche Höhen ohne Artefakte
@@ -29,22 +29,22 @@ logger = logging.getLogger(__name__)
 
 class HighFrequencyExtender:
     """
-    Neural HF-Extension via AudioSR.
+    Neural HF-Extension via FlashSR.
 
     Nutzt SOTA Super-Resolution Model um High-Frequencies zu regenerieren.
     """
 
     def __init__(self):
-        self.name = "HF Extension (AudioSR)"
-        self.audiosr_plugin = None
+        self.name = "HF Extension (FlashSR)"
+        self.flashsr_plugin = None
 
-    def _lazy_load_audiosr(self) -> None:
-        """Lazy-load AudioSR Plugin (erst bei Verwendung)."""
-        if self.audiosr_plugin is None:
-            from plugins.audiosr_plugin import AudioSRPlugin
+    def _lazy_load_flashsr(self) -> None:
+        """Lazy-load FlashSR Plugin (erst bei Verwendung)."""
+        if self.flashsr_plugin is None:
+            from plugins.flashsr_plugin import FlashSRPlugin
 
-            self.audiosr_plugin = AudioSRPlugin()
-            logger.info("AudioSR Plugin loaded")
+            self.flashsr_plugin = FlashSRPlugin()
+            logger.info("FlashSR Plugin loaded")
 
     def should_extend(self, sr: int, spectral_rolloff: float | None = None, genre: str = "unknown") -> tuple[bool, str]:
         """
@@ -87,7 +87,7 @@ class HighFrequencyExtender:
         genre: str = "unknown",
     ) -> np.ndarray:
         """
-        Extend High-Frequencies neural via AudioSR.
+        Extend High-Frequencies neural via FlashSR.
 
         Args:
             audio: Input audio
@@ -105,12 +105,12 @@ class HighFrequencyExtender:
         # Genre-adaptive Strength
         strength = self._adjust_strength_for_genre(strength, genre)
 
-        # Lazy-load AudioSR
-        self._lazy_load_audiosr()
-        assert self.audiosr_plugin is not None, "AudioSR Plugin konnte nicht geladen werden"  # Type narrowing für mypy
+        # Lazy-load FlashSR
+        self._lazy_load_flashsr()
+        assert self.flashsr_plugin is not None, "FlashSR Plugin konnte nicht geladen werden"  # Type narrowing für mypy
 
-        # Process via AudioSR (direkt ndarray — kein Temp-File)
-        audio_extended = self.audiosr_plugin.process(audio, sr_in, target_sr=sr_target)
+        # Process via FlashSR (direkt ndarray — kein Temp-File)
+        audio_extended = self.flashsr_plugin.process(audio, sr_in, target_sr=sr_target)
 
         # Parallel Mix mit Original (Authenticity Safeguard #1)
         # Resample original to match

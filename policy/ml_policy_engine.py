@@ -46,7 +46,7 @@ class MLModelPolicyEngine:
 
     # §ML-FIRST: ML-Modelle sind primär, DSP nur als Fallback.
     # Diese Policy wurde von DSP-First auf ML-First umgestellt (v10.1).
-    # Begründung: AudioSR v2, Demucs v5, DFN v4, MDX23C liefern nachweislich
+    # Begründung: FlashSR v2, Demucs v5, DFN v4, MDX23C liefern nachweislich
     # bessere Ergebnisse als DSP-Äquivalente und sind GPU-beschleunigt verfügbar.
     _ML_FIRST: bool = True
 
@@ -130,7 +130,7 @@ class MLModelPolicyEngine:
 
         Entscheidungslogik:
         - Speech → Resemble Enhance (voice clarity)
-        - Super-Resolution → AudioSR (16/24 kHz → 48 kHz)
+        - Super-Resolution → FlashSR (16/24 kHz → 48 kHz)
         - Diffusion Enhancement → WPE Dereverberation (Nakatani 2010)
         - General Enhancement → GACELA (audio enhancement)
         """
@@ -377,7 +377,7 @@ class MLModelPolicyEngine:
         Wählt bestes Super-Resolution-Modell.
 
         Returns:
-            'audiosr' - Aktuell nur ein SOTA-Modell verfügbar
+            'flashsr' - Aktuell nur ein SOTA-Modell verfügbar
         """
         del context
         del goal
@@ -428,7 +428,7 @@ class MLModelPolicyEngine:
         """
         Entscheidet ob Diffusion-basierte Modelle genutzt werden sollen.
 
-        Diffusion-Modelle (WPE, DiffWave, AudioSR, AudioLDM2):
+        Diffusion-Modelle (WPE, DiffWave, FlashSR, AudioLDM2):
         - Sehr hohe Qualität
         - Langsamer (600s Timeout)
         - Besonders gut für Musik/Classical

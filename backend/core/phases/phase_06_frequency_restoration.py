@@ -104,15 +104,15 @@ logger = logging.getLogger(__name__)
 # ML-Hybrid Integration for NVSR (Neural Vocoder Super Resolution)
 # ============================================================
 try:
-    from plugins.audiosr_plugin import get_audiosr_plugin as _get_audiosr_plugin
+    from plugins.flashsr_plugin import get_flashsr_plugin as _get_flashsr_plugin
 
     ML_HYBRID_AVAILABLE = True
 except Exception:
-    _get_audiosr_plugin = None  # type: ignore[assignment]
+    _get_flashsr_plugin = None  # type: ignore[assignment]
     ML_HYBRID_AVAILABLE = False
 
 # §SOTA-Matrix: NVSR für 8–16 kHz Gap (Vinyl/MP3-128kbps).
-# AudioSR (Diffusion) nur für severe BW-Loss < 8 kHz (Shellac).
+# FlashSR (Diffusion) nur für severe BW-Loss < 8 kHz (Shellac).
 try:
     from plugins.nvsr_plugin import get_nvsr_plugin as _get_nvsr_plugin
 
@@ -267,17 +267,17 @@ class FrequencyRestorationPhase(PhaseInterface):
         ("air", 128, 32, 16000, 24000),
     )
     _MRSA_CROSSFADE_BW_HZ: float = 100.0
-    _AUDIOSR_MIN_DURATION_S: float = 10.0
+    _FLASHSR_MIN_DURATION_S: float = 10.0
 
     @staticmethod
-    def _compute_audiosr_watchdog_profile(
+    def _compute_flashsr_watchdog_profile(
         quality_mode: str,
         material_type: str,
         restorability_score: float,
         audio_duration_s: float,
         default_min_duration_s: float,
     ) -> dict[str, float]:
-        """Berechnet adaptive AudioSR runtime/eligibility guard profile (§2.54-style).
+        """Berechnet adaptive FlashSR runtime/eligibility guard profile (§2.54-style).
 
         Returns bounded timing parameters and a mode/material/restorability-adaptive
         minimum duration threshold for entering the ML-hybrid path.
@@ -312,7 +312,7 @@ class FrequencyRestorationPhase(PhaseInterface):
             "studio_2026": 12.0,
         }.get(_qm, 3.5)
         _analog_mats = {"shellac", "wax_cylinder", "vinyl", "tape", "reel_tape", "wire_recording"}
-        # §0k MAS-Optimum: analoges Material braucht mehr AudioSR-Zonen (10s/Zone × N Zonen).
+        # §0k MAS-Optimum: analoges Material braucht mehr FlashSR-Zonen (10s/Zone × N Zonen).
         # Für restoration + analog: +3.0 Multiplikator (statt +1.0) — deckt bis zu 3 Zonen bei 30s-Audio.
         # Formel: 30s × (3.5+3.0) = 195s → noch unter 240s max, aber ausreichend für 2 vollständige Zonen.
         _mat_mult_adj = (
@@ -363,7 +363,7 @@ class FrequencyRestorationPhase(PhaseInterface):
     def process(  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
-        check_ml_model_ready("AudioSR", phase_name="06")
+        check_ml_model_ready("FlashSR", phase_name="06")
         check_ml_model_ready("DeepFilterNetV3", phase_name="06")
         check_ml_model_ready("PANNs", phase_name="06")
         """
@@ -545,12 +545,12 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         # Step 2: Multi-band HF restoration with ML-Hybrid support
         # =========================================================
-        # §0j [RELEASE_MUST]: energy_bias für Vokal-Material (DeepFilterNet/AudioSR auf SBR)
+        # §0j [RELEASE_MUST]: energy_bias für Vokal-Material (DeepFilterNet/FlashSR auf SBR)
         # Verhindert, dass Harmonik-Regionen als Rauschen weggedrückt werden.
         _panns_singing_06 = float(kwargs.get("panns_singing", kwargs.get("panns_singing_confidence", 0.0)) or 0.0)
         if _panns_singing_06 >= 0.4:
             # Vokalmaterial: max_boost_db um 6 dB reduzieren (energy_bias = −6 dB)
-            # um Harmonik-Erosion bei SBR/AudioSR zu verhindern
+            # um Harmonik-Erosion bei SBR/FlashSR zu verhindern
             params["max_boost_db"] = float(params.get("max_boost_db", 8.0)) - 6.0
             params["max_boost_db"] = max(0.0, params["max_boost_db"])
             logger.debug("§0j energy_bias -6 dB: phase_06 Vokal (panns_singing=%.2f)", _panns_singing_06)
@@ -584,14 +584,14 @@ class FrequencyRestorationPhase(PhaseInterface):
         )
 
         if use_ml_hybrid:
-            # ML-Hybrid path: DSP (SBR + LPC) + AudioSR (Neural Vocoder Super Resolution)
+            # ML-Hybrid path: DSP (SBR + LPC) + FlashSR (Neural Vocoder Super Resolution)
             restored, ml_metadata = self._restore_frequency_ml_hybrid(
                 audio,
                 params,
                 material_type,
                 quality_mode,
                 enable_sbr,
-                audiosr_min_duration_s=float(kwargs.get("audiosr_min_duration_s", self._AUDIOSR_MIN_DURATION_S)),
+                flashsr_min_duration_s=float(kwargs.get("flashsr_min_duration_s", self._FLASHSR_MIN_DURATION_S)),
             )
         else:
             # DSP-only path: Traditional SBR + LPC
@@ -693,7 +693,7 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         # §0a / §6.2c BW-Ceiling Hard-Cap: Additive HF-Energie darf das physikalische
         # Trägerlimit niemals überschreiten (Shellac ≤ 8 kHz, Vinyl ≤ 16 kHz, WaxCyl ≤ 5 kHz).
-        # Gilt auch für den AudioSR-ML-Pfad — ML-Output ist nicht ceiling-aware.
+        # Gilt auch für den FlashSR-ML-Pfad — ML-Output ist nicht ceiling-aware.
         _BW_CEILING_HZ: dict[str, float] = {
             "shellac": 8000.0,
             "wax_cylinder": 3000.0,  # §ERA 1900-1925: max 3 kHz (v9.12.9)
@@ -754,7 +754,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                 sr=sample_rate,
                 material_bw_ceiling_hz=_bw_cap_hz,
                 mode=_hg_mode_06,
-                bw_extension_context=True,  # §Brillanz-Fix: AudioSR adds new HF below ceiling — not hallucination
+                bw_extension_context=True,  # §Brillanz-Fix: FlashSR adds new HF below ceiling — not hallucination
             )
             if _hg_result06.requires_rollback:
                 logger.warning(
@@ -786,7 +786,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                                 if not _hg_nvsr.requires_rollback:
                                     restored = _nvsr_f32_06
                                     _nvsr_applied = True
-                                    logger.info("§Gap10 Phase-06: NVSR-Fallback erfolgreich nach AudioSR-Hallucination")
+                                    logger.info("§Gap10 Phase-06: NVSR-Fallback erfolgreich nach FlashSR-Hallucination")
                 except Exception as _nvsr_exc:
                     logger.debug("§Gap10 Phase-06 NVSR-Fallback non-blocking: %s", _nvsr_exc)
                 if not _nvsr_applied:
@@ -1064,17 +1064,17 @@ class FrequencyRestorationPhase(PhaseInterface):
         material_type: str,
         quality_mode: str,
         enable_sbr: bool,
-        audiosr_min_duration_s: float,
+        flashsr_min_duration_s: float,
     ) -> tuple[np.ndarray, dict[str, Any]]:
         """Run DSP restoration first, then blend in ML HF delta when available.
 
         §SOTA-Matrix Routing (Mai 2026):
-          rolloff < 7 kHz  → AudioSR (Diffusion, für Shellac/Wax — starker BW-Verlust)
+          rolloff < 7 kHz  → FlashSR (Diffusion, für Shellac/Wax — starker BW-Verlust)
           rolloff ≥ 7 kHz  → NVSR-SBR (deterministisch, für Vinyl/MP3-128kbps — 8–16kHz Gap)
 
         Carrier-type override (§4 SOTA-Matrix Mai 2026): tape-like carriers
-        (reel_tape, cassette, wire_recording) route to AudioSR regardless of rolloff
-        because AudioSR's diffusion-based spectral upsampling matches the organic
+        (reel_tape, cassette, wire_recording) route to FlashSR regardless of rolloff
+        because FlashSR's diffusion-based spectral upsampling matches the organic
         tape spectral envelope better than NVSR's deterministic SBR.
 
         The blend is intentionally HF-limited to preserve low/mid authenticity and
@@ -1083,10 +1083,10 @@ class FrequencyRestorationPhase(PhaseInterface):
         dsp_restored = self._restore_highs_professional(audio, params, enable_sbr)
 
         _rolloff_hz_routing = float(params.get("rolloff_hz", float(self.sample_rate) * 0.90))
-        # Carrier-type correction: tape carriers benefit from AudioSR's diffusive
+        # Carrier-type correction: tape carriers benefit from FlashSR's diffusive
         # spectral upsampling over NVSR's deterministic SBR, even when rolloff ≥ 7 kHz.
-        # NVSR is optimal for vinyl/mp3 (clean gap, deterministic); AudioSR for tape
-        # (organic spectral envelope matches AudioSR's learned diffusion manifold).
+        # NVSR is optimal for vinyl/mp3 (clean gap, deterministic); FlashSR for tape
+        # (organic spectral envelope matches FlashSR's learned diffusion manifold).
         _TAPE_LIKE_MATERIALS_06 = frozenset({"tape", "reel_tape", "cassette", "wire_recording"})
         _mat_normed_06ml = str(material_type).lower().replace("-", "_").replace(" ", "_")
         _use_nvsr = _rolloff_hz_routing >= 7_000.0 and _mat_normed_06ml not in _TAPE_LIKE_MATERIALS_06
@@ -1095,13 +1095,13 @@ class FrequencyRestorationPhase(PhaseInterface):
         if _use_nvsr and NVSR_AVAILABLE and _get_nvsr_plugin is not None:
             try:
                 _nvsr = _get_nvsr_plugin()
-                _nvsr_strength = float(np.clip(params.get("restoration_strength", 0.7) * 0.65, 0.0, 0.80))
+                _nvsr_strength = float(np.clip(params.get("restoration_strength", 0.7) * 0.80, 0.0, 0.85))
                 _panns = float(params.get("panns_singing", 0.0))
                 _energy_bias = -6.0 if _panns >= 0.4 else (-9.0 if _panns < 0.1 else 0.0)
                 _nvsr_result = _nvsr.process(
                     dsp_restored,
                     self.sample_rate,
-                    target_hz=float(params.get("rolloff_hz", 16_000.0)) * 1.2,
+                    target_hz=float(params.get("rolloff_hz", 16_000.0)) * 1.35,
                     strength=_nvsr_strength,
                     material_type=str(material_type),
                     energy_bias_db=_energy_bias,
@@ -1124,21 +1124,21 @@ class FrequencyRestorationPhase(PhaseInterface):
                     "nvsr_hf_added_db": _nvsr_result.get("hf_energy_added_db"),
                 }
             except Exception as _nvsr_exc:
-                logger.warning("Phase 06: NVSR-Fehler → AudioSR-Fallback: %s", _nvsr_exc)
+                logger.warning("Phase 06: NVSR-Fehler → FlashSR-Fallback: %s", _nvsr_exc)
 
-        # ── AudioSR-Pfad (0–8 kHz: Shellac/Wax oder NVSR-Fallback) ──────────
-        if _get_audiosr_plugin is None:
+        # ── FlashSR-Pfad (0–8 kHz: Shellac/Wax oder NVSR-Fallback) ──────────
+        if _get_flashsr_plugin is None:
             return dsp_restored, {
                 "ml_hybrid_available": False,
                 "quality_mode": quality_mode,
                 "strategy_used": "dsp_only",
-                "ml_reason": "audiosr_plugin_import_failed",
+                "ml_reason": "flashsr_plugin_import_failed",
             }
 
         # Bind to a local name so Pylance can narrow the type (not None) inside
         # the ml_infer() closure — the module-level variable could otherwise be
         # considered potentially None again after the guard above.
-        _audiosr_factory = _get_audiosr_plugin
+        _flashsr_factory = _get_flashsr_plugin
 
         alpha_by_mode = {
             "balanced": 0.25,
@@ -1148,7 +1148,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         }
         _alpha_base = alpha_by_mode.get(quality_mode, 0.25)
         # Bandwidth-deficit adaptive boost (v9.10.112): when rolloff is far below
-        # Nyquist most of the HF content is synthesised by AudioSR — use a higher
+        # Nyquist most of the HF content is synthesised by FlashSR — use a higher
         # blend ratio so the ML output is not washed out by the DSP baseline.
         # Formula: deficit_fraction = clamp(1 − rolloff_hz / (0.60 × Nyquist), 0, 1)
         #   shellac rolloff=4500, Nyquist=24000: deficit=0.69 → +0.24 pp
@@ -1162,21 +1162,21 @@ class FrequencyRestorationPhase(PhaseInterface):
         alpha = float(np.clip(alpha, 0.0, 0.80))  # cap at 0.80 — preserve DSP harmonic character
 
         audio_dur_s = audio.shape[-1] / float(self.sample_rate)
-        _watchdog_profile = self._compute_audiosr_watchdog_profile(
+        _watchdog_profile = self._compute_flashsr_watchdog_profile(
             quality_mode=quality_mode,
             material_type=material_type,
             restorability_score=float(np.clip(params.get("restoration_strength", 0.7) * 100.0, 0.0, 100.0)),
             audio_duration_s=audio_dur_s,
-            default_min_duration_s=float(audiosr_min_duration_s),
+            default_min_duration_s=float(flashsr_min_duration_s),
         )
         _min_dur = float(_watchdog_profile["min_duration_s"])
         # short_clip_guard: always active — quality_mode already lowers _min_dur for quality/maximum.
-        # A 0.35 s clip is too short for AudioSR regardless of mode.
+        # A 0.35 s clip is too short for FlashSR regardless of mode.
         # Previously gated with: quality_mode not in ("quality", "maximum") — removed: guard should
         # always fire; quality_mode controls _min_dur threshold, not guard activation.
         if audio_dur_s < _min_dur:
             logger.info(
-                "Phase 06: AudioSR skipped for short clip (%.2fs < %.2fs) — DSP-only aktiv",
+                "Phase 06: FlashSR skipped for short clip (%.2fs < %.2fs) — DSP-only aktiv",
                 audio_dur_s,
                 _min_dur,
             )
@@ -1190,7 +1190,7 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         _plm = None
 
-        # §Phase-06 AudioSR Headroom Guard: Prüfe verfügbaren RAM VOR Modell-Load
+        # §Phase-06 FlashSR Headroom Guard: Prüfe verfügbaren RAM VOR Modell-Load
         # Ohne Guard: Direct OOM bei langen Stereo-Dateien (z.B. 10 min × 96 kHz × 2 Kanäle)
         # Mit Guard: Defer zu KMV Stufe 2 wenn RAM < 2.5 GB
         _sr_headroom_ok = True
@@ -1201,7 +1201,7 @@ class FrequencyRestorationPhase(PhaseInterface):
             _avail_gb = float(_psutil_p06.virtual_memory().available / (1024**3))
             _is_stereo = audio.ndim == 2 and audio.shape[0] <= 2
             _duration_s = audio.shape[-1] / float(self.sample_rate)
-            # AudioSR: 7 GB base + stereo overhead + duration overhead
+            # FlashSR: 7 GB base + stereo overhead + duration overhead
             _budget_needed_gb = 7.0
             if _is_stereo and _duration_s > 60:
                 _budget_needed_gb += 3.5  # Extra für Stereo-Processing
@@ -1213,34 +1213,34 @@ class FrequencyRestorationPhase(PhaseInterface):
             if _avail_gb < _needed_total:
                 _sr_headroom_ok = False
                 _sr_guard_msg = f"RAM {_avail_gb:.1f}GB < {_needed_total:.1f}GB needed — defer to KMV"
-                logger.info("§Phase-06: AudioSR Guard triggered (%s)", _sr_guard_msg)
+                logger.info("§Phase-06: FlashSR Guard triggered (%s)", _sr_guard_msg)
         except Exception as _p06_guard_exc:
             logger.debug("Phase-06 Headroom Guard fehlgeschlagen (psutil?): %s", _p06_guard_exc)
 
         # Wenn Headroom nicht OK: DSP-Fallback statt OOM
         if not _sr_headroom_ok:
-            logger.warning("§Phase-06: AudioSR übersprungen — %s", _sr_guard_msg)
+            logger.warning("§Phase-06: FlashSR übersprungen — %s", _sr_guard_msg)
             return dsp_restored, {
                 "ml_hybrid_available": False,
                 "quality_mode": quality_mode,
                 "strategy_used": "dsp_only",
-                "ml_reason": f"audiosr_headroom_guard: {_sr_guard_msg}",
+                "ml_reason": f"flashsr_headroom_guard: {_sr_guard_msg}",
             }
 
         # Fast sentinel: skip ML thread entirely if a previous load attempt failed.
         # Without this check the join() timeout (quality-first path can be long)
         # causes an apparent
-        # freeze whenever AudioSR is unavailable (missing torchaudio / model).
+        # freeze whenever FlashSR is unavailable (missing torchaudio / model).
         try:
-            from plugins.audiosr_plugin import has_audiosr_ml_failed as _has_audiosr_failed  # pylint: disable=import-outside-toplevel  # noqa: I001
+            from plugins.flashsr_plugin import has_flashsr_ml_failed as _has_flashsr_failed  # pylint: disable=import-outside-toplevel  # noqa: I001
 
-            if _has_audiosr_failed():
-                logger.info("Phase 06: AudioSR ML previously failed (sentinel) — skipping ML thread, using DSP-only")
+            if _has_flashsr_failed():
+                logger.info("Phase 06: FlashSR ML previously failed (sentinel) — skipping ML thread, using DSP-only")
                 return dsp_restored, {
                     "ml_hybrid_available": False,
                     "quality_mode": quality_mode,
                     "strategy_used": "dsp_only",
-                    "ml_reason": "audiosr_ml_failed_sentinel",
+                    "ml_reason": "flashsr_ml_failed_sentinel",
                 }
         except Exception as _exc:
             logger.debug("Operation failed (non-critical): %s", _exc)
@@ -1249,12 +1249,12 @@ class FrequencyRestorationPhase(PhaseInterface):
             from backend.core.ml_memory_budget import is_system_thrashing as _is_thrashing  # pylint: disable=import-outside-toplevel  # noqa: I001
 
             if _is_thrashing():
-                logger.warning("Phase 06: AudioSR wegen System-Thrashing übersprungen — DSP-only aktiv")
+                logger.warning("Phase 06: FlashSR wegen System-Thrashing übersprungen — DSP-only aktiv")
                 return dsp_restored, {
                     "ml_hybrid_available": False,
                     "quality_mode": quality_mode,
                     "strategy_used": "dsp_only",
-                    "ml_reason": "audiosr_thrashing_guard",
+                    "ml_reason": "flashsr_thrashing_guard",
                 }
         except Exception as _exc:
             logger.debug("Operation failed (non-critical): %s", _exc)
@@ -1269,7 +1269,7 @@ class FrequencyRestorationPhase(PhaseInterface):
             )
 
             _plm = get_plugin_lifecycle_manager()
-            _plm.set_active("AudioSR", True)
+            _plm.set_active("FlashSR", True)
         except Exception:
             _plm = None
 
@@ -1278,7 +1278,7 @@ class FrequencyRestorationPhase(PhaseInterface):
 
         def ml_infer():
             try:
-                plugin = _audiosr_factory()
+                plugin = _flashsr_factory()
                 plugin_in = audio.T if audio.ndim == 2 else audio
                 plugin_in = np.nan_to_num(plugin_in, nan=0.0, posinf=0.0, neginf=0.0)
                 plugin_in = np.clip(plugin_in, -1.0, 1.0).astype(np.float32)
@@ -1292,11 +1292,11 @@ class FrequencyRestorationPhase(PhaseInterface):
             ml_thread.start()
             if quality_mode in ("quality", "maximum"):
                 # Quality-first: extended timeout already applied via watchdog profile.
-                # studio_2026 uses the same extended profile via _compute_audiosr_watchdog_profile.
+                # studio_2026 uses the same extended profile via _compute_flashsr_watchdog_profile.
                 pass
 
             # Quality-first watchdog policy:
-            # - quality/maximum: do not let time factor prematurely cap AudioSR quality.
+            # - quality/maximum: do not let time factor prematurely cap FlashSR quality.
             #   Use a wide upper bound so long songs can complete high-end reconstruction.
             # - balanced/fast: keep a tighter timeout to preserve responsiveness.
             timeout_s = int(_watchdog_profile["timeout_seconds"])
@@ -1307,7 +1307,7 @@ class FrequencyRestorationPhase(PhaseInterface):
                 ml_restored = ml_out.T if (audio.ndim == 2 and ml_out.ndim == 2) else ml_out
                 ml_restored = np.asarray(ml_restored, dtype=np.float32)
                 if ml_restored.shape != audio.shape:
-                    logger.warning("AudioSR shape mismatch: expected %s, got %s", audio.shape, ml_restored.shape)
+                    logger.warning("FlashSR shape mismatch: expected %s, got %s", audio.shape, ml_restored.shape)
                     return dsp_restored, {
                         "ml_hybrid_available": True,
                         "quality_mode": quality_mode,
@@ -1315,9 +1315,9 @@ class FrequencyRestorationPhase(PhaseInterface):
                         "ml_error": "shape_mismatch",
                     }
                 # Blend only high-frequency delta (around rolloff and above) to keep timbre stable.
-                # §Guard: AudioSR NaN/Inf output → DSP-only fallback before blend (§0 Primum non nocere)
+                # §Guard: FlashSR NaN/Inf output → DSP-only fallback before blend (§0 Primum non nocere)
                 if not np.isfinite(ml_restored).all():
-                    logger.warning("Phase 06: AudioSR NaN/Inf output detected — falling back to DSP-only")
+                    logger.warning("Phase 06: FlashSR NaN/Inf output detected — falling back to DSP-only")
                     return dsp_restored, {
                         "ml_hybrid_available": True,
                         "quality_mode": quality_mode,
@@ -1332,14 +1332,14 @@ class FrequencyRestorationPhase(PhaseInterface):
                 hybrid = np.nan_to_num(hybrid, nan=0.0, posinf=0.0, neginf=0.0)
                 hybrid = np.clip(hybrid, -1.0, 1.0)
                 try:
-                    touch_plugin("AudioSR")
+                    touch_plugin("FlashSR")
                 except Exception as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
                 return hybrid, {
                     "ml_hybrid_available": True,
                     "quality_mode": quality_mode,
                     "strategy_used": "ml_hybrid",
-                    "ml_model": "AudioSR",
+                    "ml_model": "FlashSR",
                     "ml_blend_alpha": alpha,
                     "ml_hf_highpass_hz": hp_hz,
                     "material_type": material_type,
@@ -1367,7 +1367,7 @@ class FrequencyRestorationPhase(PhaseInterface):
         finally:
             if _plm is not None:
                 try:
-                    _plm.set_active("AudioSR", False)
+                    _plm.set_active("FlashSR", False)
                 except Exception as _exc:
                     logger.debug("Operation failed (non-critical): %s", _exc)
 

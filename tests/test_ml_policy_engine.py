@@ -151,8 +151,8 @@ class TestEnhancementSelection:
         model = policy_engine.select_enhancement_model(context, goal)
         assert model == CANONICAL_VOCAL_NR_ROUTE
 
-    def test_super_resolution_selects_audiosr(self, policy_engine):
-        """Super-resolution should select AudioSR."""
+    def test_super_resolution_selects_flashsr(self, policy_engine):
+        """Super-resolution should select FlashSR."""
         context = {}
         goal = {"enhancement_type": "super_resolution"}
         model = policy_engine.select_enhancement_model(context, goal)

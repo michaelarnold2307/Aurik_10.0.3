@@ -7,7 +7,7 @@ Comprehensive test for ML-Hybrid integrations across critical phases.
 
 Tests:
 1. Quality Mode System functionality
-2. Phase 23 (Spectral Repair) + AudioSR integration
+2. Phase 23 (Spectral Repair) + FlashSR integration
 3. Phase 18 (Noise Gate) + Silero VAD integration
 4. Phase 9 (Crackle Removal) + BANQUET integration
 5. Performance comparison (FAST vs BALANCED)
@@ -104,9 +104,9 @@ def test_quality_mode_system():
 
 
 def test_phase_23_spectral_repair():
-    """Test Phase 23 with AudioSR integration."""
+    """Test Phase 23 with FlashSR integration."""
     print("\n" + "=" * 70)
-    print("TEST 2: Phase 23 (Spectral Repair) + AudioSR")
+    print("TEST 2: Phase 23 (Spectral Repair) + FlashSR")
     print("=" * 70)
 
     phase = SpectralRepair()
@@ -128,7 +128,7 @@ def test_phase_23_spectral_repair():
         print(f"  RT Factor: {results[mode.value]['rt_factor']:.2f}×")
         print(f"  Defect Reduction: {results[mode.value]['defect_reduction']:.1f}%")
 
-    print("\n✅ Phase 23 AudioSR integration working")
+    print("\n✅ Phase 23 FlashSR integration working")
     return results
 
 
@@ -254,7 +254,7 @@ def test_integration_summary():
     print("=" * 70)
 
     phases = [
-        {"id": 23, "name": "Spectral Repair", "ml_model": "AudioSR", "priority": 1},
+        {"id": 23, "name": "Spectral Repair", "ml_model": "FlashSR", "priority": 1},
         {"id": 18, "name": "Noise Gate", "ml_model": "Silero VAD", "priority": 2},
         {"id": 9, "name": "Crackle Removal", "ml_model": "BANQUET", "priority": 3},
     ]
@@ -291,7 +291,7 @@ def main():
     print("ML-HYBRID INTEGRATION TEST SUITE - AURIK 9.0")
     print("=" * 70)
     print("\nTesting ML-Hybrid integrations:")
-    print("- Phase 23 (Spectral Repair) + AudioSR")
+    print("- Phase 23 (Spectral Repair) + FlashSR")
     print("- Phase 18 (Noise Gate) + Silero VAD")
     print("- Phase 9 (Crackle Removal) + BANQUET")
 

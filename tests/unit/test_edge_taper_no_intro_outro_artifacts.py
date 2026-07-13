@@ -188,7 +188,7 @@ class TestPhase23EdgeTaper:
 
     @staticmethod
     def _enable_mocked_phase23_ml(phase, monkeypatch):
-        """Force deterministic ML path with fake AudioSR (no external model deps)."""
+        """Force deterministic ML path with fake FlashSR (no external model deps)."""
         monkeypatch.setenv("AURIK_RUN_HEAVY_TESTS", "1")
         monkeypatch.setattr(
             "backend.core.phases.phase_23_spectral_repair.is_phase_ml_enabled",
@@ -200,11 +200,11 @@ class TestPhase23EdgeTaper:
         )
         monkeypatch.setattr(phase, "_has_sufficient_ml_headroom", lambda *_args, **_kwargs: True)
 
-        class _FakeAudioSR:
+        class _FakeFlashSR:
             def process(self, x, sr, target_sr):
                 return np.asarray(x, dtype=np.float32) * 0.7
 
-        monkeypatch.setattr(phase, "_get_audiosr_plugin", lambda: _FakeAudioSR())
+        monkeypatch.setattr(phase, "_get_flashsr_plugin", lambda: _FakeFlashSR())
 
     def test_intro_outro_not_louder_than_original(self, monkeypatch):
         """Verarbeitetes Intro/Outro darf max. +2 dB lauter als Original sein."""
@@ -269,12 +269,12 @@ class TestPhase23EdgeTaper:
 
 
 class TestPhase23StereoMSInvariant:
-    """Phase 23 AudioSR-Stereo-Pfad muss M/S-kohärent bleiben (Side-Erhalt)."""
+    """Phase 23 FlashSR-Stereo-Pfad muss M/S-kohärent bleiben (Side-Erhalt)."""
 
-    def test_audiosr_path_preserves_side_component_channels_first(self):
+    def test_flashsr_path_preserves_side_component_channels_first(self):
         from backend.core.phases.phase_23_spectral_repair import SpectralRepair
 
-        class _DummyAudioSR:
+        class _DummyFlashSR:
             def process(self, x, sr, target_sr):
                 # Simulate audible Mid modification without changing length.
                 return np.asarray(x, dtype=np.float32) * 0.65
@@ -287,12 +287,12 @@ class TestPhase23StereoMSInvariant:
         phase._has_sufficient_ml_headroom = lambda *_args, **_kwargs: True
         phase._current_material = "unknown"  # skip BW hard-cap branch for deterministic side check
 
-        out_cf = phase._repair_with_audiosr(
+        out_cf = phase._repair_with_flashsr(
             audio=audio_cf,
             sample_rate=sr,
             defect_mask=np.zeros((8, 8), dtype=bool),
             repair_strength=0.8,
-            audiosr=_DummyAudioSR(),
+            flashsr=_DummyFlashSR(),
         )
 
         assert out_cf.shape == audio_cf.shape
@@ -301,10 +301,10 @@ class TestPhase23StereoMSInvariant:
         # Side should be preserved when Mid-only repair is used.
         assert np.max(np.abs(side_out - side_in)) <= 1e-5, "Phase23 M/S invariant violated: Side changed unexpectedly"
 
-    def test_audiosr_path_preserves_side_component_samples_first(self):
+    def test_flashsr_path_preserves_side_component_samples_first(self):
         from backend.core.phases.phase_23_spectral_repair import SpectralRepair
 
-        class _DummyAudioSR:
+        class _DummyFlashSR:
             def process(self, x, sr, target_sr):
                 return np.asarray(x, dtype=np.float32) * 0.7
 
@@ -315,12 +315,12 @@ class TestPhase23StereoMSInvariant:
         phase._has_sufficient_ml_headroom = lambda *_args, **_kwargs: True
         phase._current_material = "unknown"
 
-        out = phase._repair_with_audiosr(
+        out = phase._repair_with_flashsr(
             audio=audio,
             sample_rate=sr,
             defect_mask=np.zeros((8, 8), dtype=bool),
             repair_strength=0.8,
-            audiosr=_DummyAudioSR(),
+            flashsr=_DummyFlashSR(),
         )
 
         assert out.shape == audio.shape

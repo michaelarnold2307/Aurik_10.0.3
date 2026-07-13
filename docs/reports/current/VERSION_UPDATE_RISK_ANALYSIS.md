@@ -60,7 +60,7 @@ cp requirements.txt.backup_20260213 requirements.txt
 
 ---
 
-### 🟡 **MITTLERES RISIKO: audiosr**
+### 🟡 **MITTLERES RISIKO: flashsr**
 
 #### Version Changes:
 
@@ -76,12 +76,12 @@ transformers:  4.30.2 → 5.1.0   (Major Version Change)
    - Breaking Changes in AutoModel API
    - Config handling geändert
    - Tokenizer interface geändert
-   - **ABER**: AudioSR nutzt relativ einfache APIs
+   - **ABER**: FlashSR nutzt relativ einfache APIs
 
 2. **Accelerate 0.21 → 1.12: MITTEL**
    - API-Änderungen in Trainer integration
    - Mixed precision handling geändert
-   - **ABER**: AudioSR nutzt basic features
+   - **ABER**: FlashSR nutzt basic features
 
 3. **Torch 2.1 → 2.10: NIEDRIG**
    - Kleinerer Sprung als deepfilternet
@@ -91,7 +91,7 @@ transformers:  4.30.2 → 5.1.0   (Major Version Change)
 
 - ✅ **AKTIV IN PRODUKTION**
 - `enhancement/hf_extender.py` (HF Extension)
-- `plugins/audiosr_plugin.py`
+- `plugins/flashsr_plugin.py`
 - `src/ensemble_processor.py`
 - Tests: ML Policy Engine
 
@@ -106,8 +106,8 @@ transformers:  4.30.2 → 5.1.0   (Major Version Change)
 
 ```bash
 # Test durchführen
-cd models/audiosr
-docker build -t audiosr:test -f Dockerfile.audiosr .
+cd models/flashsr
+docker build -t flashsr:test -f Dockerfile.flashsr .
 # Wenn erfolgreich: OK
 # Wenn fehlgeschlagen: Rollback mit cp requirements.txt.backup_20260213 requirements.txt
 ```
@@ -137,17 +137,17 @@ cp requirements.txt.backup_20260213 requirements.txt
 echo "✅ deepfilternet_v3_ii: Rollback auf torch 1.11.0 abgeschlossen"
 ```
 
-### Optional: audiosr (nur bei Problemen)
+### Optional: flashsr (nur bei Problemen)
 
 ```bash
-cd /mnt/1846D15B46D139E8/Aurik_Standalone/models/audiosr
+cd /mnt/1846D15B46D139E8/Aurik_Standalone/models/flashsr
 cp requirements.txt.backup_20260213 requirements.txt
-echo "✅ audiosr: Rollback auf torch 2.1.0 abgeschlossen"
+echo "✅ flashsr: Rollback auf torch 2.1.0 abgeschlossen"
 ```
 
 ---
 
-## Test-Plan für audiosr
+## Test-Plan für flashsr
 
 ### Quick-Test (5 Minuten)
 
@@ -155,8 +155,8 @@ echo "✅ audiosr: Rollback auf torch 2.1.0 abgeschlossen"
 cd /mnt/1846D15B46D139E8/Aurik_Standalone
 
 # Docker Image bauen
-cd models/audiosr
-docker build -t audiosr:test -f Dockerfile.audiosr . 2>&1 | tee build.log
+cd models/flashsr
+docker build -t flashsr:test -f Dockerfile.flashsr . 2>&1 | tee build.log
 
 # Bei Build-Fehler → ROLLBACK
 if [ $? -ne 0 ]; then
@@ -167,7 +167,7 @@ fi
 
 # Test-Inferenz
 python3 << 'PYTHON'
-from plugins.audiosr_plugin import AudioSRPlugin
+from plugins.flashsr_plugin import FlashSRPlugin
 import tempfile
 import numpy as np
 import soundfile as sf
@@ -182,11 +182,11 @@ with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
     output_path = f.name
 
 try:
-    plugin = AudioSRPlugin(docker_image="audiosr:test")
+    plugin = FlashSRPlugin(docker_image="flashsr:test")
     plugin.process(input_path, output_path)
-    print("✅ AudioSR Test erfolgreich!")
+    print("✅ FlashSR Test erfolgreich!")
 except Exception as e:
-    print(f"❌ AudioSR Test fehlgeschlagen: {e}")
+    print(f"❌ FlashSR Test fehlgeschlagen: {e}")
     print("⚠️ Rollback empfohlen!")
 PYTHON
 ```
@@ -196,7 +196,7 @@ PYTHON
 ```bash
 # E2E Test mit echtem Audio
 cd /mnt/1846D15B46D139E8/Aurik_Standalone
-pytest tests/test_ml_policy_engine.py::TestMLPolicyEngine::test_super_resolution_selects_audiosr -v
+pytest tests/test_ml_policy_engine.py::TestMLPolicyEngine::test_super_resolution_selects_flashsr -v
 ```
 
 ---
@@ -214,7 +214,7 @@ pytest tests/test_ml_policy_engine.py::TestMLPolicyEngine::test_super_resolution
 
 ### ⚠️ **TESTEN & ENTSCHEIDEN:**
 
-2. **audiosr Test durchführen**
+2. **flashsr Test durchführen**
    - Docker Build testen
    - Bei Fehler: Rollback
    - Bei Erfolg: Version beibehalten
@@ -258,11 +258,11 @@ Falls du perspektivisch torch 2.x für deepfilternet nutzen möchtest:
 **NEIN** - Nicht alle Updates sind sicher:
 
 - ❌ **deepfilternet_v3_ii**: torch 1.11→2.10 ist **HOCHRISKANT** → **ROLLBACK ERFORDERLICH**
-- ⚠️ **audiosr**: transformers 4→5 ist **MÄSZIG RISKANT** → **TESTEN EMPFOHLEN**
+- ⚠️ **flashsr**: transformers 4→5 ist **MÄSZIG RISKANT** → **TESTEN EMPFOHLEN**
 - ✅ **Andere Modelle**: Minor Updates sind **SICHER** → **BEHALTEN**
 
 **Nächste Schritte:**
 
 1. Rollback für deepfilternet_v3_ii durchführen
-2. audiosr testen (optional)
+2. flashsr testen (optional)
 3. Dokumentation aktualisieren

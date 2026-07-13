@@ -27,7 +27,7 @@ numpy:       2.2.6  → 1.26.4 (wiederhergestellt)
 Grund: Rust-Bindings inkompatibel mit torch 2.x
 ```
 
-#### audiosr
+#### flashsr
 
 ```bash
 ✅ ROLLBACK DURCHGEFÜHRT
@@ -61,7 +61,7 @@ Die folgenden ~30 Modelle haben **sichere Minor-Updates** erhalten:
 
 ```
 torch:        2.10.0
-transformers: 5.1.0  (außer deepfilternet_v3_ii, audiosr)
+transformers: 5.1.0  (außer deepfilternet_v3_ii, flashsr)
 numpy:        2.2.6  (außer deepfilternet_v3_ii)
 scipy:        1.15.3
 librosa:      0.11.0
@@ -141,7 +141,7 @@ find models -name "requirements.txt.backup_20260213" -exec bash -c 'cp "$0" "${0
    - torchaudio: 0.11.0 → 2.5.1 (Major +2)
    - torch: 1.11.0 → 2.10.0 (Major +1)
 
-🟡 audiosr:
+🟡 flashsr:
    - accelerate: 0.21.0 → 1.12.0 (Major +1)
    - transformers: 4.30.2 → 5.1.0 (Major +1)
 
@@ -208,7 +208,7 @@ pytest tests/ -k "audioldm2 or vampnet" -v
 ✅ Alle Main-Requirements mit neuesten Versionen
 ✅ ~30 Modelle mit torch 2.10.0, transformers 5.1.0, numpy 2.2.6
 ✅ deepfilternet_v3_ii mit torch 1.11.0 (stabil, sicher)
-✅ audiosr mit torch 2.1.0, transformers 4.30.2 (stabil, sicher)
+✅ flashsr mit torch 2.1.0, transformers 4.30.2 (stabil, sicher)
 ✅ Alle System-Dependencies dokumentiert und installiert
 ```
 

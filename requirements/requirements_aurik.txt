@@ -207,10 +207,10 @@ patsy>=1.0.0             # matchering dep (statsmodels formula API)
 statsmodels>=0.14.0      # matchering dep (spectral Wiener filter)
 
 
-# --- AudioSR (§4.4 Bandbreiten-Erweiterung <8 kHz, 5.9 GB .safetensors) ---
-# audiosr>=1.0.0
-unidecode>=1.3.0        # Abhängigkeit von models/audiosr/ (phoneme_encoder/text/cleaners.py)
-timm>=0.9.0             # Abhängigkeit von models/audiosr/ (latent_diffusion/modules)
+# --- FlashSR (§4.4 Bandbreiten-Erweiterung <8 kHz, 5.9 GB .safetensors) ---
+# flashsr>=1.0.0
+unidecode>=1.3.0        # Abhängigkeit von models/flashsr/ (phoneme_encoder/text/cleaners.py)
+timm>=0.9.0             # Abhängigkeit von models/flashsr/ (latent_diffusion/modules)
 
 # --- Phonemizer (§2.8 Vokal-Konsonanten-Erkennung) ---
 # phonemizer>=3.2.0

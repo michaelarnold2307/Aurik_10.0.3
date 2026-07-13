@@ -396,7 +396,7 @@ class OptimizationIntegration:
             strategy["recommended_models"] = [
                 "deepfilternet_v3",  # For tape hiss
                 "mp_senet",  # Advanced denoising (§4.4: MP-SENet 2023 ersetzt FullSubNet+)
-                "audiosr",  # For high-frequency restoration
+                "flashsr",  # For high-frequency restoration
             ]
             strategy["recommended_dsp_chain"] = [
                 "dehisser",
@@ -427,7 +427,7 @@ class OptimizationIntegration:
 
         elif material_type == "mp3":
             strategy["recommended_models"] = [
-                "audiosr",  # Restore lost frequencies
+                "flashsr",  # Restore lost frequencies
                 "resemble_enhance",  # General enhancement
             ]
             strategy["recommended_dsp_chain"] = ["eq_mp3_compensation", "stereo_enhancer", "harmonic_enhancer"]

@@ -118,9 +118,9 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # - authentizitaet: chromagram changes because silence regions are now filled
     # - artikulation: energy envelope shape changes as dropouts are repaired
     # - natuerlichkeit: continuity increases vs. gap-corrupted anchor (reference paradox)
-    # - timbre_authentizitaet: AudioSR fills gaps with synthesized spectral content → MFCC-Pearson +
-    #   spectral centroid-CV change vs. dropout-bearing reference (same root as phase_23 AudioSR).
-    # Dropout repair (AudioSR): fills silent dropout gaps → chroma, onset-density and crest-factor
+    # - timbre_authentizitaet: FlashSR fills gaps with synthesized spectral content → MFCC-Pearson +
+    #   spectral centroid-CV change vs. dropout-bearing reference (same root as phase_23 FlashSR).
+    # Dropout repair (FlashSR): fills silent dropout gaps → chroma, onset-density and crest-factor
     # all shift vs. the dropout-bearing checkpoint (§2.44 Reference-Paradoxon).
     # tonal_center: dropout silence has near-zero chroma → K-S unstable in checkpoint; after synthesis
     # K-S locks onto new estimate → cumulative tonal drift is measurement artefact, not regression.
@@ -136,7 +136,7 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     # tonal_center: synthesized HF bins shift K-S key-detection; pre-inpainting vinyl-bw-limited
     #   audio has near-zero energy in high-register chroma bins → K-S unstable (confirmed Δ=0.8333, 2026-04-10).
     # timbre_authentizitaet: synthesized spectral content has different MFCC-Pearson + centroid-CV
-    #   vs. band-limited reference (identical mechanism to phase_23 AudioSR gap-fill).
+    #   vs. band-limited reference (identical mechanism to phase_23 FlashSR gap-fill).
     # artikulation: diffusion synthesis inserts new spectral content where reference has damaged/missing
     #   content → transient-shape correlation vs. pre-inpainting fragment is meaningless.
     # natuerlichkeit confirmed mismatch: PMGG excluded it, CIG did not → cumulative nat drift
@@ -385,13 +385,13 @@ _PHASE_SPECIFIC_DRIFT_EXCLUSIONS: dict[str, frozenset[str]] = {
     "phase_21": frozenset({"timbre_authentizitaet"}),
     # Presence / air band EQ: HF shelving shifts spectral centroid and MFCC.
     "phase_22": frozenset({"timbre_authentizitaet"}),
-    # Spectral repair / AudioSR upsampling: synthesised broadband content shifts all spectral fingerprints.
+    # Spectral repair / FlashSR upsampling: synthesised broadband content shifts all spectral fingerprints.
     # artikulation: synthesised HF energy fills transient profiles not in BW-limited checkpoint.
     # authentizitaet: chroma shifts as BW is extended (same class as phase_06).
     # natuerlichkeit: MFCC-smoothness of synthesised spectrum differs from BW-limited reference.
     "phase_23": frozenset(
         {"artikulation", "authentizitaet", "natuerlichkeit", "timbre_authentizitaet", "tonal_center", "brillanz"}
-    ),  # §2.55 sync with PMGG (2026-04-24): tonal_center — AudioSR HF synthesis shifts K-S chroma bins → false P2 (Δ=0.7893 confirmed); brillanz — PMGG excludes it (synthesised HF crest-proxy meaningless vs. band-limited reference)
+    ),  # §2.55 sync with PMGG (2026-04-24): tonal_center — FlashSR HF synthesis shifts K-S chroma bins → false P2 (Δ=0.7893 confirmed); brillanz — PMGG excludes it (synthesised HF crest-proxy meaningless vs. band-limited reference)
     # Carrier noise / reel-splice click repair (secondary): similar to phase_01 family.
     # artikulation: click regions have altered onset energy after repair.
     "phase_26": frozenset(

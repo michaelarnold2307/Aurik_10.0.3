@@ -1,6 +1,6 @@
 
 [project]
-name = "aurik-audiosr"
+name = "aurik-flashsr"
 version = "0.1.0"
 description = "Minimalistisches Python-Projekt für Docker-Build."
 authors = [

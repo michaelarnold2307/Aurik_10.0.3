@@ -442,7 +442,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # distribution than the surrounding noisy reference → false brillanz drop.
     # authentizitaet excluded (belt+suspenders for flatness proxy): dropout silence
     # has near-zero amplitude → fft_mag ≈ 0 → flatness undefined/high → scores_before
-    # may be artificially low; after AudioSR synthesis tonal content increases.
+    # may be artificially low; after FlashSR synthesis tonal content increases.
     # The flatness-based proxy handles this correctly in practice but the exclusion
     # prevents edge-cases in very short silence segments where the 2.5-s sample
     # window captures mostly dropout.
@@ -454,9 +454,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "timbre_authentizitaet",
         "transparenz",
         "tonal_center",
-        "groove",  # AudioSR synthesis fills 5981 dropout gaps with new audio patches; formerly silent/corrupted dropout frames had 0 onsets → GrooveMetric onset-DTW autocorr[lag_05] registers onset-density increase as rhythm disruption → false P3 regression. Regression constant at all strengths (stagnation Δ=0.000004, 2026-04-10) → PMGG reduces strength to 0.22 (best_effort), leaving >5000 dropouts unrepaired. Identical mechanism to phase_09/phase_18 groove exclusion.
-        "emotionalitaet",  # Dropout silence gaps score high in crest-factor (silence/near-zero amplitude between notes amplifies peak-to-RMS ratio in degraded reference). After AudioSR synthesis, formerly silent patches receive normal signal amplitude → crest-factor ratio drops → false P3 emotionalitaet regression. Identical mechanism to phase_09 (broadband transitions from near-silence) and phase_18 (noise-gate silencing). Regression invariant to strength → confirmed stagnation pattern.
-    },  # Dropout repair: synthesised HF content; timbre_authentizitaet: AudioSR synthesis creates new spectral content → MFCC correlation against damaged reference is meaningless; transparenz: dropout silence regions inflate spectral clarity proxy (silence = perfect rolloff) → after AudioSR fill slight noise floor added → proxy drops (false P4); tonal_center: dropout silence has undefined/near-zero chroma → K-S key detection unstable; after AudioSR tonal synthesis K-S locks onto different key estimate → false tonal regression despite musically unchanged pitch centre (stagnation 0.3137 confirmed, 2026-04-08). groove + emotionalitaet: added 2026-04-10 — see inline comments above.
+        "groove",  # FlashSR synthesis fills 5981 dropout gaps with new audio patches; formerly silent/corrupted dropout frames had 0 onsets → GrooveMetric onset-DTW autocorr[lag_05] registers onset-density increase as rhythm disruption → false P3 regression. Regression constant at all strengths (stagnation Δ=0.000004, 2026-04-10) → PMGG reduces strength to 0.22 (best_effort), leaving >5000 dropouts unrepaired. Identical mechanism to phase_09/phase_18 groove exclusion.
+        "emotionalitaet",  # Dropout silence gaps score high in crest-factor (silence/near-zero amplitude between notes amplifies peak-to-RMS ratio in degraded reference). After FlashSR synthesis, formerly silent patches receive normal signal amplitude → crest-factor ratio drops → false P3 emotionalitaet regression. Identical mechanism to phase_09 (broadband transitions from near-silence) and phase_18 (noise-gate silencing). Regression invariant to strength → confirmed stagnation pattern.
+    },  # Dropout repair: synthesised HF content; timbre_authentizitaet: FlashSR synthesis creates new spectral content → MFCC correlation against damaged reference is meaningless; transparenz: dropout silence regions inflate spectral clarity proxy (silence = perfect rolloff) → after FlashSR fill slight noise floor added → proxy drops (false P4); tonal_center: dropout silence has undefined/near-zero chroma → K-S key detection unstable; after FlashSR tonal synthesis K-S locks onto different key estimate → false tonal regression despite musically unchanged pitch centre (stagnation 0.3137 confirmed, 2026-04-08). groove + emotionalitaet: added 2026-04-10 — see inline comments above.
     "phase_28": {
         "artikulation",
         "natuerlichkeit",
@@ -475,7 +475,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "authentizitaet",
         "timbre_authentizitaet",
         "tonal_center",
-    },  # Diffusion inpainting: synthesised content → identical root-causes as phase_23/phase_24 (AudioSR); MFCC-smoothness vs. damaged reference meaningless; brillanz crest-proxy scores against absent HF pre-synthesis; authentizitaet flatness-proxy reference-mismatch; timbre_authentizitaet MFCC-Pearson/centroid meaningless for synthesised spectral content; tonal_center excluded (§9.7.11 extension, 2026-04-10): CQTdiff+ fills bandwidth-loss gaps with synthesized HF content — pre-inpainting audio (band-limited vinyl ≤8-12 kHz) has near-zero chroma energy in high-register bins; after inpainting, newly filled HF bins shift K-S key-template correlation → false catastrophic P2 regression (Δ=0.8333 confirmed, 06:34 run). Musical key is unchanged; only chroma-bin distribution shifts due to spectral extension
+    },  # Diffusion inpainting: synthesised content → identical root-causes as phase_23/phase_24 (FlashSR); MFCC-smoothness vs. damaged reference meaningless; brillanz crest-proxy scores against absent HF pre-synthesis; authentizitaet flatness-proxy reference-mismatch; timbre_authentizitaet MFCC-Pearson/centroid meaningless for synthesised spectral content; tonal_center excluded (§9.7.11 extension, 2026-04-10): CQTdiff+ fills bandwidth-loss gaps with synthesized HF content — pre-inpainting audio (band-limited vinyl ≤8-12 kHz) has near-zero chroma energy in high-register bins; after inpainting, newly filled HF bins shift K-S key-template correlation → false catastrophic P2 regression (Δ=0.8333 confirmed, 06:34 run). Musical key is unchanged; only chroma-bin distribution shifts due to spectral extension
     # Sub-sonic removal: reference LF correlation handles bass preservation check
     "phase_05": {
         "natuerlichkeit",
@@ -768,7 +768,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     "phase_53": set(),  # SemanticAudioPhase is metadata-only (audio unchanged) → no goal can regress
     # Spectral Band Gap Repair (HEAD_WEAR defect): harmonics interpolated via
     # Fletcher partial model + NMF-β refinement.
-    # Mechanistically identical to phase_23 (AudioSR spectral inpainting) for all
+    # Mechanistically identical to phase_23 (FlashSR spectral inpainting) for all
     # synthesis-reference-mismatch root causes.
     # natuerlichkeit: synthesised partial harmonics differ from pre-repair damaged
     # reference → MFCC smoothness proxy unreliable.
@@ -1046,9 +1046,9 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "timbre_authentizitaet",
         "artikulation",
     },  # SGMSE+ reverb reduction: tonal_center excluded (§9.7.11 ext, 2026-04-10): SGMSE+ U-Net applies learned frequency-selective deconvolution → high-register chroma bins attenuated unevenly → K-S correlation shifts; P2 catastrophic regression 0.5530 confirmed. timbre_authentizitaet + artikulation: identical mechanism to phase_49 (reverb tail MFCC/transient-shape mismatch vs dry reference)
-    # Spectral inpainting (AudioSR gap-fill): synthesises new frequency content for
+    # Spectral inpainting (FlashSR gap-fill): synthesises new frequency content for
     # spectral holes (codec artefacts, digital clipping reconstruction, missing HF).
-    # Identical synthesised-content mechanism to phase_24 (AudioSR dropout repair).
+    # Identical synthesised-content mechanism to phase_24 (FlashSR dropout repair).
     # natuerlichkeit excluded: gap-fill synthesis produces content absent from the
     # noisy/damaged reference; MFCC-smoothness proxy on the synthesised region is
     # unreliable vs. the pre-repair (damaged) reference.
@@ -1056,7 +1056,7 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
     # than the surrounding damaged reference → false brillanz regression against a
     # damaged-signal baseline.
     # authentizitaet excluded: spectral gaps have near-zero amplitude → fft_mag ≈ 0
-    # → flatness undefined; after AudioSR synthesis tonal content increases →
+    # → flatness undefined; after FlashSR synthesis tonal content increases →
     # authentizitaet score transition is reference-mismatch-driven, not a regression.
     # artikulation excluded: inpainting inserts new spectral content in regions where
     # (by definition) the reference has damaged/missing content → transient-shape
@@ -1067,8 +1067,8 @@ PHASE_GOAL_EXCLUSIONS: dict[str, set[str]] = {
         "authentizitaet",
         "artikulation",
         "timbre_authentizitaet",
-        "tonal_center",  # §9.7.11 extension (2026-04-24): AudioSR bandwidth-extension shifts K-S chroma bins — pre-repair audio (band-limited vinyl ≤12 kHz) has near-zero chroma energy in high-register bins; after AudioSR fill newly synthesised HF bins shift K-S key-template correlation → false catastrophic P2 regression (Δ=0.7893 confirmed, real-run 2026-04-24). Musical key is unchanged; only chroma-bin distribution shifts due to spectral extension. Identical mechanism to phase_55 (CQTdiff+) confirmed in prior runs (Δ=0.8333, 2026-04-10).
-    },  # AudioSR spectral inpainting / gap-fill; timbre_authentizitaet: synthesised fill content has different spectral envelope than damaged reference
+        "tonal_center",  # §9.7.11 extension (2026-04-24): FlashSR bandwidth-extension shifts K-S chroma bins — pre-repair audio (band-limited vinyl ≤12 kHz) has near-zero chroma energy in high-register bins; after FlashSR fill newly synthesised HF bins shift K-S key-template correlation → false catastrophic P2 regression (Δ=0.7893 confirmed, real-run 2026-04-24). Musical key is unchanged; only chroma-bin distribution shifts due to spectral extension. Identical mechanism to phase_55 (CQTdiff+) confirmed in prior runs (Δ=0.8333, 2026-04-10).
+    },  # FlashSR spectral inpainting / gap-fill; timbre_authentizitaet: synthesised fill content has different spectral envelope than damaged reference
     # Wow/flutter correction: time-stretching/resampling shifts chroma energy
     # distribution → K-S key correlation changes despite unchanged musical key.
     # Regression variance 0.067→0.833 across runs of same audio PROVES this is
@@ -1335,8 +1335,8 @@ _RESTORATIVE_PHASES: frozenset[str] = frozenset(
         "phase_18",  # Noise gate (Silero VAD)
         "phase_19",  # De-esser — sibilance carrier distortion (vinyl HF, cassette) inflates brillanz; post-reduction drop is defect-removal, not regression
         "phase_20",  # Reverb reduction (SGMSE+)
-        "phase_23",  # Spectral inpainting / gap-fill (AudioSR)
-        "phase_24",  # Dropout repair (AudioSR)
+        "phase_23",  # Spectral inpainting / gap-fill (FlashSR)
+        "phase_24",  # Dropout repair (FlashSR)
         "phase_25",  # Azimuth correction — tape head misalignment repair; HF balance changes vs. mis-aligned reference
         "phase_27",  # Click/pop removal
         "phase_28",  # Surface noise profiling (vinyl — broadband noise inflates proxy baselines identically to phase_03/phase_29)
@@ -1421,14 +1421,14 @@ _RETRY_STRENGTHS: list[float] = [
 _ML_DETERMINISTIC_PHASES: frozenset[str] = frozenset(
     {
         "phase_03",  # OMLSA + ResembleEnhance (ML-Hybrid Denoising)
-        "phase_06",  # AudioSR (neurale Bandwidth-Extension)
+        "phase_06",  # FlashSR (neurale Bandwidth-Extension)
         "phase_09",  # BANQUET ONNX (Blind-Denoising)
         "phase_12",  # FCPE/CREPE/pYIN (f₀-Schätzung) — Timing-Phase, kein Wet/Dry
         "phase_18",  # Silero VAD (Binary-Mask)
         "phase_19",  # De-Esser+VocalStack: process() ignoriert strength → Wet/Dry reicht
         "phase_20",  # SGMSE+ (Reverb-Separation) — nur ML-deterministic wenn SGMSE+ geladen
         # WPE-Fallback ist strength-abhängiger DSP → _phase20_is_ml_active() prüft zur Laufzeit
-        "phase_23",  # AudioSR Inpainting (Spektral-Lückenfüllung)
+        "phase_23",  # FlashSR Inpainting (Spektral-Lückenfüllung)
         "phase_29",  # DeepFilterNet v3 II (HF-Denoising)
         "phase_42",  # BSRoFormer (Stem-Separation)
         "phase_56",  # FCPE/CREPE + Synthese (Spectral Band Gap Repair)

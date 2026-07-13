@@ -419,7 +419,7 @@ class HarmonicRestorationPhase(PhaseInterface):
     def process(
         self, audio: np.ndarray, sample_rate: int = 48000, material_type: str = "unknown", **kwargs: Any
     ) -> PhaseResult:
-        check_ml_model_ready("AudioSR", phase_name="07")
+        check_ml_model_ready("FlashSR", phase_name="07")
         check_ml_model_ready("PANNs", phase_name="07")
         """
         Professional harmonic restoration with saturation modeling.
@@ -455,17 +455,17 @@ class HarmonicRestorationPhase(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
-        # §2.54 AudioSR post-processing guard: when AudioSR (phase_23) has already
+        # §2.54 FlashSR post-processing guard: when FlashSR (phase_23) has already
         # extended the bandwidth + synthesised harmonics, additional harmonic
         # restoration at phase_07 is redundant and causes PMGG regressions
         # (regression ≈ 0.20 at minimum strength).  Scale down by 75 % so that
         # the effectve strength falls below the params["strength"] < 0.1 passthrough
         # threshold for most materials, triggering a clean bypass.
-        _audiosr_applied = bool(kwargs.get("audiosr_applied", False))
-        if _audiosr_applied:
+        _flashsr_applied = bool(kwargs.get("flashsr_applied", False))
+        if _flashsr_applied:
             _effective_strength = float(np.clip(_effective_strength * 0.25, 0.0, 1.0))
             logger.debug(
-                "phase_07: audiosr_applied=True → strength scaled to %.3f (post-AudioSR guard)",
+                "phase_07: flashsr_applied=True → strength scaled to %.3f (post-FlashSR guard)",
                 _effective_strength,
             )
 

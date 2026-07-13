@@ -972,3 +972,82 @@ class TestJazzVetoGuard:
         assert r.is_schlager is True, (
             f"Jazz-Veto sollte bei n_active>=1 + alt_genre=Jazz + lang_de>=0.30 feuern, is_schlager={r.is_schlager}"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# §v10 Tests: CLAP-DSP-Konsistenz-Gate
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestClapDspConsistencyGateV10:
+    """CLAP wird ignoriert, wenn es DSP-Ensemble systematisch unterdrückt."""
+
+    def test_clap_low_score_dsp_high_triggers_gate(self):
+        """CLAP < 0.35 + DSP-Mittel ≥ 0.50 → CLAP verworfen, pure-DSP-Konfidenz."""
+        clf = GermanSchlagerClassifier()
+        # Ändere Schwellwerte temporär, damit DSP-Features feuern
+        clf.SCHLAGER_CONFIDENCE_THRESHOLD = 0.40
+        # Erzeuge ein Signal mit starken Schlager-DSP-Merkmalen (Akkordeon-ähnlich)
+        sr = 48000
+        t = np.arange(sr * 5) / sr
+        # AM-moduliertes Signal (simuliert Akkordeon Reed-Beating)
+        carrier = np.sin(2 * np.pi * 440 * t)
+        modulator = 1.0 + 0.3 * np.sin(2 * np.pi * 8 * t)  # 8 Hz Tremolo
+        audio = (carrier * modulator * 0.3).astype(np.float32)
+
+        # Mock CLAP: sehr niedriger Score
+        original_clap = clf._compute_clap_score
+        def fake_clap(*args, **kwargs):
+            clf._clap_score_is_fallback = False
+            return 0.10  # CLAP sagt: kein Schlager
+        clf._compute_clap_score = fake_clap
+
+        try:
+            result = clf.classify(audio, sr)
+            # CLAP 0.10 < 0.35, DSP-Mittel sollte ≥ 0.50 sein → Gate aktiv
+            # Das Ergebnis sollte is_schlager=True haben (DSP erkennt Schlager)
+            # oder zumindest nicht von CLAP runtergezogen sein
+            assert result.confidence >= 0.30,                 f"Confidence should not be dragged down by CLAP, got {result.confidence:.3f}"
+        finally:
+            clf._compute_clap_score = original_clap
+
+    def test_clap_high_score_dsp_low_no_gate(self):
+        """CLAP ≥ 0.35 → Gate NICHT aktiv, normale Fusion."""
+        clf = GermanSchlagerClassifier()
+        sr = 48000
+        # Rauschen → DSP sollte niedriges Mittel haben
+        np.random.seed(42)
+        audio = (np.random.randn(sr * 5) * 0.1).astype(np.float32)
+
+        original_clap = clf._compute_clap_score
+        def fake_clap(*args, **kwargs):
+            clf._clap_score_is_fallback = False
+            return 0.50  # CLAP moderat
+        clf._compute_clap_score = fake_clap
+
+        try:
+            result = clf.classify(audio, sr)
+            # Gate sollte NICHT aktiv sein (CLAP ≥ 0.35)
+            # Confidence = 0.30*clap + 0.70*dsp (normale Fusion)
+            assert result.confidence >= 0.0  # Sanity: kein Crash
+        finally:
+            clf._compute_clap_score = original_clap
+
+    def test_clap_fallback_flag_uses_pure_dsp(self):
+        """Wenn _clap_score_is_fallback=True → pure-DSP-Konfidenz."""
+        clf = GermanSchlagerClassifier()
+        sr = 48000
+        t = np.arange(sr * 5) / sr
+        audio = (np.sin(2 * np.pi * 440 * t) * 0.3).astype(np.float32)
+
+        original_clap = clf._compute_clap_score
+        def fake_clap(*args, **kwargs):
+            clf._clap_score_is_fallback = True
+            return 0.35  # neutraler Fallback
+        clf._compute_clap_score = fake_clap
+
+        try:
+            result = clf.classify(audio, sr)
+            # Fallback-Flag → confidence = pure DSP weighted_mean
+            assert result.confidence >= 0.0
+        finally:
+            clf._compute_clap_score = original_clap

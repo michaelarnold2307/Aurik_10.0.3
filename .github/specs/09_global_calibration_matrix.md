@@ -789,7 +789,7 @@ def predict_quality_score(
 ML_PLUGIN_BUDGETS_GB = {
     "SGMSE+":           3.5,    # Diffusion Denoising (heaviest)
     "DeepFilterNet":    2.2,
-    "AudioSR":          4.0,    # Spectral Upsampling
+    "FlashSR":          4.0,    # Spectral Upsampling
     "MDX23C":           3.2,    # Stem Separation
     "CREPE":            1.2,    # Pitch Tracking
     "PANNs":            0.7,    # Genre/Tagging
@@ -1324,7 +1324,7 @@ _GOAL_TO_RECOVERY_PHASES_RESTORATION: Dict[str, List[str]] = {
 _GOAL_TO_RECOVERY_PHASES_STUDIO_EXTRAS: Dict[str, List[str]] = {
     "VocalQuality":         ["phase_42_vocal_enhancement"],   # Erlaubt in Studio 2026
     "FormantFidelity":      ["phase_42_vocal_enhancement"],   # Erlaubt in Studio 2026
-    "Brillanz":             ["phase_23_audiosr_upsampling"],
+    "Brillanz":             ["phase_23_flashsr_upsampling"],
     "Wärme":                ["phase_21_exciter"],             # Erlaubt in Studio 2026
     "Transparenz":          ["phase_35_multiband_compression"],  # Erlaubt in Studio 2026
     "MikroDynamik":         ["phase_35_multiband_compression"],

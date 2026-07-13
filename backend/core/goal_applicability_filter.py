@@ -124,7 +124,7 @@ class GoalApplicabilityFilter:
         material: str = "unknown",
         era_decade: int | None = None,
         panns_tags: dict[str, float] | None = None,
-        audiosr_available: bool = False,
+        flashsr_available: bool = False,
         mode: str = "restoration",
         panns_singing: float = 0.0,
         transfer_chain: list[str] | None = None,
@@ -137,7 +137,7 @@ class GoalApplicabilityFilter:
             material: MaterialType-Label
             era_decade: Jahrzehnt (aus EraClassifier)
             panns_tags: PANNs-Tag-Konfidenz Dict
-            audiosr_available: ob AudioSR geladen ist
+            flashsr_available: ob FlashSR geladen ist
 
         Returns:
             GoalApplicabilityResult
@@ -231,7 +231,7 @@ class GoalApplicabilityFilter:
                 f"Material '{_mat_key}' hat BW-Ceiling ≤ {_mat_bw_ceiling / 1000:.0f} kHz (§6.2c) — "
                 "Brillanz-Threshold nach BW-Hard-Cap unerreichbar (Restoration: nie additiv über Ceiling)."
             )
-        elif bw_hz < 8000.0 and not audiosr_available:
+        elif bw_hz < 8000.0 and not flashsr_available:
             inapplicable["brillanz"] = (
                 "Hochfrequenz war nicht aufgezeichnet — Brillanz wird nach Bandbreiten-Erweiterung neu bewertet."
             )
@@ -373,7 +373,7 @@ def evaluate_goal_applicability(
     material: str = "unknown",
     era_decade: int | None = None,
     panns_tags: dict[str, float] | None = None,
-    audiosr_available: bool = False,
+    flashsr_available: bool = False,
     mode: str = "restoration",
     panns_singing: float = 0.0,
     transfer_chain: list[str] | None = None,
@@ -385,7 +385,7 @@ def evaluate_goal_applicability(
         material=material,
         era_decade=era_decade,
         panns_tags=panns_tags,
-        audiosr_available=audiosr_available,
+        flashsr_available=flashsr_available,
         mode=mode,
         panns_singing=panns_singing,
         transfer_chain=transfer_chain,

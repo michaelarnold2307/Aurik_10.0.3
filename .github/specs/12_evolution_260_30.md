@@ -62,7 +62,7 @@ ReparaturDenker → MDCT-Guard: click_iqr 5.0→8.5 + _detect_clicks Cap 3000
 | `backend/core/phases/phase_03_denoise.py` | `transfer_chain`-Guard: codec+voice → lightweight |
 | `backend/core/dsp/codec_discriminator.py` | 7 Diskriminator-Methoden (NEU) |
 | `backend/core/joint_calibrator.py` | Goal-Gap→Utility→Strength (NEU) |
-| `plugins/audiosr_plugin.py` | ROCm-Fix v2: first_stage_model.cpu() |
+| `plugins/flashsr_plugin.py` | ROCm-Fix v2: first_stage_model.cpu() |
 | `denker/reparatur_denker.py` | Bestehender MDCT-Guard (Brandenburg 1999) |
 
 ### Regeln

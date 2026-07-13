@@ -37,7 +37,7 @@ _MIN_OBS_CALIBRATED: int = 3  # < 3 obs → Bootstrap mit erhöhter Unsicherheit
 
 # ── Material-native BW-Ceiling für MERT-Spectral-Proxy (§2.44 BW-Ceiling-Guard) ──────────────
 # Quelle: IEC 60094-1 (Kassette), DIN 45511 (Analogband), RIAA-Spec (Vinyl), CD-Standard.
-# Werte gelten für das ORIGINAL-Signal ohne BW-Erweiterung; nach AudioSR (phase_06) kann
+# Werte gelten für das ORIGINAL-Signal ohne BW-Erweiterung; nach FlashSR (phase_06) kann
 # das restaurierte Signal über diesen Wert hinausgehende Energie enthalten —
 # Spectral-Proxy darf diese Energie NICHT als Divergenz bestrafen (Reference Paradox §0d).
 _MATERIAL_BW_CEILING_HZ: dict[str, int] = {
@@ -156,7 +156,7 @@ class HolisticPerceptualGate:
         _reference_audio = reference_audio if reference_audio is not None else original
         _reference_mode = "best_carrier_checkpoint" if reference_audio is not None else "degraded_input"
         # §2.44 BW-Ceiling-Guard: MERT-Spectral-Proxy darf absichtliche BW-Erweiterung
-        # (AudioSR phase_06 auf Kassette/Shellac) nicht als Spektral-Divergenz werten.
+        # (FlashSR phase_06 auf Kassette/Shellac) nicht als Spektral-Divergenz werten.
         # Material-BW-Ceiling wird als Frequenz-Obergrenze in den Spectral-Proxy übergeben.
         _mat_key_mert = str(material).lower().replace(" ", "_")
         _bw_ceiling_hz = _MATERIAL_BW_CEILING_HZ.get(_mat_key_mert, _MATERIAL_BW_CEILING_HZ["unknown"])
@@ -312,7 +312,7 @@ class HolisticPerceptualGate:
 
         # timbral_input als Content-Integrity-Anteil (für Logging und niedrige Restorability)
         # §2.44 BW-Ceiling-Guard (v9.12.10): mel-Vergleich auf material-native BW begrenzen
-        # → AudioSR-synthetisierter HF-Content bestraft timbral_input nicht mehr.
+        # → FlashSR-synthetisierter HF-Content bestraft timbral_input nicht mehr.
         timbral_input = self._compute_timbral_fidelity(_reference_audio, restored, sr, bw_ceiling_hz=_bw_ceiling_hz)
 
         # §2.44 Restorability-dependent weights — Referenz/Direktional dominiert stets
@@ -686,7 +686,7 @@ class HolisticPerceptualGate:
 
         §2.44 BW-Ceiling-Guard (v9.12.10): Wenn bw_ceiling_hz gesetzt ist, wird das
         Mel-Filterbank auf diesen Frequenzbereich begrenzt. Verhindert, dass
-        AudioSR-synthetisierter HF-Content (z.B. 12–22 kHz für Kassette) beim
+        FlashSR-synthetisierter HF-Content (z.B. 12–22 kHz für Kassette) beim
         timbral_input-Vergleich fälschlicherweise die Cosinus-Ähnlichkeit reduziert
         (Reference Paradox, §0d).
         """
@@ -840,7 +840,7 @@ class HolisticPerceptualGate:
 
         bw_ceiling_hz: Material-native BW-Grenze (Hz) für Spectral-Proxy-Fallback.
             Wenn gesetzt, wird der Frequenzvergleich auf [0, bw_ceiling_hz] begrenzt,
-            damit absichtliche BW-Erweiterung (AudioSR phase_06) nicht als Divergenz
+            damit absichtliche BW-Erweiterung (FlashSR phase_06) nicht als Divergenz
             gewertet wird (§2.44 BW-Ceiling-Guard, Reference Paradox §0d).
         """
         orig_clean = np.nan_to_num(original.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
@@ -940,7 +940,7 @@ class HolisticPerceptualGate:
 
         bw_ceiling_hz: Wenn gesetzt, wird der Cosine-Vergleich auf Frequenzbins
             ≤ bw_ceiling_hz beschränkt. BW-Erweiterung über das Material-Ceiling
-            (AudioSR für Kassette/Shellac) erscheint als Divergenz im vollen Spektrum,
+            (FlashSR für Kassette/Shellac) erscheint als Divergenz im vollen Spektrum,
             obwohl sie eine gewollte Restaurierungsleistung ist (§2.44 BW-Ceiling-Guard).
         """
         orig_mono = original if original.ndim == 1 else np.mean(original, axis=0)
@@ -960,7 +960,7 @@ class HolisticPerceptualGate:
 
         # §2.44 BW-Ceiling-Guard: Frequenz-Obergrenze für Material-native Bandbreite.
         # Bins oberhalb des Material-Ceilings (z.B. Kassette: 12 kHz) enthalten
-        # im Original nur Träger-Hiss oder Stille; im Restored AudioSR-synthetisierten
+        # im Original nur Träger-Hiss oder Stille; im Restored FlashSR-synthetisierten
         # Inhalt. Der Cosine-Proxy darf diese gewollte Divergenz nicht bestrafen.
         # Bin-Berechnung: bin = freq_hz × n_fft / sr (rfft-Bin-Index).
         _spec_bin_count = n_fft // 2 + 1  # Anzahl rfft-Ausgangsbins
@@ -1015,7 +1015,7 @@ class HolisticPerceptualGate:
 
         §2.44 BW-Ceiling-Guard (v9.12.10): bw_ceiling_hz begrenzt den Mel-Vergleich
         auf den material-nativen Frequenzbereich. Verhindert false-negative
-        timbral_input-Werte bei AudioSR-Extension auf historischem Material.
+        timbral_input-Werte bei FlashSR-Extension auf historischem Material.
         """
         min_len = min(
             len(original) if original.ndim == 1 else original.shape[-1],

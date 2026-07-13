@@ -118,7 +118,7 @@ class DropoutRepairPhase(PhaseInterface):
     - Noise texture synthesis for atonal content
     - Phase continuity preservation
     - Material-adaptive processing
-    - ML-Hybrid: Length-based routing (<20ms DSP → 20-100ms DSP spectral → >100ms AudioSR ML)
+    - ML-Hybrid: Length-based routing (<20ms DSP → 20-100ms DSP spectral → >100ms FlashSR ML)
 
     Comparable to: iZotope RX Spectral Repair, CEDAR Restore
     """
@@ -207,9 +207,9 @@ class DropoutRepairPhase(PhaseInterface):
     ML_MEDIUM_THRESHOLD_MS = 100  # 20-100ms: DSP spectral
     # GACELA tier: 50–750ms musical inpainting GAN (§4.4: 50–999ms)
     GACELA_MIN_MS: float = 50.0  # below: DSP spectral is sufficient
-    GACELA_MAX_MS: float = 750.0  # above: AudioSR territory
+    GACELA_MAX_MS: float = 750.0  # above: FlashSR territory
     AUDIOLDM2_MIN_MS: float = 3000.0  # above: AudioLDM2 generative synthesis (§4.4 Tier 3)
-    # Cascade: DSP → GACELA → AudioSR → AudioLDM2
+    # Cascade: DSP → GACELA → FlashSR → AudioLDM2
 
     # Material-adaptive Parameters (Professional-tuned)
     MATERIAL_PARAMS = {
@@ -280,7 +280,7 @@ class DropoutRepairPhase(PhaseInterface):
     def __init__(self):
         """Initialisiert Phase 24 Dropout Repair."""
         super().__init__()
-        self._audiosr_plugin = None
+        self._flashsr_plugin = None
         self._gacela_plugin = None  # lazy-loaded on first GACELA repair attempt
         self._audioldm2_plugin = None  # lazy-loaded on first AudioLDM2 repair attempt
         self.sample_rate = 48000  # Default, will be updated in process()
@@ -394,9 +394,9 @@ class DropoutRepairPhase(PhaseInterface):
         audio: np.ndarray,
         sample_rate: int,
     ) -> bool:
-        """Gibt True when enough physical RAM is available for AudioSR dropout repair zurück.
+        """Gibt True when enough physical RAM is available for FlashSR dropout repair zurück.
 
-        Guard 1 — material check: AudioSR is the wrong tool for lossy-codec dropout
+        Guard 1 — material check: FlashSR is the wrong tool for lossy-codec dropout
         artifacts. DSP inpainting preferred; never load 6 GB model for this.
 
         Guard 2 — channel-aware RAM check (§2.38a): stereo doubles inference working
@@ -410,8 +410,8 @@ class DropoutRepairPhase(PhaseInterface):
             logger.warning("phase_24_dropout_repair.py::_has_sufficient_ml_headroom fallback: %s", e)
             return True
 
-        # Guard 1: AudioSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).
-        # Bug-16b-Fix: Blocklist schließt "unknown" nicht aus → AudioSR auf unbekanntem
+        # Guard 1: FlashSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).
+        # Bug-16b-Fix: Blocklist schließt "unknown" nicht aus → FlashSR auf unbekanntem
         # Material → OOM. Allowlist verlangt positive Analog-Evidenz.
         _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset(
             {
@@ -430,7 +430,7 @@ class DropoutRepairPhase(PhaseInterface):
             self._ml_guard_events.append(
                 {
                     "phase_id": "phase_24_dropout_repair",
-                    "model": "AudioSR",
+                    "model": "FlashSR",
                     "reason": "lossy_codec_material_dsp_preferred",
                     "required_gb": 0.0,
                     "available_gb": 0.0,
@@ -440,7 +440,7 @@ class DropoutRepairPhase(PhaseInterface):
                 }
             )
             logger.info(
-                "DropoutRepair: AudioSR skipped — material '%s' not in analog allowlist — DSP preferred",
+                "DropoutRepair: FlashSR skipped — material '%s' not in analog allowlist — DSP preferred",
                 _mat,
             )
             return False
@@ -452,7 +452,7 @@ class DropoutRepairPhase(PhaseInterface):
         duration_s = n_samples / float(max(1, sample_rate))
 
         # Base model 6.0 GB + duration bonus, scaled by channel count.
-        # Empirical: AudioSR keeps overlapping windows in memory → ~1.5 GB/min overhead.
+        # Empirical: FlashSR keeps overlapping windows in memory → ~1.5 GB/min overhead.
         required_gb = 6.0
         if duration_s >= 180.0:
             required_gb += 2.0
@@ -483,7 +483,7 @@ class DropoutRepairPhase(PhaseInterface):
             self._ml_guard_events.append(
                 {
                     "phase_id": "phase_24_dropout_repair",
-                    "model": "AudioSR",
+                    "model": "FlashSR",
                     "reason": "insufficient_physical_ram_headroom",
                     "required_gb": float(required_gb),
                     "available_gb": float(available_gb),
@@ -503,24 +503,24 @@ class DropoutRepairPhase(PhaseInterface):
             return False
         return True
 
-    def _get_audiosr_plugin(self):
+    def _get_flashsr_plugin(self):
         """
-        Lädt beim ersten Zugriff: AudioSR Plugin.
+        Lädt beim ersten Zugriff: FlashSR Plugin.
 
         Returns:
-            AudioSR plugin or None if unavailable
+            FlashSR plugin or None if unavailable
         """
-        if self._audiosr_plugin is not None:
-            return self._audiosr_plugin
+        if self._flashsr_plugin is not None:
+            return self._flashsr_plugin
 
         try:
-            from plugins.audiosr_plugin import AudioSRPlugin  # pylint: disable=import-outside-toplevel
+            from plugins.flashsr_plugin import FlashSRPlugin  # pylint: disable=import-outside-toplevel
 
-            self._audiosr_plugin = AudioSRPlugin()
-            logger.info("✅ AudioSR Plugin loaded for Dropout Repair")
-            return self._audiosr_plugin
+            self._flashsr_plugin = FlashSRPlugin()
+            logger.info("✅ FlashSR Plugin loaded for Dropout Repair")
+            return self._flashsr_plugin
         except Exception as e:
-            logger.warning("⚠️  AudioSR Plugin not available: %s", e)
+            logger.warning("⚠️  FlashSR Plugin not available: %s", e)
             logger.info("    Falling back to DSP-only dropout repair")
             return None
 
@@ -562,7 +562,7 @@ class DropoutRepairPhase(PhaseInterface):
             if plugin._ok:  # pylint: disable=protected-access
                 logger.info("AudioLDM2 plugin loaded for very-long dropout synthesis (> 3 s).")
             else:
-                logger.debug("AudioLDM2: model not ready, AudioSR/DSP fallback will be used.")
+                logger.debug("AudioLDM2: model not ready, FlashSR/DSP fallback will be used.")
             return plugin if plugin._ok else None  # pylint: disable=protected-access
         except Exception as exc:
             logger.debug("AudioLDM2 plugin unavailable: %s", exc)
@@ -662,7 +662,7 @@ class DropoutRepairPhase(PhaseInterface):
         crossfades.
 
         This is Tier 3 of the 4-tier dropout cascade (§4.4):
-          DSP → GACELA → AudioSR → AudioLDM2
+          DSP → GACELA → FlashSR → AudioLDM2
 
         Args:
             audio:    Mono float32 audio array, modified in-place on success.
@@ -670,7 +670,7 @@ class DropoutRepairPhase(PhaseInterface):
 
         Returns:
             List of (start, end) tuples that could NOT be repaired; caller
-            falls back to AudioSR and then DSP for these.
+            falls back to FlashSR and then DSP for these.
         """
         from scipy.signal import resample as _scipy_resample  # pylint: disable=import-outside-toplevel
 
@@ -750,7 +750,7 @@ class DropoutRepairPhase(PhaseInterface):
 
             except Exception as exc:
                 logger.warning(
-                    "AudioLDM2: repair failed for dropout [%d, %d]: %s — routing to AudioSR fallback.",
+                    "AudioLDM2: repair failed for dropout [%d, %d]: %s — routing to FlashSR fallback.",
                     start,
                     end,
                     exc,
@@ -872,11 +872,11 @@ class DropoutRepairPhase(PhaseInterface):
         **kwargs,
     ) -> PhaseResult:
         check_ml_model_ready("AudioLDM2", phase_name="24")
-        check_ml_model_ready("AudioSR", phase_name="24")
+        check_ml_model_ready("FlashSR", phase_name="24")
         check_ml_model_ready("GACELA", phase_name="24")
         check_ml_model_ready("PANNs", phase_name="24")
         check_ml_model_ready("Whisper", phase_name="24")
-        check_ml_model_ready("AudioSR", phase_name="24")
+        check_ml_model_ready("FlashSR", phase_name="24")
         check_ml_model_ready("GACELA", phase_name="24")
         check_ml_model_ready("AudioLDM2", phase_name="24")
         """
@@ -1302,8 +1302,8 @@ class DropoutRepairPhase(PhaseInterface):
             warnings=warnings,
             metadata={
                 "algorithm": "length_based_routing" if use_ml else "context_aware_inpainting_v2",
-                "ml_model": "AudioSR" if use_ml else None,
-                "routing_strategy": "<20ms DSP linear → 20-100ms DSP spectral → >100ms ML AudioSR" if use_ml else None,
+                "ml_model": "FlashSR" if use_ml else None,
+                "routing_strategy": "<20ms DSP linear → 20-100ms DSP spectral → >100ms ML FlashSR" if use_ml else None,
                 "sinusoidal_modeling": True,
                 "phase_continuity": params["phase_preserve"],
                 "scientific_ref": "Adler et al. (2012), Lagrange & Marchand (2007), Etter (1996)",
@@ -1716,7 +1716,7 @@ class DropoutRepairPhase(PhaseInterface):
         Length-Based Routing:
         - <20ms: DSP linear/cubic interpolation
         - 20-100ms: DSP spectral inpainting
-        - >100ms: ML AudioSR generative repair (if use_ml=True)
+        - >100ms: ML FlashSR generative repair (if use_ml=True)
 
         Returns:
             (repaired_audio, ml_repaired_count)
@@ -1727,10 +1727,10 @@ class DropoutRepairPhase(PhaseInterface):
         # 4-tier ML routing (§4.4):
         #   < GACELA_MIN_MS (50 ms)              : DSP linear/spectral
         #   50 ms .. GACELA_MAX_MS (750 ms)      : GACELA musical inpainting GAN
-        #   750 ms .. AUDIOLDM2_MIN_MS (3 000 ms): AudioSR bandwidth-extension repair
+        #   750 ms .. AUDIOLDM2_MIN_MS (3 000 ms): FlashSR bandwidth-extension repair
         #   > AUDIOLDM2_MIN_MS (3 000 ms)        : AudioLDM2 generative text-conditioned synthesis
         ldm2_dropouts: list[tuple[int, int]] = []  # > 3 000 ms → AudioLDM2
-        long_dropouts: list[tuple[int, int]] = []  # 750–3 000 ms → AudioSR
+        long_dropouts: list[tuple[int, int]] = []  # 750–3 000 ms → FlashSR
         gacela_dropouts: list[tuple[int, int]] = []  # 50–750 ms → GACELA
         normal_dropouts: list[tuple[int, int]] = []  # < 50 ms → DSP
 
@@ -1751,14 +1751,14 @@ class DropoutRepairPhase(PhaseInterface):
             ml_repaired_count += len(gacela_dropouts) - len(gacela_failed)
             normal_dropouts.extend(gacela_failed)  # unrepaired → DSP fallback
 
-        # Tier 2: AudioSR bandwidth-extension repair (750 ms–3 000 ms)
+        # Tier 2: FlashSR bandwidth-extension repair (750 ms–3 000 ms)
         if long_dropouts and use_ml:
-            ml_success = self._repair_with_audiosr(repaired, long_dropouts)
+            ml_success = self._repair_with_flashsr(repaired, long_dropouts)
             if ml_success:
                 ml_repaired_count += len(long_dropouts)
-                logger.info("%d long dropout(s) repaired via AudioSR.", len(long_dropouts))
+                logger.info("%d long dropout(s) repaired via FlashSR.", len(long_dropouts))
             else:
-                logger.warning("AudioSR dropout repair failed, falling back to DSP")
+                logger.warning("FlashSR dropout repair failed, falling back to DSP")
                 normal_dropouts.extend(long_dropouts)
         else:
             normal_dropouts.extend(long_dropouts)
@@ -1767,12 +1767,12 @@ class DropoutRepairPhase(PhaseInterface):
         if ldm2_dropouts and use_ml:
             ldm2_failed = self._repair_with_audioldm2(repaired, ldm2_dropouts)
             ml_repaired_count += len(ldm2_dropouts) - len(ldm2_failed)
-            # AudioLDM2 failures: try AudioSR first, then DSP
+            # AudioLDM2 failures: try FlashSR first, then DSP
             if ldm2_failed:
-                sr_success = self._repair_with_audiosr(repaired, ldm2_failed)
+                sr_success = self._repair_with_flashsr(repaired, ldm2_failed)
                 if sr_success:
                     ml_repaired_count += len(ldm2_failed)
-                    logger.info("%d AudioLDM2-failed dropout(s) recovered via AudioSR.", len(ldm2_failed))
+                    logger.info("%d AudioLDM2-failed dropout(s) recovered via FlashSR.", len(ldm2_failed))
                 else:
                     normal_dropouts.extend(ldm2_failed)
         else:
@@ -1844,15 +1844,15 @@ class DropoutRepairPhase(PhaseInterface):
 
         return repaired, ml_repaired_count
 
-    def _repair_with_audiosr(
+    def _repair_with_flashsr(
         self,
         audio: np.ndarray,
         dropouts: list[tuple[int, int]],
     ) -> bool:
         """
-        Repariert long dropouts (>100ms) using AudioSR generative model.
+        Repariert long dropouts (>100ms) using FlashSR generative model.
 
-        AudioSR is a bandwidth-extension model — it must NOT be called on the
+        FlashSR is a bandwidth-extension model — it must NOT be called on the
         full audio signal (would take 12+ minutes for a 4-minute song and freeze
         the Qt event loop via GIL starvation).  Instead, we process a short
         context window per dropout: 500 ms before + gap + 500 ms after, capped
@@ -1870,7 +1870,7 @@ class DropoutRepairPhase(PhaseInterface):
         if not self._has_sufficient_ml_headroom(audio, self.sample_rate):
             return False
 
-        plugin = self._get_audiosr_plugin()
+        plugin = self._get_flashsr_plugin()
         if plugin is None:
             return False
 
@@ -1883,15 +1883,15 @@ class DropoutRepairPhase(PhaseInterface):
 
         repaired_count: int = 0
 
-        # §4.6b: PLM active-guard — prevents emergency-eviction during AudioSR inference
+        # §4.6b: PLM active-guard — prevents emergency-eviction during FlashSR inference
         _plm24_asr = None
         try:
             from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm24  # pylint: disable=import-outside-toplevel  # isort: skip
 
             _plm24_asr = _get_plm24()
-            _plm24_asr.set_active("AudioSR", True)
+            _plm24_asr.set_active("FlashSR", True)
         except Exception:
-            logger.debug("_repair_with_audiosr: silent except suppressed", exc_info=True)
+            logger.debug("_repair_with_flashsr: silent except suppressed", exc_info=True)
 
         for drop_idx, (start, end) in enumerate(dropouts):
             time.sleep(0)  # yield GIL → Qt event loop can breathe between dropouts
@@ -1899,7 +1899,7 @@ class DropoutRepairPhase(PhaseInterface):
             gap_len = end - start
             if not self._has_sufficient_ml_headroom(audio, self.sample_rate):
                 logger.warning(
-                    "AudioSR: insufficient headroom after dropout %d/%d — stopping", drop_idx + 1, len(dropouts)
+                    "FlashSR: insufficient headroom after dropout %d/%d — stopping", drop_idx + 1, len(dropouts)
                 )
                 break
 
@@ -1911,7 +1911,7 @@ class DropoutRepairPhase(PhaseInterface):
             if window_len > _max_samps:
                 # Window is too long for responsive processing — fall back to DSP
                 logger.debug(
-                    "AudioSR: dropout %d/%d window %.1f s > %.1f s cap — skip to DSP fallback",
+                    "FlashSR: dropout %d/%d window %.1f s > %.1f s cap — skip to DSP fallback",
                     drop_idx + 1,
                     len(dropouts),
                     window_len / self.sample_rate,
@@ -1924,12 +1924,12 @@ class DropoutRepairPhase(PhaseInterface):
             try:
                 repaired_window = plugin.process(window_orig, self.sample_rate, target_sr=self.sample_rate)
             except Exception as _exc:
-                logger.warning("AudioSR: window repair failed for dropout %d/%d: %s", drop_idx + 1, len(dropouts), _exc)
+                logger.warning("FlashSR: window repair failed for dropout %d/%d: %s", drop_idx + 1, len(dropouts), _exc)
                 continue
 
             if len(repaired_window) != window_len:
                 logger.warning(
-                    "AudioSR: output length mismatch for dropout %d/%d (%d vs %d)",
+                    "FlashSR: output length mismatch for dropout %d/%d (%d vs %d)",
                     drop_idx + 1,
                     len(dropouts),
                     len(repaired_window),
@@ -1963,7 +1963,7 @@ class DropoutRepairPhase(PhaseInterface):
 
             repaired_count += 1
             logger.info(
-                "AudioSR: repaired dropout %d/%d (start=%.2fs, gap=%.0fms, window=%.1fs)",
+                "FlashSR: repaired dropout %d/%d (start=%.2fs, gap=%.0fms, window=%.1fs)",
                 drop_idx + 1,
                 len(dropouts),
                 start / self.sample_rate,
@@ -1972,20 +1972,20 @@ class DropoutRepairPhase(PhaseInterface):
             )
 
         if repaired_count > 0:
-            logger.info("AudioSR dropout repair: %d/%d dropouts repaired (windowed)", repaired_count, len(dropouts))
+            logger.info("FlashSR dropout repair: %d/%d dropouts repaired (windowed)", repaired_count, len(dropouts))
             if _plm24_asr is not None:
                 try:
-                    _plm24_asr.set_active("AudioSR", False)
+                    _plm24_asr.set_active("FlashSR", False)
                 except Exception:
-                    logger.debug("_repair_with_audiosr: silent except suppressed", exc_info=True)
+                    logger.debug("_repair_with_flashsr: silent except suppressed", exc_info=True)
             return True
 
-        logger.warning("AudioSR: no dropouts could be repaired (all fell back to DSP)")
+        logger.warning("FlashSR: no dropouts could be repaired (all fell back to DSP)")
         if _plm24_asr is not None:
             try:
-                _plm24_asr.set_active("AudioSR", False)
+                _plm24_asr.set_active("FlashSR", False)
             except Exception:
-                logger.debug("_repair_with_audiosr: silent except suppressed", exc_info=True)
+                logger.debug("_repair_with_flashsr: silent except suppressed", exc_info=True)
         return False
 
     def _classify_content(self, before: np.ndarray, after: np.ndarray) -> str:

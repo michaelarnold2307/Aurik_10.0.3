@@ -15,6 +15,7 @@ Type-Annotations nach §3.7.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import math
 import threading
@@ -291,6 +292,7 @@ class StrategieDenker:
         """
         assert sr == 48000, f"StrategieDenker.plan() erwartet sr=48000 Hz, erhalten: {sr} Hz"
         audio_dur = _safe_duration(audio, sr)
+        logger.debug("StrategieDenker.plan(): audio_dur=%.1fs", audio_dur)
 
         self._ensure_guard(mode=mode, enforce=enforce_3x_rt)
 
@@ -339,24 +341,52 @@ class StrategieDenker:
         )
 
         # ── §v10 HPE & Gänsehaut-Baseline ──
+        # Psychoakustische Metriken auf dem kompletten Audio. Für Spuren >60s
+        # werden sie übersprungen: numpy-BLAS-Mehrkernberechnung auf 10M+
+        # Samples alloziert >400 MB temporär und kann Minuten blockieren.
+        # HPE/Goosebumps sind Baseline-Referenzwerte, keine kritischen
+        # Pipeline-Parameter — Default 0.5 ist ein konservativer Fallback.
         _hpe_base = 0.5
         _goose_base = 0.5
-        try:
-            from backend.core.human_pleasantness_estimator import compute_pleasantness
+        _HPE_GOOSE_TIMEOUT = 30.0
+        if audio_dur <= 60.0:
+            try:
+                from backend.core.human_pleasantness_estimator import compute_pleasantness
 
-            _hpe_r = compute_pleasantness(audio, sr)
-            _hpe_base = float(_hpe_r.score)
-            logger.info("StrategieDenker: HPE-Baseline = %.3f (%s)", _hpe_base, _hpe_r.label)
-        except Exception:
-            logger.warning("strategie_denker.py::unknown fallback", exc_info=True)
-        try:
-            from backend.core.goosebumps_factor import compute_goosebumps
+                logger.debug("StrategieDenker: HPE-Berechnung gestartet (%.1fs Audio) …", audio_dur)
+                _pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                try:
+                    _hpe_fut = _pool.submit(compute_pleasantness, audio, sr)
+                    _hpe_r = _hpe_fut.result(timeout=_HPE_GOOSE_TIMEOUT)
+                    _hpe_base = float(_hpe_r.score)
+                    logger.info("StrategieDenker: HPE-Baseline = %.3f (%s)", _hpe_base, _hpe_r.label)
+                finally:
+                    _pool.shutdown(wait=False)
+            except concurrent.futures.TimeoutError:
+                logger.warning("StrategieDenker: HPE Timeout (>%.0fs) — Fallback 0.5", _HPE_GOOSE_TIMEOUT)
+            except Exception:
+                logger.warning("strategie_denker.py::HPE fallback", exc_info=True)
+            try:
+                from backend.core.goosebumps_factor import compute_goosebumps
 
-            _goose_r = compute_goosebumps(audio, sr)
-            _goose_base = float(_goose_r.score)
-            logger.info("StrategieDenker: Goosebumps-Baseline = %.3f (%s)", _goose_base, _goose_r.label)
-        except Exception:
-            logger.warning("strategie_denker.py::unknown fallback", exc_info=True)
+                logger.debug("StrategieDenker: Goosebumps-Berechnung gestartet …")
+                _pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                try:
+                    _goose_fut = _pool.submit(compute_goosebumps, audio, sr)
+                    _goose_r = _goose_fut.result(timeout=_HPE_GOOSE_TIMEOUT)
+                    _goose_base = float(_goose_r.score)
+                    logger.info("StrategieDenker: Goosebumps-Baseline = %.3f (%s)", _goose_base, _goose_r.label)
+                finally:
+                    _pool.shutdown(wait=False)
+            except concurrent.futures.TimeoutError:
+                logger.warning("StrategieDenker: Goosebumps Timeout (>%.0fs) — Fallback 0.5", _HPE_GOOSE_TIMEOUT)
+            except Exception:
+                logger.warning("strategie_denker.py::Goosebumps fallback", exc_info=True)
+        else:
+            logger.info(
+                "StrategieDenker: HPE/Goosebumps übersprungen (%.1fs Audio > 60s) — Baseline 0.5",
+                audio_dur,
+            )
 
         note = ""
         if audio_dur > 300:

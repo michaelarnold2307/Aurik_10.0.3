@@ -697,7 +697,7 @@ Hinweis: Tests und ausgeschlossene Drittanbieter-/Artefaktpfade wurden nicht ges
 - dsp/feedback.py:21 | workaround | # SOTA-Workaround: Nur dicts mit numerischem 'score' berücksichtigen
 - dsp/gpu_pipeline.py:2 | stub | dsp/gpu_pipeline.py — Compatibility-Stub → leitet auf CPUPipeline weiter
 - dsp/gpu_pipeline.py:17 | deprecated | "dsp.gpu_pipeline ist deprecated — nutze dsp.cpu_pipeline.CPUPipeline",
-- dsp/hf_extender.py:112 | temp | # Process via AudioSR (direkt ndarray — kein Temp-File)
+- dsp/hf_extender.py:112 | temp | # Process via FlashSR (direkt ndarray — kein Temp-File)
 - dsp/masking_aware_dynamic_eq.py:8 | pass | pass
 - dsp/perceptual_eq.py:4 | stub | Dieses Modul stellt ein Perceptual-EQ-Modul auf Basis von Hörmodellen als Stub bereit.
 - dsp/perceptual_quality_evaluator.py:70 | pass | pass
@@ -747,8 +747,8 @@ Hinweis: Tests und ausgeschlossene Drittanbieter-/Artefaktpfade wurden nicht ges
 - dsp/waveunet_infer.py:53 | pass | pass
 - plugins/apollo_plugin.py:168 | pass | pass
 - plugins/apollo_plugin.py:368 | pass | pass
-- plugins/audiosr_plugin.py:123 | pass | pass
-- plugins/audiosr_plugin.py:298 | pass | pass
+- plugins/flashsr_plugin.py:123 | pass | pass
+- plugins/flashsr_plugin.py:298 | pass | pass
 - plugins/bigvgan_v2_plugin.py:150 | pass | pass  # budget module absent → attempt load anyway
 - plugins/bigvgan_v2_plugin.py:325 | pass | pass
 - plugins/bigvgan_v2_plugin.py:355 | stub | # Magnitude-only PGHI-Stub: Phasen aus Original behalten

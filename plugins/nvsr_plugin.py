@@ -28,6 +28,7 @@ from typing import Any
 
 import numpy as np
 from scipy import signal as _sp_signal
+from scipy.signal import resample_poly as _resample_poly
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,7 @@ class NvsrPlugin:
         hf_energy_added_db: float,
     ) -> dict[str, Any]:
         """Erstellt JSON-safe route metadata."""
-        status = "sota_real" if strategy == "onnx" else self.capability_status()
+        status = "sota_real" if strategy in ("onnx", "flashsr_onnx") else self.capability_status()
         return {
             "strategy": strategy,
             "capability_status": status,
@@ -450,51 +451,99 @@ class NvsrPlugin:
         strength: float,
         energy_bias_db: float,
     ) -> dict[str, Any]:
-        """Führt aus: a bundled NVSR ONNX waveform model and blend safely."""
+        """NVSR ONNX via FlashSR: 16kHz→48kHz neuronale Bandbreitenerweiterung.
+
+        FlashSR (HierSpeech++, Apache 2.0) nimmt 16kHz Audio und rekonstruiert
+        48kHz via neuronaler Wellenform-Synthese. Verarbeitung in 10s-Chunks
+        für speichereffiziente ONNX-Inferenz ohne OOM-Risiko.
+        """
         if self._onnx_session is None:
             raise RuntimeError("NVSR ONNX session not loaded")
         session = self._onnx_session
         inputs = session.get_inputs()
         if not inputs:
             raise RuntimeError("NVSR ONNX model has no inputs")
+        input_name = inputs[0].name
+        output_name = session.get_outputs()[0].name if session.get_outputs() else None
+        if output_name is None:
+            raise RuntimeError("NVSR ONNX model has no outputs")
+
         mono = audio if audio.ndim == 1 else audio.mean(axis=0)
         mono = np.asarray(mono, dtype=np.float32)
-        rank = len(getattr(inputs[0], "shape", []) or [])
-        if rank >= 3:
-            model_input = mono[np.newaxis, np.newaxis, :].astype(np.float32)
-        elif rank == 2:
-            model_input = mono[np.newaxis, :].astype(np.float32)
-        else:
-            model_input = mono.astype(np.float32)
-        outputs = session.run(None, {inputs[0].name: model_input})
-        if not outputs:
-            raise RuntimeError("NVSR ONNX model returned no outputs")
-        out = np.asarray(outputs[0], dtype=np.float32).reshape(-1)
-        if len(out) > len(mono):
-            out = out[: len(mono)]
-        elif len(out) < len(mono):
-            out = np.pad(out, (0, len(mono) - len(out)), mode="constant")
-        out = np.clip(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+        n_total = len(mono)
+
+        # FlashSR arbeitet bei 16kHz → 48kHz (3× Upsampling).
+        # Downsample 48kHz → 16kHz mit scipy's resample (anti-alias).
+        mono_16k = _resample_poly(mono.astype(np.float64), 1, 3).astype(np.float32)  # 48k→16k
+
+        # Chunked processing: 10s @ 16kHz = 160000 samples pro Chunk
+        CHUNK_16K = 160000
+        CHUNK_OVERLAP_16K = 4000  # 250ms overlap for smooth blending
+        n_chunks = max(1, (len(mono_16k) + CHUNK_16K - 1) // CHUNK_16K)
+
+        out_48k = np.zeros(n_total, dtype=np.float32)
+        weight_48k = np.zeros(n_total, dtype=np.float32)
+
+        for ci in range(n_chunks):
+            start_16 = ci * CHUNK_16K
+            end_16 = min(start_16 + CHUNK_16K + CHUNK_OVERLAP_16K, len(mono_16k))
+            chunk_16 = mono_16k[start_16:end_16]
+
+            # FlashSR expects (1, 1, N)
+            model_input = chunk_16[np.newaxis, np.newaxis, :].astype(np.float32)
+            outputs = session.run([output_name], {input_name: model_input})
+            chunk_48 = np.asarray(outputs[0], dtype=np.float32).reshape(-1)
+
+            # Map back to 48kHz timeline
+            start_48 = start_16 * 3
+            end_48_actual = min(start_48 + len(chunk_48), n_total)
+            n_place = end_48_actual - start_48
+
+            # Triangle window for crossfade
+            fade_win = np.ones(n_place, dtype=np.float32)
+            fade_len = CHUNK_OVERLAP_16K * 3
+            if ci > 0 and fade_len < n_place:
+                fade_win[:fade_len] = np.linspace(0, 1, fade_len, dtype=np.float32)
+            if ci < n_chunks - 1 and fade_len < n_place:
+                fade_win[-fade_len:] = np.linspace(1, 0, fade_len, dtype=np.float32)
+
+            out_48k[start_48:end_48_actual] += chunk_48[:n_place] * fade_win
+            weight_48k[start_48:end_48_actual] += fade_win
+
+        # Normalize overlapping regions
+        mask = weight_48k > 0
+        out_48k[mask] /= weight_48k[mask]
+
+        out = np.clip(np.nan_to_num(out_48k, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
+
         if audio.ndim == 2 and audio.shape[0] == 2:
             out_audio = np.stack([out, out], axis=0)
         else:
             out_audio = out
 
+        # Blend with DSP SBR for safety (DSP handles envelope coherence)
         dsp_ref = self._process_dsp_sbr(audio, sr, target_hz, strength, energy_bias_db, 0.0)["audio"]
-        blended = np.clip((1.0 - strength) * np.asarray(dsp_ref, dtype=np.float32) + strength * out_audio, -1.0, 1.0)
+        # FlashSR-Output stärker gewichten (0.7×ONNX + 0.3×DSP) weil neuronale Synthese
+        # präzisere Feinstruktur liefert als deterministische SBR
+        onnx_weight = min(strength * 1.4, 0.85)  # bis zu 85% ONNX-Anteil
+        blended = np.clip(
+            (1.0 - onnx_weight) * np.asarray(dsp_ref, dtype=np.float32) + onnx_weight * out_audio,
+            -1.0, 1.0,
+        )
+
         self._last_route_metadata = self._metadata(
-            strategy="onnx",
+            strategy="flashsr_onnx",
             target_hz=target_hz,
             ceiling_hz=target_hz,
-            strength=strength,
+            strength=onnx_weight,
             hf_energy_added_db=0.0,
         )
         return {
             "audio": blended.astype(np.float32),
-            "strategy": "onnx",
+            "strategy": "flashsr_onnx",
             "target_hz": target_hz,
             "ceiling_hz": target_hz,
-            "strength": strength,
+            "strength": onnx_weight,
             "hf_energy_added_db": 0.0,
             **self._last_route_metadata,
         }

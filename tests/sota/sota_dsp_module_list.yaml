@@ -9,6 +9,6 @@ modules:
     description: DiffWave SOTA-Modul
   - name: hifigan
     description: HiFi-GAN SOTA-Modul
-  - name: audiosr
-    description: AudioSR SOTA-Modul
+  - name: flashsr
+    description: FlashSR SOTA-Modul
 # Weitere Module können hier ergänzt werden.

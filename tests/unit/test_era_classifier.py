@@ -974,3 +974,123 @@ def test_transition_score_demotes_1970_to_1960_in_transition_zone():
         highband_presence=0.06,
     )
     assert decade == 1960
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# §v10 Tests: Tier-2 DSP-Sanity-Check + Material-Floor-Prüfung
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestDspSanityCheckV10:
+    """Tier-2 DSP läuft immer und überschreibt CLAP bei Diskrepanz."""
+
+    def test_dsp_overrides_clap_when_decade_differs(self, monkeypatch, clf):
+        """Wenn CLAP ein anderes Jahrzehnt liefert als DSP, gewinnt DSP."""
+        # Mock Tier-1: CLAP sagt 1990 mit 76% confidence
+        def fake_tier1(*args, **kwargs):
+            return EraResult(decade=1990, era_label="1990er", confidence=0.76,
+                           material_prior="cd", tier_used=1)
+        monkeypatch.setattr(clf, "_try_tier1", fake_tier1)
+        # Mock Tier-2: DSP sagt 1970 mit 0.45 confidence
+        def fake_tier2(*args, **kwargs):
+            return EraResult(decade=1970, era_label="1970er", confidence=0.45,
+                           material_prior="reel_tape", tier_used=2)
+        monkeypatch.setattr(clf, "_tier2", fake_tier2)
+
+        audio = np.random.randn(int(SR * 15)).astype(np.float32) * 0.1
+        result = clf.classify(audio, SR)
+        # DSP widerspricht CLAP (1990 vs 1970) + DSP conf ≥ 0.35 → DSP gewinnt
+        assert result.tier_used == 2, f"Expected Tier-2 override, got tier={result.tier_used}"
+        assert result.decade == 1970, f"DSP decade should win, got {result.decade}"
+
+    def test_clap_accepted_when_dsp_agrees(self, monkeypatch, clf):
+        """Wenn CLAP und DSP dasselbe Jahrzehnt schätzen, bleibt CLAP."""
+        def fake_tier1(*args, **kwargs):
+            return EraResult(decade=1970, era_label="1970er", confidence=0.55,
+                           material_prior="reel_tape", tier_used=1)
+        monkeypatch.setattr(clf, "_try_tier1", fake_tier1)
+        # Mock Tier-2: gleiches Jahrzehnt → kein Override
+        def fake_tier2(*args, **kwargs):
+            return EraResult(decade=1970, era_label="1970er", confidence=0.50,
+                           material_prior="reel_tape", tier_used=2)
+        monkeypatch.setattr(clf, "_tier2", fake_tier2)
+
+        audio = np.random.randn(int(SR * 15)).astype(np.float32) * 0.1
+        result = clf.classify(audio, SR)
+        # Gleiches Jahrzehnt → CLAP bleibt (tier_used=1)
+        assert result.tier_used == 1, f"CLAP should be kept when DSP agrees, got tier={result.tier_used}"
+
+    def test_dsp_override_logged(self, monkeypatch, clf, caplog):
+        """DSP-Override produziert eine Info-Logmeldung."""
+        import logging
+        caplog.set_level(logging.INFO)
+
+        def fake_tier1(*args, **kwargs):
+            return EraResult(decade=1990, era_label="1990er", confidence=0.70,
+                           material_prior="cd", tier_used=1)
+        monkeypatch.setattr(clf, "_try_tier1", fake_tier1)
+        def fake_tier2(*args, **kwargs):
+            return EraResult(decade=1970, era_label="1970er", confidence=0.45,
+                           material_prior="reel_tape", tier_used=2)
+        monkeypatch.setattr(clf, "_tier2", fake_tier2)
+
+        audio = np.random.randn(int(SR * 15)).astype(np.float32) * 0.1
+        clf.classify(audio, SR)
+        assert any("DSP-Sanity-Check widerspricht CLAP" in r.message for r in caplog.records),             "Should log DSP-Sanity-Check override"
+
+
+class TestMaterialFloorViolationV10:
+    """Material-Floor-Plausibilitätsprüfung verwirft CLAP vor Medium-Einführung."""
+
+    def test_clap_rejected_below_vinyl_floor(self, monkeypatch, clf):
+        """CLAP=1930 + vinyl chain → unmöglich, weil Vinyl erst ab 1950."""
+        def fake_tier1(*args, **kwargs):
+            return EraResult(decade=1930, era_label="1930er", confidence=0.65,
+                           material_prior="shellac", tier_used=1)
+        monkeypatch.setattr(clf, "_try_tier1", fake_tier1)
+        # Mock Tier-2 damit es nicht übernimmt (wir testen nur Floor-Violation)
+        def fake_tier2(*args, **kwargs):
+            return EraResult(decade=1930, era_label="1930er", confidence=0.30,
+                           material_prior="shellac", tier_used=2)
+        monkeypatch.setattr(clf, "_tier2", fake_tier2)
+
+        audio = np.random.randn(int(SR * 15)).astype(np.float32) * 0.1
+        result = clf.classify(audio, SR, transfer_chain=["vinyl", "mp3_low"])
+        # CLAP=1930 < vinyl floor=1950 → Tier-1 muss verworfen werden
+        # Tier-2 hat conf=0.30 < 0.40 → Tier-3 sollte laufen
+        assert result.tier_used in (2, 3), f"Expected Tier-2/3 after floor violation, got tier={result.tier_used}"
+
+    def test_clap_accepted_above_cassette_floor(self, monkeypatch, clf):
+        """CLAP=1970 + cassette chain → OK, cassette ab 1960."""
+        def fake_tier1(*args, **kwargs):
+            return EraResult(decade=1970, era_label="1970er", confidence=0.65,
+                           material_prior="cassette", tier_used=1)
+        monkeypatch.setattr(clf, "_try_tier1", fake_tier1)
+        # Mock Tier-2 mit GLEICHEM Jahrzehnt → kein Override
+        def fake_tier2(*args, **kwargs):
+            return EraResult(decade=1970, era_label="1970er", confidence=0.50,
+                           material_prior="cassette", tier_used=2)
+        monkeypatch.setattr(clf, "_tier2", fake_tier2)
+
+        audio = np.random.randn(int(SR * 15)).astype(np.float32) * 0.1
+        result = clf.classify(audio, SR, transfer_chain=["cassette"])
+        # CLAP=1970 ≥ cassette floor=1960 → Tier-1 bleibt
+        assert result.tier_used == 1, f"CLAP should be kept when above floor, got tier={result.tier_used}"
+
+    def test_floor_violation_without_chain_is_ignored(self, monkeypatch, clf):
+        """Ohne transfer_chain wird keine Floor-Prüfung gemacht."""
+        def fake_tier1(*args, **kwargs):
+            return EraResult(decade=1930, era_label="1930er", confidence=0.65,
+                           material_prior="unknown", tier_used=1)
+        monkeypatch.setattr(clf, "_try_tier1", fake_tier1)
+        # Mock Tier-2 mit GLEICHEM Jahrzehnt → kein Override
+        def fake_tier2(*args, **kwargs):
+            return EraResult(decade=1930, era_label="1930er", confidence=0.45,
+                           material_prior="unknown", tier_used=2)
+        monkeypatch.setattr(clf, "_tier2", fake_tier2)
+
+        audio = np.random.randn(int(SR * 15)).astype(np.float32) * 0.1
+        result = clf.classify(audio, SR)  # kein transfer_chain
+        # Ohne Chain: kein Floor-Violation-Log, Tier-1 vs Tier-2 normal.
+        # Wichtig: kein Crash, valides Ergebnis
+        assert result.decade in VALID_DECADES
+        assert result.tier_used in (1, 2, 3)

@@ -526,18 +526,18 @@ class TestOnnxPhaseStubDeterminism:
         assert max_abs > MAX_ABS_ERR, "strength=0.65 und strength=0.50 müssen verschiedene wet/dry Outputs erzeugen"
 
     def test_onnx_cpu_provider_determinism_invariant_documented(self):
-        """§2.40: audiosr_plugin nutzt ml_device_manager für Device-Dispatch."""
+        """§2.40: flashsr_plugin nutzt ml_device_manager für Device-Dispatch."""
         import inspect
 
         try:
-            import plugins.audiosr_plugin as _asp
+            import plugins.flashsr_plugin as _asp
 
             src = inspect.getsource(_asp)
             assert "ml_device_manager" in src or "CPUExecutionProvider" in src, (
-                "audiosr_plugin muss ml_device_manager oder CPUExecutionProvider verwenden (§2.40 Determinismus)"
+                "flashsr_plugin muss ml_device_manager oder CPUExecutionProvider verwenden (§2.40 Determinismus)"
             )
         except ImportError:
-            pytest.skip("audiosr_plugin nicht verfügbar in CI-Umgebung")
+            pytest.skip("flashsr_plugin nicht verfügbar in CI-Umgebung")
 
     def test_onnx_session_mock_called_with_same_input_twice(self):
         """ONNX mock mit identischen Inputs → zwei identische call-args."""

@@ -3,7 +3,7 @@
 ## Evidenzblock
 
 - **Spec-Datei**: `.github/specs/02_pipeline_architecture.md`
-- **Abschnitte**: §2.46c (Phase 12 Pitch-Span), §2.46d (AudioSR Recovery), §2.35c (LPC AA-Filter)
+- **Abschnitte**: §2.46c (Phase 12 Pitch-Span), §2.46d (FlashSR Recovery), §2.35c (LPC AA-Filter)
 - **Änderungstyp**: SOTA-Härtung — keine Workarounds, echte Lösungen
 - **Alte Regel**: Starre Thresholds, stille Degrade-Pfade, CPU-only ML
 - **Neue Regel**: Adaptive Thresholds, Recovery-Ketten, GPU-DDIM + CPU-Vocoder
@@ -14,11 +14,11 @@
 - **Fix**: Adaptiver Threshold: 400 Cents für Cassette/Reel-Tape mit wow≥0.70
 - **Datei**: `backend/core/phases/phase_12_wow_flutter_fix.py`
 
-### 2. §2.46d: AudioSR SOTA Recovery-Kette
+### 2. §2.46d: FlashSR SOTA Recovery-Kette
 
 - **Problem**: model.cpu() + CPU-DDIM → NaN bei Extrem-Bandbreite (375 Hz)
 - **Fix**: 4-stufig: GPU-DDIM(50)→CPU-DDIM(20)→SBR-DSP→Passthrough
-- **Datei**: `plugins/audiosr_plugin.py`
+- **Datei**: `plugins/flashsr_plugin.py`
 
 ### 3. §2.35c: LPC-Formant-Tracker Anti-Aliasing
 
@@ -35,7 +35,7 @@
 ### 5. Maintainer Sign-off
 
 - [x] Phase 12 adaptiver Threshold dokumentiert
-- [x] AudioSR Recovery-Kette spezifiziert
+- [x] FlashSR Recovery-Kette spezifiziert
 - [x] LPC AA-Filter als Pflicht deklariert
 - [x] Alle Datei-Referenzen aktuell
 - [x] Reproduktions-Skripte in Specs

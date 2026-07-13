@@ -312,7 +312,7 @@ class TestGoalApplicabilityFuzzing:
         channels=st.sampled_from([1, 2]),
         material=st.sampled_from(_MATERIALS_GAF),
         era_decade=st.sampled_from(_ERA_DECADES_GAF),
-        audiosr_available=st.booleans(),
+        flashsr_available=st.booleans(),
     )
     def test_01_no_crash_random_audio(
         self,
@@ -320,7 +320,7 @@ class TestGoalApplicabilityFuzzing:
         channels: int,
         material: str,
         era_decade,
-        audiosr_available: bool,
+        flashsr_available: bool,
     ) -> None:
         """Kein Absturz bei beliebiger Audio-Länge, Material, Ära."""
         try:
@@ -341,7 +341,7 @@ class TestGoalApplicabilityFuzzing:
             sr=48000,
             material=material,
             era_decade=era_decade,
-            audiosr_available=audiosr_available,
+            flashsr_available=flashsr_available,
         )
         assert isinstance(result, GoalApplicabilityResult)
 

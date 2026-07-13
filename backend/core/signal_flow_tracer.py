@@ -53,6 +53,7 @@ _HNR_CRIT_DB = 6.0  # HNR-Abfall Critical
 _ECHO_CORR_THRESH = 0.35  # Autokorrelations-Peak Diff-Signal für Echo-Detektion
 _ECHO_MIN_LAG_MS = 20.0  # Mindest-Lag für Echo (< 20ms = Phasen-Kolorierung, kein Echo)
 _LEVEL_COLLAPSE_DBFS = -60.0  # Signal-Kollaps wenn Post-RMS unter diesem Wert
+_PRE_PHASE_MIN_DBFS = -50.0  # Pre-Phase: Signal zu leise fuer sinnvolle Verarbeitung
 _SILENCE_ENERGY_THRESH = -72.0  # dBFS — Stille-Zone gilt als kontaminiert über diesem Wert
 
 # Pegelschätzung: 99.9-Perzentil statt np.max (Anti-V08)

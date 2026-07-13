@@ -2,7 +2,7 @@
 
 Integriert alle verfügbaren ML-Modelle für maximale Export-Qualität:
   1. DeepFilterNet v3 II — ML-gestützte Rausch-/Click-Reparatur
-  2. AudioSR — ML-Bandbreiten-Erweiterung (2973 MB, nur wenn RAM > 20 GB)
+  2. FlashSR — ML-Bandbreiten-Erweiterung (2973 MB, nur wenn RAM > 20 GB)
   3. Demucs — Stem-Trennung für Vocal/Instrumental-Isolation
   4. Perceptual-Masking-Gate — nur hörbare Defekte reparieren
 
@@ -27,7 +27,7 @@ class PerceptualExportOptimizer:
 
     # RAM-Budgets (GB) für ML-Modelle
     MIN_RAM_FOR_DFN = 0.5  # DeepFilterNet braucht ~0.3 GB working set
-    MIN_RAM_FOR_AUDIOSR = 20.0  # AudioSR braucht ~3 GB + working
+    MIN_RAM_FOR_AUDIOSR = 20.0  # FlashSR braucht ~3 GB + working
     MIN_RAM_FOR_DEMUCS = 2.0  # Demucs braucht ~0.5 GB + working
 
     def __init__(self) -> None:
@@ -64,9 +64,9 @@ class PerceptualExportOptimizer:
         if use_ml and self._available_ram_gb > self.MIN_RAM_FOR_DEMUCS:
             result = self._apply_demucs_vocal_isolation(result, sr)
 
-        # ── 4. AudioSR Bandwidth Extension ──
+        # ── 4. FlashSR Bandwidth Extension ──
         if use_ml and self._available_ram_gb > self.MIN_RAM_FOR_AUDIOSR:
-            result = self._apply_audiosr_bandwidth(result, sr, material)
+            result = self._apply_flashsr_bandwidth(result, sr, material)
 
         # ── 5. Hörumgebungs-Adaption ──
         result = self._apply_listening_adaptation(result, sr, listening_mode)
@@ -117,20 +117,20 @@ class PerceptualExportOptimizer:
             logger.debug("§AQ Demucs unavailable: %s", e)
         return audio
 
-    def _apply_audiosr_bandwidth(self, audio: np.ndarray, sr: int, material: str) -> np.ndarray:
-        """AudioSR: ML-Bandbreiten-Erweiterung für bandbreitenbegrenztes Material."""
+    def _apply_flashsr_bandwidth(self, audio: np.ndarray, sr: int, material: str) -> np.ndarray:
+        """FlashSR: ML-Bandbreiten-Erweiterung für bandbreitenbegrenztes Material."""
         # Nur bei BW-verlustbehafteten Materialien
         if material not in ("cassette", "shellac", "wax_cylinder", "mp3_low", "tape", "wire_recording"):
             return audio
         try:
-            from plugins.audiosr_plugin import AudioSRPlugin
+            from plugins.flashsr_plugin import FlashSRPlugin
 
-            asr = AudioSRPlugin()
+            asr = FlashSRPlugin()
             result = asr.upsample(audio, sr)
-            logger.info("§AQ AudioSR: ML bandwidth extension applied")
+            logger.info("§AQ FlashSR: ML bandwidth extension applied")
             return np.asarray(result, dtype=np.float32)
         except Exception as e:
-            logger.debug("§AQ AudioSR unavailable: %s", e)
+            logger.debug("§AQ FlashSR unavailable: %s", e)
         return audio
 
     def _apply_listening_adaptation(self, audio: np.ndarray, sr: int, mode: str) -> np.ndarray:

@@ -25,19 +25,19 @@
 #### 1️⃣ ONNX Fixed-Shape ohne Chunking
 
 **Status:** ✅ **SICHER**  
-**Befund:** Phase 23 ruft AudioSR-Plugin auf, BANQUET ONNX wird geladen:
+**Befund:** Phase 23 ruft FlashSR-Plugin auf, BANQUET ONNX wird geladen:
 
-- [Line 338-349](backend/core/phases/phase_23_spectral_repair.py#L338-L349): `_get_audiosr_plugin()` lazy-loads Plugin
+- [Line 338-349](backend/core/phases/phase_23_spectral_repair.py#L338-L349): `_get_flashsr_plugin()` lazy-loads Plugin
 - [Line 640, 654](backend/core/phases/phase_23_spectral_repair.py#L640): `_apollo_inst.repair(audio[:, 0], sr, material=...)` → Plugin-Wrapper mit Channelrouting  
-- **WICHTIG:** AudioSR-Inferenz erfolgt in **10-Sekunden-Zonen** ([Line 283-291](backend/core/phases/phase_23_spectral_repair.py#L283-L291)):
+- **WICHTIG:** FlashSR-Inferenz erfolgt in **10-Sekunden-Zonen** ([Line 283-291](backend/core/phases/phase_23_spectral_repair.py#L283-L291)):
 
   ```python
-  _AUDIOSR_ZONE_SECONDS = 10
-  duration_for_budget_s = min(duration_s, float(_AUDIOSR_ZONE_SECONDS))
+  _FLASHSR_ZONE_SECONDS = 10
+  duration_for_budget_s = min(duration_s, float(_FLASHSR_ZONE_SECONDS))
   ```
 
   → Zonen-basiertes Chunking ist aktiv, nicht ganze Audio in einem Durchlauf
-- **Weitere Guards:** [Line 309-330](backend/core/phases/phase_23_spectral_repair.py#L309-L330) RAM-Headroom-Check blockiert AudioSR für Lossy-Codecs
+- **Weitere Guards:** [Line 309-330](backend/core/phases/phase_23_spectral_repair.py#L309-L330) RAM-Headroom-Check blockiert FlashSR für Lossy-Codecs
 - **Fazit:** ✅ KORREKT implementiert
 
 #### 2️⃣ Peak-Guard mit np.max statt np.percentile
@@ -396,15 +396,15 @@
 **Status:** ✅ **SICHER** _(verifiziert 2026-04-19)_  
 **Befund:**
 
-- [Line 1559-1640](backend/core/phases/phase_24_dropout_repair.py#L1559): `_repair_with_audiosr()` verarbeitet **ausschließlich kurze Kontextfenster** pro Dropout:
+- [Line 1559-1640](backend/core/phases/phase_24_dropout_repair.py#L1559): `_repair_with_flashsr()` verarbeitet **ausschließlich kurze Kontextfenster** pro Dropout:
 
   ```python
   _CTX_SECS = 0.5      # 500 ms Kontext beidseitig
   _MAX_WINDOW_S = 5.0  # Hard-Cap — größeres Fenster → DSP-Fallback
   ```
 
-  → AudioSR-Plugin empfängt max. 5-Sekunden-Segmente; volles Audio wird nie direkt übergeben.
-- `plugin.process(window_orig, ...)` delegiert an `AudioSRPlugin`, welches intern ONNX-Chunking  
+  → FlashSR-Plugin empfängt max. 5-Sekunden-Segmente; volles Audio wird nie direkt übergeben.
+- `plugin.process(window_orig, ...)` delegiert an `FlashSRPlugin`, welches intern ONNX-Chunking  
   übernimmt — kein direkter `session.run()` mit fester Shape.
 - **Fazit:** ✅ **Korrekt** — früheres ⚠️ RISIKO beruhte auf unvollständigem Excerpt (L311–378  
   zeigt nur Loader-Logik, nicht den eigentlichen Call-Path ab L1559).
@@ -474,7 +474,7 @@
   }
   ```
 
-  → ✅ **SEHR UMFASSEND** (9 Goals ausgeschlossen!) — AudioSR-Synthese erzeugt neue Inhalte, Proxys verlieren Gültigkeit
+  → ✅ **SEHR UMFASSEND** (9 Goals ausgeschlossen!) — FlashSR-Synthese erzeugt neue Inhalte, Proxys verlieren Gültigkeit
 - **Fazit:** ✅ SICHER
 
 #### 8️⃣ Phase-Reihenfolge

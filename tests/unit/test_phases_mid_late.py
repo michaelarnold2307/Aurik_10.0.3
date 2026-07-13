@@ -634,8 +634,8 @@ class TestPhase23SpectralRepair:
         assert s_sparse < s_default
         assert float(result_sparse.metadata.get("phase_locality_factor", 1.0)) <= 0.4 + 1e-6
 
-    def test_audiosr_helper_preserves_channels_first_stereo_shape(self, stereo):
-        class _FakeAudioSR:
+    def test_flashsr_helper_preserves_channels_first_stereo_shape(self, stereo):
+        class _FakeFlashSR:
             def process(self, audio, sr, target_sr):
                 assert sr == SR
                 assert target_sr == SR
@@ -644,12 +644,12 @@ class TestPhase23SpectralRepair:
         stereo_cf = stereo.T.astype(np.float32)
         self.phase._has_sufficient_ml_headroom = lambda *_args, **_kwargs: True
 
-        repaired = self.phase._repair_with_audiosr(
+        repaired = self.phase._repair_with_flashsr(
             stereo_cf,
             SR,
             np.zeros((8, 8), dtype=bool),
             0.25,
-            _FakeAudioSR(),
+            _FakeFlashSR(),
         )
 
         assert repaired.shape == stereo_cf.shape
@@ -663,8 +663,8 @@ class TestPhase23SpectralRepair:
             atol=1e-6,
         )
 
-    def test_audiosr_helper_preserves_samples_first_stereo_shape(self, stereo):
-        class _FakeAudioSR:
+    def test_flashsr_helper_preserves_samples_first_stereo_shape(self, stereo):
+        class _FakeFlashSR:
             def process(self, audio, sr, target_sr):
                 assert sr == SR
                 assert target_sr == SR
@@ -673,12 +673,12 @@ class TestPhase23SpectralRepair:
         self.phase._has_sufficient_ml_headroom = lambda *_args, **_kwargs: True
 
         stereo_sf = stereo.astype(np.float32)
-        repaired = self.phase._repair_with_audiosr(
+        repaired = self.phase._repair_with_flashsr(
             stereo_sf,
             SR,
             np.zeros((8, 8), dtype=bool),
             0.25,
-            _FakeAudioSR(),
+            _FakeFlashSR(),
         )
 
         assert repaired.shape == stereo_sf.shape
@@ -690,25 +690,25 @@ class TestPhase23SpectralRepair:
             atol=1e-6,
         )
 
-    def test_audiosr_helper_passthrough_for_unsupported_shape(self):
-        class _FakeAudioSR:
+    def test_flashsr_helper_passthrough_for_unsupported_shape(self):
+        class _FakeFlashSR:
             def process(self, audio, sr, target_sr):
                 return np.asarray(audio, dtype=np.float32) * 0.5
 
         self.phase._has_sufficient_ml_headroom = lambda *_args, **_kwargs: True
 
         weird = np.ones((3, 4, 5), dtype=np.float32)
-        repaired = self.phase._repair_with_audiosr(
+        repaired = self.phase._repair_with_flashsr(
             weird,
             SR,
             np.zeros((8, 8), dtype=bool),
             0.25,
-            _FakeAudioSR(),
+            _FakeFlashSR(),
         )
         assert repaired.shape == weird.shape
         assert np.allclose(repaired, weird, atol=1e-8)
 
-    def test_thrashing_skips_ml_audiosr_path(self, mono, monkeypatch):
+    def test_thrashing_skips_ml_flashsr_path(self, mono, monkeypatch):
         monkeypatch.setattr(self.phase, "_is_system_thrashing", lambda: True)
         monkeypatch.setattr(self.phase, "_can_relax_thrashing_guard", lambda **_kwargs: False)
         monkeypatch.setattr(
@@ -721,8 +721,8 @@ class TestPhase23SpectralRepair:
         )
         monkeypatch.setattr(
             self.phase,
-            "_get_audiosr_plugin",
-            lambda: (_ for _ in ()).throw(AssertionError("AudioSR darf bei Thrashing nicht geladen werden")),
+            "_get_flashsr_plugin",
+            lambda: (_ for _ in ()).throw(AssertionError("FlashSR darf bei Thrashing nicht geladen werden")),
         )
 
         result = self.phase.process(mono, SR, MaterialType.STREAMING)
@@ -789,19 +789,19 @@ class TestPhase23SpectralRepair:
         )
         monkeypatch.setattr(self.phase, "_has_sufficient_ml_headroom", lambda *_args, **_kwargs: True)
 
-        class _FakeAudioSR:
+        class _FakeFlashSR:
             def process(self, audio, sr, target_sr):
                 return np.asarray(audio, dtype=np.float32)
 
-        monkeypatch.setattr(self.phase, "_get_audiosr_plugin", lambda: _FakeAudioSR())
+        monkeypatch.setattr(self.phase, "_get_flashsr_plugin", lambda: _FakeFlashSR())
 
         called = {"ml": 0}
 
-        def _repair_with_audiosr(audio, *_args, **_kwargs):
+        def _repair_with_flashsr(audio, *_args, **_kwargs):
             called["ml"] += 1
             return np.asarray(audio, dtype=np.float32)
 
-        monkeypatch.setattr(self.phase, "_repair_with_audiosr", _repair_with_audiosr)
+        monkeypatch.setattr(self.phase, "_repair_with_flashsr", _repair_with_flashsr)
 
         result1 = self.phase.process(mono, SR, MaterialType.TAPE)
         result2 = self.phase.process(mono, SR, MaterialType.TAPE)

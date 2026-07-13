@@ -732,7 +732,7 @@ def test_48_spectral_proxy_bw_ceiling_limits_comparison():
 
     Aufbau:
      - original: 440 Hz Sinus (Energie nur im Bassbereich)
-     - restored: original + synthetisierter 14 kHz Ton (AudioSR-Simulation)
+     - restored: original + synthetisierter 14 kHz Ton (FlashSR-Simulation)
      - Mit ceiling=8000 Hz: Proxy vergleicht nur 0–8 kHz → Similarity ≈ 1.0
      - Ohne ceiling (full-band): 14 kHz-Energie macht restored anders → niedrigere Similarity
     """
@@ -743,7 +743,7 @@ def test_48_spectral_proxy_bw_ceiling_limits_comparison():
     t = np.linspace(0, dur, int(dur * SR), endpoint=False, dtype=np.float32)
     # Original: 440 Hz Ton (typisch für Vokalinhalt)
     original = (0.4 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
-    # Restored: Original + 14 kHz Syntheseinhalt (AudioSR über Kassetten-Ceiling)
+    # Restored: Original + 14 kHz Syntheseinhalt (FlashSR über Kassetten-Ceiling)
     restored = original + 0.3 * np.sin(2 * np.pi * 14000.0 * t).astype(np.float32)
 
     sim_full = gate._compute_mert_similarity_spectral_proxy(original, restored, SR)
@@ -780,7 +780,7 @@ def test_49_spectral_proxy_no_ceiling_penalizes_hf_extension():
 def test_50_evaluate_restoration_cassette_passes_bw_ceiling():
     """evaluate_restoration mit material='cassette' soll BW-Ceiling korrekt anwenden.
 
-    Simuliert: original (Kassetten-Tier, kein HF), restored mit AudioSR-Extension (14 kHz).
+    Simuliert: original (Kassetten-Tier, kein HF), restored mit FlashSR-Extension (14 kHz).
     HPI muss > 0 bleiben (BW-Extension ist kein Qualitätsverlust).
     """
     from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
@@ -805,7 +805,7 @@ def test_50_evaluate_restoration_cassette_passes_bw_ceiling():
 
 # ---------------------------------------------------------------------------
 # test_51–53: mel-Embedding BW-Ceiling-Guard (v9.12.10) — _compute_embedding
-# §2.44: AudioSR-synthetisierter HF-Content darf timbral_input nicht verfälschen.
+# §2.44: FlashSR-synthetisierter HF-Content darf timbral_input nicht verfälschen.
 # ---------------------------------------------------------------------------
 
 
@@ -840,7 +840,7 @@ def test_51_embedding_bw_ceiling_limits_hf_bins():
 def test_52_timbral_fidelity_bw_ceiling_higher_similarity():
     """BW-Ceiling erhöht timbral_fidelity wenn original kein HF hat, restored HF-Extension hat.
 
-    Szenario: Kassetten-Restaurierung mit AudioSR (12 kHz → 22 kHz Extension).
+    Szenario: Kassetten-Restaurierung mit FlashSR (12 kHz → 22 kHz Extension).
     - Ohne Ceiling: Cosinus-Ähnlichkeit sinkt wegen HF-Divergenz (Reference Paradox)
     - Mit Ceiling=12000: HF-Anteil ignoriert → höhere Ähnlichkeit
     """
@@ -850,7 +850,7 @@ def test_52_timbral_fidelity_bw_ceiling_higher_similarity():
     dur = 2.0
     t = np.linspace(0, dur, int(dur * SR), endpoint=False, dtype=np.float32)
     original = (0.5 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
-    # Restored: original + starker HF-Ton bei 15 kHz (AudioSR-Synthetik)
+    # Restored: original + starker HF-Ton bei 15 kHz (FlashSR-Synthetik)
     restored_with_hf = (original + 0.6 * np.sin(2 * np.pi * 15_000.0 * t)).astype(np.float32)
 
     sim_full = gate._compute_timbral_fidelity(original, restored_with_hf, SR)

@@ -13,7 +13,7 @@ Pflicht-Aufnahmekriterien für SOTA-Matrix-Updates (§4.4a Spec 04):
 
 Nutzung:
     python benchmarks/sota_eval.py --model DeepFilterNetV3 --scenarios all
-    python benchmarks/sota_eval.py --model AudioSR --scenarios tape,vinyl
+    python benchmarks/sota_eval.py --model FlashSR --scenarios tape,vinyl
     python benchmarks/sota_eval.py --report-only
 
 Ergebnisse werden unter benchmarks/sota_eval_results/<timestamp>.json gespeichert.
@@ -88,7 +88,7 @@ CRITERION_NAMES = [
 
 SUPPORTED_MODELS: dict[str, str] = {
     "DeepFilterNetV3": "plugins.deepfilternet_v3_ii_plugin",
-    "AudioSR": "plugins.audiosr_plugin",
+    "FlashSR": "plugins.flashsr_plugin",
     "SGMSE+": "plugins.sgmse_plugin",
     "MelBandRoformer": "plugins.bs_roformer_plugin",
     "VERSA": "plugins.versa_plugin",

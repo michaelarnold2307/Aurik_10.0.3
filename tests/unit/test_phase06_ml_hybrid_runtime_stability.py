@@ -18,7 +18,7 @@ class _FreeMemVM:
     percent: float = 10.0
 
 
-class _FakeAudioSRPlugin:
+class _FakeFlashSRPlugin:
     def process(self, audio: np.ndarray, sr: int, target_sr: int = 48_000) -> np.ndarray:
         # Deterministic HF boost-like behavior for testability.
         _ = (sr, target_sr)
@@ -42,7 +42,7 @@ def _make_rolloff_audio(sr: int = 48_000, duration_s: float = 0.35) -> np.ndarra
 
 
 @pytest.mark.unit
-def test_phase06_uses_ml_hybrid_when_audiosr_available(monkeypatch) -> None:
+def test_phase06_uses_ml_hybrid_when_flashsr_available(monkeypatch) -> None:
     # Mock psutil so the phase_06 headroom guard (requires 9.5 GB available) passes
     # on memory-constrained dev machines. Tests ML path logic, not RAM availability.
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FreeMemVM())
@@ -52,8 +52,8 @@ def test_phase06_uses_ml_hybrid_when_audiosr_available(monkeypatch) -> None:
     audio = _make_rolloff_audio()
 
     monkeypatch.setattr(
-        "backend.core.phases.phase_06_frequency_restoration._get_audiosr_plugin",
-        lambda: _FakeAudioSRPlugin(),
+        "backend.core.phases.phase_06_frequency_restoration._get_flashsr_plugin",
+        lambda: _FakeFlashSRPlugin(),
     )
 
     result = phase.process(
@@ -61,7 +61,7 @@ def test_phase06_uses_ml_hybrid_when_audiosr_available(monkeypatch) -> None:
         sample_rate=48_000,
         material_type="shellac",
         quality_mode="maximum",
-        audiosr_min_duration_s=0.0,
+        flashsr_min_duration_s=0.0,
     )
 
     assert result.success
@@ -71,7 +71,7 @@ def test_phase06_uses_ml_hybrid_when_audiosr_available(monkeypatch) -> None:
 
 
 def test_phase06_falls_back_to_dsp_on_ml_error(monkeypatch) -> None:
-    # Mock psutil so the phase_06 headroom guard passes, allowing AudioSR to be
+    # Mock psutil so the phase_06 headroom guard passes, allowing FlashSR to be
     # attempted (and fail with RuntimeError) — which sets ml_error in metadata.
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FreeMemVM())
 
@@ -84,7 +84,7 @@ def test_phase06_falls_back_to_dsp_on_ml_error(monkeypatch) -> None:
     audio = _make_rolloff_audio()
 
     monkeypatch.setattr(
-        "backend.core.phases.phase_06_frequency_restoration._get_audiosr_plugin",
+        "backend.core.phases.phase_06_frequency_restoration._get_flashsr_plugin",
         lambda: _BrokenAudioSRPlugin(),
     )
 
@@ -93,7 +93,7 @@ def test_phase06_falls_back_to_dsp_on_ml_error(monkeypatch) -> None:
         sample_rate=48_000,
         material_type="shellac",
         quality_mode="maximum",
-        audiosr_min_duration_s=0.0,
+        flashsr_min_duration_s=0.0,
     )
 
     assert result.success
@@ -102,7 +102,7 @@ def test_phase06_falls_back_to_dsp_on_ml_error(monkeypatch) -> None:
     assert "ml_error" in result.metadata
 
 
-def test_phase06_skips_audiosr_for_short_clip_guard(monkeypatch) -> None:
+def test_phase06_skips_flashsr_for_short_clip_guard(monkeypatch) -> None:
     called = {"plugin": False}
 
     class _ShouldNotBeCalledPlugin:
@@ -115,7 +115,7 @@ def test_phase06_skips_audiosr_for_short_clip_guard(monkeypatch) -> None:
     audio = _make_rolloff_audio(duration_s=0.35)
 
     monkeypatch.setattr(
-        "backend.core.phases.phase_06_frequency_restoration._get_audiosr_plugin",
+        "backend.core.phases.phase_06_frequency_restoration._get_flashsr_plugin",
         lambda: _ShouldNotBeCalledPlugin(),
     )
 
@@ -133,11 +133,11 @@ def test_phase06_skips_audiosr_for_short_clip_guard(monkeypatch) -> None:
     assert called["plugin"] is False
 
 
-def test_phase06_skips_audiosr_on_thrashing_guard(monkeypatch) -> None:
+def test_phase06_skips_flashsr_on_thrashing_guard(monkeypatch) -> None:
     import backend.core.phases.phase_06_frequency_restoration as p06
 
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FreeMemVM())
-    monkeypatch.setattr(p06, "_get_audiosr_plugin", lambda: _FakeAudioSRPlugin())
+    monkeypatch.setattr(p06, "_get_flashsr_plugin", lambda: _FakeFlashSRPlugin())
     monkeypatch.setattr("backend.core.ml_memory_budget.is_system_thrashing", lambda: True)
 
     phase = FrequencyRestorationPhase(sample_rate=48_000)
@@ -150,12 +150,12 @@ def test_phase06_skips_audiosr_on_thrashing_guard(monkeypatch) -> None:
         material_type="shellac",
         quality_mode="maximum",
         enable_sbr=True,
-        audiosr_min_duration_s=0.0,
+        flashsr_min_duration_s=0.0,
     )
 
     assert restored.shape == audio.shape
     assert meta.get("strategy_used") == "dsp_only"
-    assert meta.get("ml_reason") == "audiosr_thrashing_guard"
+    assert meta.get("ml_reason") == "flashsr_thrashing_guard"
 
 
 def test_phase06_releases_plm_active_flag_on_timeout(monkeypatch) -> None:
@@ -173,7 +173,7 @@ def test_phase06_releases_plm_active_flag_on_timeout(monkeypatch) -> None:
             _ = (audio, sr, target_sr)
             return np.asarray(audio, dtype=np.float32)
 
-    monkeypatch.setattr(p06, "_get_audiosr_plugin", lambda: _DummyPlugin())
+    monkeypatch.setattr(p06, "_get_flashsr_plugin", lambda: _DummyPlugin())
 
     class _FakePLM:
         def __init__(self) -> None:
@@ -213,11 +213,11 @@ def test_phase06_releases_plm_active_flag_on_timeout(monkeypatch) -> None:
         material_type="shellac",
         quality_mode="maximum",
         enable_sbr=True,
-        audiosr_min_duration_s=0.0,
+        flashsr_min_duration_s=0.0,
     )
 
     assert restored.shape == audio.shape
     assert meta.get("strategy_used") == "dsp_only"
     assert meta.get("ml_error") == "timeout"
-    assert ("AudioSR", True) in fake_plm.calls
-    assert ("AudioSR", False) in fake_plm.calls
+    assert ("FlashSR", True) in fake_plm.calls
+    assert ("FlashSR", False) in fake_plm.calls

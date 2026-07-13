@@ -7555,7 +7555,7 @@
       "nosec": 0,
       "skipped_tests": 0
     },
-    "./plugins/audiosr_plugin.py": {
+    "./plugins/flashsr_plugin.py": {
       "CONFIDENCE.HIGH": 1,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,

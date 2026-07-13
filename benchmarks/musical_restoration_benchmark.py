@@ -193,10 +193,10 @@ def _amrb_05_codec(audio: np.ndarray, sr: int) -> np.ndarray:
     Layer 1 — Bandwidth restriction (6th-order Butterworth LP at 6 kHz):
         Models mid-bitrate codecs and tape-transfer bandwidth loss (AM radio,
         cassette dubbing chains, digitised home recordings).  Primary restoration
-        challenge: phase_06 AudioSR / NVSR bandwidth extension (6→full-band).
-        Calibrated: LP@3 kHz left AudioSR too little spectral context to
+        challenge: phase_06 FlashSR / NVSR bandwidth extension (6→full-band).
+        Calibrated: LP@3 kHz left FlashSR too little spectral context to
         reconstruct faithfully (restored MUSHRA ≈ 67); LP@6 kHz is well within
-        AudioSR's training distribution (restored target ≥ 80).
+        FlashSR's training distribution (restored target ≥ 80).
 
     Layer 2 — Pre-echo injection (Johnston 1988; Brandenburg 1999):
         Transform-based codecs (MP3, AAC) violate temporal pre-masking:

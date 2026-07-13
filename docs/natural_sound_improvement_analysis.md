@@ -98,14 +98,14 @@ Expected Quality: 0.50 → 0.75 (+0.25, +50%)
 **ML-Lösung:**
 
 ```python
-# Priority 6: AudioSR für Dropout Repair
+# Priority 6: FlashSR für Dropout Repair
 Models:
-  - AudioSR (same as Phase 23): +0.30 improvement
+  - FlashSR (same as Phase 23): +0.30 improvement
 
 Hybrid-Strategie: Length-Based Routing
   - Dropout <20ms: DSP Linear Interpolation (fast)
   - Dropout 20-100ms: DSP Spectral Reconstruction
-  - Dropout >100ms: ML AudioSR (generative inpainting)
+  - Dropout >100ms: ML FlashSR (generative inpainting)
 
 Expected Performance: 2.5× RT (only long dropouts use ML)
 Expected Quality: 0.50 → 0.80 (+0.30, +60%)
@@ -116,7 +116,7 @@ Expected Quality: 0.50 → 0.80 (+0.30, +60%)
 ```python
 # Nur lange Dropouts brauchen ML
 if dropout_length_ms > 100:
-    use_audiosr()  # Expensive but necessary
+    use_flashsr()  # Expensive but necessary
 elif dropout_length_ms > 20:
     use_spectral_interpolation()  # Medium
 else:
@@ -431,7 +431,7 @@ class EnsembleProcessor:
     def process_ensemble(
         self,
         audio: np.ndarray,
-        models: List[str] = ['audiosr', 'deepfilternet', 'dccrn']
+        models: List[str] = ['flashsr', 'deepfilternet', 'dccrn']
     ) -> np.ndarray:
         """Process with multiple models, return best result."""
 
@@ -476,7 +476,7 @@ class EnsembleProcessor:
 bands = {
     'low': (0, 200),      # Bass: DCCRN (phase preservation)
     'mid': (200, 5000),   # Mids: DeepFilterNet (harmonic)
-    'high': (5000, 22050) # Treble: AudioSR (detail restoration)
+    'high': (5000, 22050) # Treble: FlashSR (detail restoration)
 }
 
 for band_name, (f_low, f_high) in bands.items():
@@ -629,7 +629,7 @@ def comprehensive_quality_score(audio: np.ndarray, reference: np.ndarray = None)
 # ML Fine-Tuning Strategy
 
 Target Models:
-  1. AudioSR: Fine-tune auf Shellac/Vinyl Material
+  1. FlashSR: Fine-tune auf Shellac/Vinyl Material
   2. BANQUET: Erweitere Training-Set mit eigenen Samples
   3. DeepFilterNet: Spezialisiere auf Tape/Hum-Charakteristika
 
@@ -651,12 +651,12 @@ Expected Improvement:
 # 1. Collect Training Data
 aurik_collect_training_pairs.py --hours 100 --materials vinyl,shellac,tape
 
-# 2. Fine-tune AudioSR
-cd models/audiosr
-python finetune.py --dataset ../../training_data/audiosr_pairs/ --epochs 20
+# 2. Fine-tune FlashSR
+cd models/flashsr
+python finetune.py --dataset ../../training_data/flashsr_pairs/ --epochs 20
 
 # 3. Evaluate
-aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
+aurik_evaluate_model.py --model flashsr_finetuned --test_set golden_samples/
 ```
 
 ---
@@ -666,12 +666,12 @@ aurik_evaluate_model.py --model audiosr_finetuned --test_set golden_samples/
 ### Phase 1: Kritische ML-Hybrid Implementationen (Woche 1-2)
 
 ```
-✅ Phase 23 (AudioSR) - DONE
+✅ Phase 23 (FlashSR) - DONE
 ✅ Phase 18 (Silero VAD) - DONE
 ✅ Phase 9 (BANQUET Vinyl) - DONE
 ⬜ Phase 1 (DeepFilterNet Click Removal) - Week 1
 ⬜ Phase 2 (DeepFilterNet Hum Removal) - Week 1
-⬜ Phase 24 (AudioSR Dropout Repair) - Week 2
+⬜ Phase 24 (FlashSR Dropout Repair) - Week 2
 ⬜ Phase 29 (DeepFilterNet Tape Hiss) - Week 2
 ```
 

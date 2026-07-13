@@ -404,7 +404,7 @@ class SpectralRepair(PhaseInterface):
     def __init__(self):
         super().__init__()
         self.name = "Spectral Repair v3 IMCRA"
-        self._audiosr_plugin = None  # Lazy loading
+        self._flashsr_plugin = None  # Lazy loading
         self._ml_guard_events: list[dict[str, Any]] = []
         self._current_material: MaterialType = MaterialType.CD_DIGITAL  # updated per process() call
         self._pressure_relax_ml_attempts: int = 0
@@ -456,19 +456,19 @@ class SpectralRepair(PhaseInterface):
         return filtered.astype(np.float32), True, ceiling_hz
 
     def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int) -> bool:
-        """Gibt True when enough physical RAM is available for AudioSR stage zurück.
+        """Gibt True when enough physical RAM is available for FlashSR stage zurück.
 
-        Guard 1 — material check: AudioSR bandwidth extension is the wrong tool for
+        Guard 1 — material check: FlashSR bandwidth extension is the wrong tool for
         lossy-codec artifacts (MP3/AAC ringing, pre-echo, masking throughout spectrum).
         DSP spectral inpainting is more appropriate; never load 5.9 GB for this.
 
         Guard 2 — channel-aware RAM check (§2.38a): stereo doubles inference working
         memory; empirical per-minute inference buffer overhead is added.
         """
-        # Guard 1: AudioSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).
+        # Guard 1: FlashSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).
         # Bug-16b-Fix: Blocklist {"mp3_low", ...} verhindert nicht "unknown" — bei unbekanntem
-        # Material lädt AudioSR trotzdem → OOM. Allowlist verlangt positive Analog-Evidenz.
-        # AudioSR trainiert auf Analog-Bandbreitenverlust (Shellac ≤7 kHz, Tape ≤12 kHz).
+        # Material lädt FlashSR trotzdem → OOM. Allowlist verlangt positive Analog-Evidenz.
+        # FlashSR trainiert auf Analog-Bandbreitenverlust (Shellac ≤7 kHz, Tape ≤12 kHz).
         # Für "unknown", cd_digital, dat, mp3*, aac, streaming: DSP-Inpainting überlegen.
         _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset(
             {
@@ -487,7 +487,7 @@ class SpectralRepair(PhaseInterface):
             self._ml_guard_events.append(
                 {
                     "phase_id": "phase_23_spectral_repair",
-                    "model": "AudioSR",
+                    "model": "FlashSR",
                     "reason": "lossy_codec_material_dsp_preferred",
                     "required_gb": 0.0,
                     "available_gb": 0.0,
@@ -497,7 +497,7 @@ class SpectralRepair(PhaseInterface):
                 }
             )
             logger.info(
-                "SpectralRepair: AudioSR skipped — material '%s' not in analog allowlist — DSP inpainting preferred",
+                "SpectralRepair: FlashSR skipped — material '%s' not in analog allowlist — DSP inpainting preferred",
                 _mat,
             )
             return False
@@ -508,19 +508,19 @@ class SpectralRepair(PhaseInterface):
         n_samples = int(audio.shape[0])
         duration_s = n_samples / float(max(1, sample_rate))
 
-        # Zone-based budget: _run_audiosr_ml() processes in 10-second zones, so only ONE
+        # Zone-based budget: _run_flashsr_ml() processes in 10-second zones, so only ONE
         # zone is in memory at a time.  Use zone duration (not full audio duration) to avoid
         # a false OOM-guard reject for long songs like 225 s tracks.
         # Model: ~5.8 GB steady-state.  Per-zone DDIM inference (50 steps × 10 s): ~1.5 GB.
-        _AUDIOSR_ZONE_SECONDS = 10
-        duration_for_budget_s = min(duration_s, float(_AUDIOSR_ZONE_SECONDS))
+        _FLASHSR_ZONE_SECONDS = 10
+        duration_for_budget_s = min(duration_s, float(_FLASHSR_ZONE_SECONDS))
 
         required_gb = 5.0  # Base model weight budget
         if duration_for_budget_s >= 60.0:
             required_gb += 1.0  # only reached if a zone were somehow > 60 s (never)
         required_gb += 1.5 * (duration_for_budget_s / 60.0)  # per-zone inference overhead
         required_gb = min(required_gb, 22.0)  # sanity cap
-        # Note: n_channels multiplier removed — _repair_with_audiosr processes mono channels
+        # Note: n_channels multiplier removed — _repair_with_flashsr processes mono channels
         # individually (M/S in _repair_channel), so each call is always mono.
 
         available_gb = float(psutil.virtual_memory().available / (1024**3)) if _PSUTIL_OK else 4.0
@@ -540,7 +540,7 @@ class SpectralRepair(PhaseInterface):
             self._ml_guard_events.append(
                 {
                     "phase_id": "phase_23_spectral_repair",
-                    "model": "AudioSR",
+                    "model": "FlashSR",
                     "reason": "insufficient_physical_ram_headroom",
                     "required_gb": float(required_gb),
                     "available_gb": float(available_gb),
@@ -606,19 +606,19 @@ class SpectralRepair(PhaseInterface):
             description="IMCRA Adaptive Noise-Floor + Vectorized Spectral Inpainting (Cohen 2003)",
         )
 
-    def _get_audiosr_plugin(self):
-        """Lädt beim ersten Zugriff: AudioSR plugin for ML-based repair."""
-        if self._audiosr_plugin is None:
+    def _get_flashsr_plugin(self):
+        """Lädt beim ersten Zugriff: FlashSR plugin for ML-based repair."""
+        if self._flashsr_plugin is None:
             try:
-                from plugins.audiosr_plugin import AudioSRPlugin
+                from plugins.flashsr_plugin import FlashSRPlugin
 
-                self._audiosr_plugin = AudioSRPlugin()
-                logger.info("AudioSR plugin loaded successfully")
+                self._flashsr_plugin = FlashSRPlugin()
+                logger.info("FlashSR plugin loaded successfully")
             except Exception as e:
-                logger.warning("Failed to load AudioSR plugin: %s", e)
-                self._audiosr_plugin = False  # Mark as unavailable
+                logger.warning("Failed to load FlashSR plugin: %s", e)
+                self._flashsr_plugin = False  # Mark as unavailable
 
-        return self._audiosr_plugin if self._audiosr_plugin is not False else None
+        return self._flashsr_plugin if self._flashsr_plugin is not False else None
 
     @staticmethod
     def _is_system_thrashing() -> bool:
@@ -636,10 +636,10 @@ class SpectralRepair(PhaseInterface):
         material_type: str = "unknown",
         **kwargs: Any,
     ) -> PhaseResult:
-        check_ml_model_ready("AudioSR", phase_name="23")
+        check_ml_model_ready("FlashSR", phase_name="23")
         check_ml_model_ready("PANNs", phase_name="23")
         check_ml_model_ready("Whisper", phase_name="23")
-        check_ml_model_ready("AudioSR", phase_name="23")
+        check_ml_model_ready("FlashSR", phase_name="23")
         """
         Wendet an: spectral repair to audio.
 
@@ -1309,7 +1309,7 @@ class SpectralRepair(PhaseInterface):
                 # §6.2c BW-Ceiling-Guard-Interaktion: Wenn _apply_material_bw_ceiling bereits
                 # angewendet wurde, ist eine erneute harmonic_ceiling_violation-Prüfung ein
                 # False-Positive. Der 6th-Order-Butterworth liefert kein Brick-Wall-Rolloff
-                # (−36 dB an Nyquist); AudioSR erzeugt vor dem Ceiling deutlich mehr Energie
+                # (−36 dB an Nyquist); FlashSR erzeugt vor dem Ceiling deutlich mehr Energie
                 # über dem Ceiling, sodass Restenergie nach Filterung dennoch ceiling_band_ratio
                 # > 8× ergibt → vollständiger Rollback obwohl das Signal korrekt gedeckelt ist.
                 # Lösung: material_bw_ceiling_hz nur übergeben wenn Ceiling noch NICHT aktiv war.
@@ -1820,18 +1820,18 @@ class SpectralRepair(PhaseInterface):
 
         if use_ml:
             if not self._has_sufficient_ml_headroom(audio, sample_rate):
-                audiosr = None
+                flashsr = None
             else:
-                audiosr = self._get_audiosr_plugin()
-            if audiosr is not None:
-                # ML-based repair with AudioSR
+                flashsr = self._get_flashsr_plugin()
+            if flashsr is not None:
+                # ML-based repair with FlashSR
                 log_mode_decision("phase_23", True, f"Defect severity: {defect_severity:.2%}")
-                _report(55.0, "AudioSR")
-                repaired_audio = self._repair_with_audiosr(audio, sample_rate, defect_mask, repair_strength, audiosr)
-                _report(98.0, "AudioSR fertig")
+                _report(55.0, "FlashSR")
+                repaired_audio = self._repair_with_flashsr(audio, sample_rate, defect_mask, repair_strength, flashsr)
+                _report(98.0, "FlashSR fertig")
                 return repaired_audio
             else:
-                logger.warning("AudioSR unavailable, falling back to DSP")
+                logger.warning("FlashSR unavailable, falling back to DSP")
 
         # DSP-based repair (fallback or FAST mode)
         log_mode_decision("phase_23", False, f"Mode: {QualityModeConfig.get_mode().value}")
@@ -2211,21 +2211,21 @@ class SpectralRepair(PhaseInterface):
             )
         return result  # type: ignore[no-any-return]
 
-    def _repair_with_audiosr(
+    def _repair_with_flashsr(
         self,
         audio: np.ndarray,
         sample_rate: int,
         defect_mask: np.ndarray,
         repair_strength: float,
-        audiosr: Any,
+        flashsr: Any,
     ) -> np.ndarray:
         """
-        Repariert audio using AudioSR ML model.
+        Repariert audio using FlashSR ML model.
 
         Strategy: DSP-Detection + ML-Repair
         1. DSP detects defect regions (already done - defect_mask)
         2. Extract defect regions with context (±500ms)
-        3. Process with AudioSR (super-resolution inpainting)
+        3. Process with FlashSR (super-resolution inpainting)
         4. Blend back with repair_strength
 
         Args:
@@ -2238,16 +2238,16 @@ class SpectralRepair(PhaseInterface):
             Repaired audio
         """
         _ = defect_mask
-        if audiosr is None:
+        if flashsr is None:
             return audio
 
-        # §4.6b PLM Active-Guard — prevents Emergency-Eviction during AudioSR inference
+        # §4.6b PLM Active-Guard — prevents Emergency-Eviction during FlashSR inference
         _plm23_asr = None
         try:
             _plm23_asr = get_plugin_lifecycle_manager()
-            _plm23_asr.set_active("AudioSR", True)
+            _plm23_asr.set_active("FlashSR", True)
         except Exception:
-            logger.debug("_repair_with_audiosr: silent except suppressed", exc_info=True)
+            logger.debug("_repair_with_flashsr: silent except suppressed", exc_info=True)
         try:
             if not self._has_sufficient_ml_headroom(audio, sample_rate):
                 return audio
@@ -2271,20 +2271,20 @@ class SpectralRepair(PhaseInterface):
                 _use_pad23 = _asr23_ctx_n > 0 and _orig_len23 > _asr23_ctx_n * 4
                 if _use_pad23:
                     _ch_padded23 = np.pad(channel_audio, (_asr23_ctx_n, _asr23_ctx_n), mode="reflect")
-                    _raw_repaired = audiosr.process(_ch_padded23, sample_rate, target_sr)
+                    _raw_repaired = flashsr.process(_ch_padded23, sample_rate, target_sr)
                 else:
-                    _raw_repaired = audiosr.process(channel_audio, sample_rate, target_sr)
+                    _raw_repaired = flashsr.process(channel_audio, sample_rate, target_sr)
                 repaired_channel = np.asarray(_raw_repaired, dtype=np.float32)
                 repaired_channel = np.squeeze(repaired_channel)
                 # Strip context padding: take exactly _orig_len23 samples at offset _asr23_ctx_n.
                 # Using a fixed slice guarantees L and R are trimmed identically → no inter-channel lag.
                 if _use_pad23 and repaired_channel.ndim == 1 and len(repaired_channel) >= _asr23_ctx_n + _orig_len23:
                     repaired_channel = repaired_channel[_asr23_ctx_n : _asr23_ctx_n + _orig_len23]
-                    logger.debug("phase_23 AudioSR: context-padding stripped (%d samples offset)", _asr23_ctx_n)
+                    logger.debug("phase_23 FlashSR: context-padding stripped (%d samples offset)", _asr23_ctx_n)
 
                 if repaired_channel.ndim != 1:
                     logger.warning(
-                        "AudioSR returned unexpected shape %s for mono channel — falling back to passthrough",
+                        "FlashSR returned unexpected shape %s for mono channel — falling back to passthrough",
                         repaired_channel.shape,
                     )
                     repaired_channel = channel_audio
@@ -2303,7 +2303,7 @@ class SpectralRepair(PhaseInterface):
                             mode="edge",
                         )
                     logger.warning(
-                        "phase_23 AudioSR length corrected without resample: cur=%d target=%d",
+                        "phase_23 FlashSR length corrected without resample: cur=%d target=%d",
                         _cur_len23,
                         _target_len23,
                     )
@@ -2319,7 +2319,7 @@ class SpectralRepair(PhaseInterface):
                 result_asr23 = _repair_single_channel(audio_arr)
             elif audio_arr.ndim == 2:
                 # §7.1a / §2.51 Stereo-Kohärenz: do NOT repair L/R independently.
-                # AudioSR path uses M/S domain: repair Mid only, keep Side unchanged.
+                # FlashSR path uses M/S domain: repair Mid only, keep Side unchanged.
                 def _repair_stereo_ms_channels_first(st_cf: np.ndarray) -> np.ndarray:
                     l_in = st_cf[0].astype(np.float32, copy=False)
                     r_in = st_cf[1].astype(np.float32, copy=False)
@@ -2339,18 +2339,18 @@ class SpectralRepair(PhaseInterface):
                     result_asr23 = _cf_repaired.T.astype(audio_arr.dtype, copy=False)
                 else:
                     logger.warning(
-                        "AudioSR repair received unsupported audio shape %s — falling back to passthrough",
+                        "FlashSR repair received unsupported audio shape %s — falling back to passthrough",
                         audio_arr.shape,
                     )
                     return audio
             else:
                 logger.warning(
-                    "AudioSR repair received unsupported audio shape %s — falling back to passthrough",
+                    "FlashSR repair received unsupported audio shape %s — falling back to passthrough",
                     audio_arr.shape,
                 )
                 return audio
 
-            # §0a / §6.2c BW-Ceiling Hard-Cap: AudioSR generiert bis 48 kHz/2 = 24 kHz.
+            # §0a / §6.2c BW-Ceiling Hard-Cap: FlashSR generiert bis 48 kHz/2 = 24 kHz.
             # Bei analogen Trägern mit physikalischem BW-Limit muss HF abgeschnitten werden
             # (§2.46e Hallucination-Guard: keine Energie über Trägerlimit hinaus).
             _BW_CAP_ASR23: dict[str, float] = {
@@ -2383,20 +2383,20 @@ class SpectralRepair(PhaseInterface):
                             ).astype(np.float32)
                     else:
                         result_asr23 = signal.sosfiltfilt(_sos_asr23, result_asr23).astype(np.float32)
-                    logger.debug("§6.2c phase_23 AudioSR BW-Ceiling: %s ≤ %.0f Hz", _mat_asr23, _bw_asr23)
+                    logger.debug("§6.2c phase_23 FlashSR BW-Ceiling: %s ≤ %.0f Hz", _mat_asr23, _bw_asr23)
                 except Exception as _bw_asr23_exc:
                     logger.debug("§6.2c phase_23 BW-Ceiling (non-blocking): %s", _bw_asr23_exc)
 
             return result_asr23
 
         except Exception as e:
-            logger.error("AudioSR processing failed: %s, falling back to DSP", e)
+            logger.error("FlashSR processing failed: %s, falling back to DSP", e)
             # Fallback to DSP (will be handled by caller)
             return audio
         finally:
             if _plm23_asr is not None:
                 try:
-                    _plm23_asr.set_active("AudioSR", False)
+                    _plm23_asr.set_active("FlashSR", False)
                 except Exception:
                     logger.debug("_repair_stereo_ms_channels_first: silent except suppressed", exc_info=True)
 

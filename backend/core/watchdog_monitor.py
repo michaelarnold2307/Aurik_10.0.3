@@ -61,7 +61,7 @@ PHASE_TIMEOUTS: dict[str, float] = {
     "tontraeger": 30.0,
     "kette": 15.0,
     "defekt": 60.0,
-    "globalplan": 10.0,
+    "globalplan": 120.0,  # CLAP+DSP+cache — 52s beobachtet bei 225s-Track
     "strategie": 20.0,
     "restaurierung": 7200.0,  # 2h — volle UV3-Pipeline
     "exzellenz": 600.0,
@@ -198,11 +198,22 @@ class WatchdogMonitor:
             return True, []  # Watchdog-Fehler blockiert nie
 
     def on_phase_start(self, phase_name: str) -> None:
-        """Registriert den Beginn einer Pipeline-Phase."""
+        """Registriert den Beginn einer Pipeline-Phase.
+
+        Nutzt das signal_after der VORHERIGEN Phase als signal_before
+        für die RMS-Kollaps-Erkennung (kein separater Pre-Phase-Audio-Capture nötig).
+        """
         with self._lock:
+            # signal_before = signal_after der vorherigen Phase
+            _prev_signal: SignalIntegrity | None = None
+            if self._phase_watches:
+                _prev = self._phase_watches[-1]
+                if _prev.signal_after is not None:
+                    _prev_signal = _prev.signal_after
             self._current_phase = PhaseWatch(
                 phase_name=phase_name,
                 started_at=time.perf_counter(),
+                signal_before=_prev_signal,
             )
 
     def on_phase_end(self, phase_name: str, audio: np.ndarray, sr: int) -> None:
@@ -456,8 +467,14 @@ def _check_signal_integrity(audio: np.ndarray, sr: int) -> SignalIntegrity:
     clean = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
 
     # RMS (mono für Messung)
+    # §Fix: stereo→mono korrekt: für (N,2) → mean über axis=1; für (2,N) → mean über axis=0
     if clean.ndim == 2:
-        mono = clean.mean(axis=tuple(i for i in range(clean.ndim - 1)))
+        if clean.shape[-1] == 2 and clean.shape[0] > 2:
+            mono = clean.mean(axis=1)  # channels-last (N, 2)
+        elif clean.shape[0] == 2:
+            mono = clean.mean(axis=0)  # channels-first (2, N)
+        else:
+            mono = clean.mean(axis=-1)  # generic: last axis
     else:
         mono = clean
 

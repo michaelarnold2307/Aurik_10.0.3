@@ -4446,7 +4446,7 @@ class UnifiedRestorerV3:
                 return audio, False
 
             # §6.2c chain-adaptiv: Minimum-BW der gesamten Trägerkette verhindert
-            # AudioSR-Halluzination über den schwächsten Kettenstufen-Ceiling.
+            # FlashSR-Halluzination über den schwächsten Kettenstufen-Ceiling.
             if transfer_chain:
                 _bw_ceil_hz = get_chain_bw_ceiling_hz(transfer_chain)
             else:
@@ -5186,7 +5186,7 @@ class UnifiedRestorerV3:
 
             # --- P5: Brillanz proxy — HF spectral crest factor (§2.64 v9.12.3 FIX)
             # §2.64 v9.12.3 BUG-FIX: Previous band-energy-ratio proxy systematically over-
-            # estimated brillanz: AudioSR-processed audio has high HF energy → ratio≥0.40
+            # estimated brillanz: FlashSR-processed audio has high HF energy → ratio≥0.40
             # → proxy=1.0, but actual BrillanzMetric (p95/p50 crest over HF frequency bins)
             # gave 0.645 because the crest factor is insensitive to raw HF energy level —
             # it measures HF spectral structure (peaks vs. floor), not HF presence.
@@ -7644,7 +7644,7 @@ class UnifiedRestorerV3:
                 # Bug-16a-Fix: ClassificationResult.material kann ein String sein
                 # (forensics/medium_detector.py baut ClassificationResult mit material=primary_string).
                 # _classified_material.value würde AttributeError werfen → stille Ausnahme →
-                # frischer classify_medium()-Aufruf → material=unknown → AudioSR auf MP3 → OOM.
+                # frischer classify_medium()-Aufruf → material=unknown → FlashSR auf MP3 → OOM.
                 if isinstance(_raw_mat, str):
                     try:
                         _classified_material = MaterialType(_raw_mat.lower())
@@ -9714,14 +9714,14 @@ class UnifiedRestorerV3:
                 _panns_merged.update(_panns_kwargs)
             if isinstance(_panns_conf, dict):
                 _panns_merged.update(_panns_conf)  # DefectScanner-Tags überschreiben kwargs
-            # §2.32 brillanz-Fix: AudioSR-Verfügbarkeit prüfen. GAF deaktiviert brillanz nur
-            # wenn BW < 8 kHz UND AudioSR nicht verfügbar. Aurik bündelt AudioSR → fast immer
+            # §2.32 brillanz-Fix: FlashSR-Verfügbarkeit prüfen. GAF deaktiviert brillanz nur
+            # wenn BW < 8 kHz UND FlashSR nicht verfügbar. Aurik bündelt FlashSR → fast immer
             # verfügbar; nicht-verfügbar nur bei fehlendem Modell-File.
-            _audiosr_avail = False
+            _flashsr_avail = False
             try:
-                from plugins.audiosr_plugin import get_audiosr_plugin as _get_audiosr
+                from plugins.flashsr_plugin import get_flashsr_plugin as _get_flashsr
 
-                _audiosr_avail = callable(_get_audiosr)
+                _flashsr_avail = callable(_get_flashsr)
             except Exception:
                 logger.debug("restore: silent except suppressed", exc_info=True)
 
@@ -9731,7 +9731,7 @@ class UnifiedRestorerV3:
                 material=material_type.value if material_type else "unknown",
                 era_decade=_era_result.decade if _era_result is not None else None,
                 panns_tags=_panns_merged or None,
-                audiosr_available=_audiosr_avail,
+                flashsr_available=_flashsr_avail,
                 mode=str(getattr(getattr(self.config, "mode", None), "value", "restoration")).lower(),
                 # §0p P0-Goals: panns_singing >= 0.35 → vocal_quality + formant_fidelity applicable
                 panns_singing=float(getattr(self, "_panns_singing", 0.0)),
@@ -11150,7 +11150,7 @@ class UnifiedRestorerV3:
 
         # §Vintage-Authentizitäts-Guards — Ära-spezifische Phase-Filter + Strength-Caps
         # Spec (copilot-instructions.md):
-        #   1920–1940: Rolloff ≤ 7 kHz NICHT künstlich erweitern; AudioSR nur user_requested
+        #   1920–1940: Rolloff ≤ 7 kHz NICHT künstlich erweitern; FlashSR nur user_requested
         #              H2/H4 Röhren-Kompression ∈ [−30,−20] dBr BEWAHREN (SOFT_SATURATION → Skip)
         #   1940–1955: Tape-Saturation-Fingerabdruck NICHT entfernen; phase_22 nur emulieren
         #   1955–1965: RT60 ∈ [1.2, 2.0] s bewahren — phase_20/phase_49 strength ≤ 0.20
@@ -12348,13 +12348,13 @@ class UnifiedRestorerV3:
             )
 
         # Speicher-Hygiene: Pipeline-Modelle entladen sobald alle Phasen abgeschlossen.
-        # AudioSR (7 GB), LAION-CLAP (2.2 GB) werden nur in der Phase-Pipeline benötigt.
+        # FlashSR (7 GB), LAION-CLAP (2.2 GB) werden nur in der Phase-Pipeline benötigt.
         try:
-            from plugins.audiosr_plugin import unload_audiosr
+            from plugins.flashsr_plugin import unload_flashsr
 
-            unload_audiosr()
+            unload_flashsr()
         except Exception as _unload_exc:
-            logger.debug("AudioSR-Unload fehlgeschlagen: %s", _unload_exc)
+            logger.debug("FlashSR-Unload fehlgeschlagen: %s", _unload_exc)
         try:
             from plugins.laion_clap_plugin import unload_laion_clap
 
@@ -19620,7 +19620,7 @@ class UnifiedRestorerV3:
         _cleanup_report: dict[str, Any] = {"unloaded": [], "errors": []}
         try:
             _unload_specs = [
-                ("plugins.audiosr_plugin", "unload_audiosr", "AudioSR"),
+                ("plugins.flashsr_plugin", "unload_flashsr", "FlashSR"),
                 ("plugins.utmos_plugin", "unload_utmos", "UTMOS"),
                 ("plugins.laion_clap_plugin", "unload_laion_clap", "LAION-CLAP"),
                 ("plugins.mert_plugin", "unload_mert", "MERT"),
@@ -33009,7 +33009,7 @@ class UnifiedRestorerV3:
                 # CPU-only realistische Werte: 4-5 min Song, alle Phasen vollständig.
                 # Gemessen: vinyl non-exempt ~1372 s auf CPU-only — Budget war 600 s (zu klein).
                 # Neue Werte: ~2× gemessene Maximal-Laufzeit als Hänger-Schutz-Grenze.
-                "shellac": 3600.0,  # 1h — viele Pflicht-Phasen, ML-Pitch, AudioSR
+                "shellac": 3600.0,  # 1h — viele Pflicht-Phasen, ML-Pitch, FlashSR
                 "wax_cylinder": 3600.0,
                 "wire_recording": 3600.0,
                 "vinyl": 2700.0,  # 45 min — ~1372 s non-exempt gemessen + 2× Puffer
@@ -33302,7 +33302,7 @@ class UnifiedRestorerV3:
                 # werden. Gewährleistet, dass nur aktiv benötigte Modelle im RAM sind.
                 # §Perf Look-Ahead-Eviction: Statt nur das Modell der unmittelbar nächsten
                 # Phase zu schützen, werden Modelle ALLER verbleibenden Phasen geschützt.
-                # Das eliminiert Reload-Thrashing (z. B. AudioSR phase_06 → phase_23 → phase_24
+                # Das eliminiert Reload-Thrashing (z. B. FlashSR phase_06 → phase_23 → phase_24
                 # wurde zuvor zwischen den Nutzungen entladen und teuer von Disk neu geladen).
                 # WISSENSCHAFTLICHE INVARIANTE: rein RAM-Scheduling — bit-identisches Audio,
                 # unveränderte Phasenreihenfolge, unveränderte PMGG/CIG/AFG/HPI/VQI-Messung.
@@ -33327,7 +33327,7 @@ class UnifiedRestorerV3:
                 # Zusätzlich: RAM-Check vor Phase — bei kritischem RAM GC erzwingen oder deferrieren.
                 # §OOM-Guard: Schwellwert 4 GB (statt 2 GB) — gibt 2× mehr Puffer für große
                 # Numpy-Allokationen (STFT-Matrizen ~1.5 GB, ML-Models 1–6 GB).
-                # Nach AudioSR (5.8 GB) hält Python-Allocator fragmentierten Heap im RSS, auch
+                # Nach FlashSR (5.8 GB) hält Python-Allocator fragmentierten Heap im RSS, auch
                 # nach PLM-Eviction + malloc_trim. Pre-Phase-Deep-Flush verhindert OOM-Kill.
                 try:
                     import psutil as _ps_pre
@@ -33335,10 +33335,10 @@ class UnifiedRestorerV3:
                     _vm_pre = _ps_pre.virtual_memory()
                     _avail_pre = _vm_pre.available / (1024**3)
                     _ram_pct_pre = _vm_pre.percent
-                    # Deep-Flush: wenn RAM > 75 % UND AudioSR zuvor gelaufen (große Heap-Fragmente)
+                    # Deep-Flush: wenn RAM > 75 % UND FlashSR zuvor gelaufen (große Heap-Fragmente)
                     # → aggressive GC + malloc_trim BEVOR die nächste Phase ihren Speicher anfordert.
-                    _audiosr_ran = bool(getattr(self, "_restoration_context", {}).get("audiosr_applied", False))
-                    if _ram_pct_pre > 75.0 or (_audiosr_ran and _ram_pct_pre > 70.0):
+                    _flashsr_ran = bool(getattr(self, "_restoration_context", {}).get("flashsr_applied", False))
+                    if _ram_pct_pre > 75.0 or (_flashsr_ran and _ram_pct_pre > 70.0):
                         gc.collect(2)  # alle 3 Generationen
                         gc.collect(2)  # drittes collect für zirkuläre Refs
                         try:
@@ -34396,12 +34396,12 @@ class UnifiedRestorerV3:
                                         "Cross-Goal-Recovery context update failed (non-blocking): %s", _cg_exc
                                     )
                             _record_oom_probe("phase_ok", phase_id, action=str(_pmgg_entry.action))
-                            # §2.54 AudioSR-Flag: phases after phase_23 get audiosr_applied=True
+                            # §2.54 FlashSR-Flag: phases after phase_23 get flashsr_applied=True
                             # via _restoration_context so phase_07 can reduce redundant enhancement.
                             if "phase_23" in phase_id:
-                                self._restoration_context["audiosr_applied"] = True
-                                logger.debug("§2.54 audiosr_applied=True gesetzt (phase_23 erfolgreich)")
-                                # §OOM-Guard Post-AudioSR Deep-Flush: AudioSR hält 5.8 GB in Python-Heap.
+                                self._restoration_context["flashsr_applied"] = True
+                                logger.debug("§2.54 flashsr_applied=True gesetzt (phase_23 erfolgreich)")
+                                # §OOM-Guard Post-FlashSR Deep-Flush: FlashSR hält 5.8 GB in Python-Heap.
                                 # PLM-Eviction gibt PLM-Tracking frei, aber Python-Allocator behält
                                 # fragmentierte glibc-Seiten im RSS. Sofortiger aggressiver Flush
                                 # vor der nächsten Phase verhindert OOM-Kill (wie PID1553305, 07:48 UTC).
@@ -34412,10 +34412,10 @@ class UnifiedRestorerV3:
 
                                     _ctypes_asr.CDLL("libc.so.6").malloc_trim(0)
                                     logger.info(
-                                        "§OOM-PostAudioSR-Flush: gc+malloc_trim nach phase_23 (AudioSR 5.8 GB)",
+                                        "§OOM-PostFlashSR-Flush: gc+malloc_trim nach phase_23 (FlashSR 5.8 GB)",
                                     )
                                 except Exception as _asr_flush_exc:
-                                    logger.debug("Post-AudioSR flush failed: %s", _asr_flush_exc)
+                                    logger.debug("Post-FlashSR flush failed: %s", _asr_flush_exc)
                             # §Punkt3 Regressionsprotokoll: RMS nach PMGG-Phase
                             _rms_after_db = 20.0 * np.log10(float(np.sqrt(np.mean(current_audio**2) + 1e-12)))
                             self._phase_regression_log[phase_id] = round(_rms_after_db - _rms_before_db, 3)

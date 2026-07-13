@@ -84,7 +84,7 @@ hiddenimports = [
     'plugins.mp_senet_plugin',
     'plugins.versa_plugin',
     'plugins.bigvgan_v2_plugin',
-    'plugins.audiosr_plugin',
+    'plugins.flashsr_plugin',
     'plugins.fcpe_plugin',
     'plugins.rmvpe_plugin',
     'plugins.laion_clap_plugin',
@@ -102,7 +102,7 @@ hiddenimports = [
 ]
 
 # Data files to include (models, configs, resources)
-# NOTE: Large lazy-load models (AudioSR 5.9 GB, MERT 3.9 GB) are excluded here;
+# NOTE: Large lazy-load models (FlashSR 5.9 GB, MERT 3.9 GB) are excluded here;
 # they are loaded on-demand from ~/.aurik/models/ or the app bundle's models/ dir.
 import glob as _glob
 import os as _os
@@ -144,7 +144,7 @@ datas = [
     # ── Large models excluded from bundle — loaded lazily from ~/.aurik/models/ ─
     # models/melbandroformer  (860 MB)  → lazy via bs_roformer_plugin
     # models/htdemucs         (320 MB)  → lazy via htdemucs_plugin
-    # models/audiosr          (5.9 GB)  → lazy via audiosr_plugin
+    # models/flashsr          (5.9 GB)  → lazy via flashsr_plugin
     # models/mert             (3.9 GB)  → lazy via mert_plugin
     # models/apollo           (≈80 MB)  → lazy via apollo_plugin
 ]

@@ -55,7 +55,7 @@ class TestRunPreAnalysisFlow:
         call_order: list[str] = []
 
         class MockEraClassifier:
-            def classify(self, audio, sr):
+            def classify(self, audio, sr, transfer_chain=None):
                 call_order.append("era")
                 return MagicMock(decade=1970, confidence=0.80)
 
@@ -74,13 +74,13 @@ class TestRunPreAnalysisFlow:
 
         def mock_load_symbol(module, name):
             if "era_classifier" in module or ("bridge" in module and name == "get_era_classifier_fn"):
-                return lambda: lambda a, s: MockEraClassifier().classify(a, s)
+                return lambda: lambda a, s, **kw: MockEraClassifier().classify(a, s)
             if "genre_classifier" in module or ("bridge" in module and name == "get_genre_classifier_fn"):
                 return lambda: lambda a, s: MockGenreClassifier().classify(a, s)
             if "defect_scanner" in module:
                 return lambda **kw: MockDefectScanner(**kw)
             if "restorability" in module:
-                return lambda audio, sr: MagicMock(score=64.0)
+                return lambda audio, sr, **kw: MagicMock(score=64.0)
             # medium_detector
             class MockMedium:
                 primary_material = "vinyl"

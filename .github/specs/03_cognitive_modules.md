@@ -238,7 +238,23 @@ else:
 # Erkennungs-Kaskade:
 # Tier-1: LAION-CLAP → Nearest-Neighbor zu Ära-Referenz-Ankern
 # Tier-2: DSP-Fingerprint → HF-Rolloff + Bandbreiten-Kurve
+#          (läuft IMMER, nicht nur bei Tier-1-Fehlschlag — CLAP ist
+#           general-purpose, DSP ist der physikalisch fundierte Spezialist)
 # Tier-3: Mikrofon-Typ-Heuristik
+
+# Tier-1-Plausibilitätsprüfungen (vor Annahme des CLAP-Ergebnisses):
+#   - Stereo-Verletzung: CLAP < 1960 + echtes Stereo (width>0.05) → Tier-2
+#   - HF-Verletzung: highband>0.20 + CLAP < 1940 → Tier-2
+#   - Analog-Chain-Verletzung: CLAP > 1989 + analoges Trägermedium → Tier-2
+#   - Material-Floor-Verletzung: CLAP-Decade < Einführungsjahr des analogen
+#     Trägermediums (z.B. vinyl=1950, cassette=1960) → Tier-2
+
+# §2.14.1 DSP-Sanity-Check (v10):
+#   Tier-2 läuft immer parallel zu Tier-1. Wenn Tier-2 der CLAP-Vorhersage
+#   widerspricht (anderes Jahrzehnt, DSP-Confidence ≥ 0.35), gewinnt DSP —
+#   weil DSP auf physikalischen Signalcharakteristika basiert (Bandbreite,
+#   SNR, Stereobreite, Dynamikumfang), während CLAP ein general-purpose
+#   Audio-Embedding-Modell ohne Ära-Spezialisierung ist.
 
 # decade-Werte: 1890, 1900, ..., 2025 (10-Jahres-Blöcke)
 # GP-Optimizer Warmstart:
@@ -266,6 +282,16 @@ else:
 | 6: Melodie-Rep. | MFCC-SSM, Kosinus ≥ 0.85, Mindestabstand 8 s | melodic_rep ≥ 0.42 |
 
 **Ensemble:** ≥ 3 von 5 DSP-Schichten (Tier 2–6) über Schwellwert UND Gesamt-Konfidenz ≥ 0.52 → `is_schlager=True`
+
+**Confidence-Formel:** `confidence = 0.30 × clap_score + 0.70 × weighted_mean(DSP-Tiers)`.
+
+**§2.19.1 CLAP-DSP-Konsistenz-Gate (v10):** CLAP ist ein general-purpose Audio-Modell und
+kein Schlager-Spezialist. Wenn CLAP den Schlager-Score systematisch unter das DSP-Ensemble
+drückt (clap_score < 0.35 bei DSP-gewichtetem Mittel ≥ 0.50), wird CLAP als für dieses
+Material nicht aussagekräftig verworfen und die reine DSP-Konfidenz verwendet.
+Dies verhindert, dass ein funktionierendes DSP-Ensemble durch irrelevante CLAP-Embeddings
+künstlich verschlechtert wird, und stellt den spezifizierten DSP-only-Recall von ≥ 75 %
+auch bei geladenem (aber für Schlager blindem) CLAP-Modell sicher.
 
 ```python
 SCHLAGER_RESTORATION_PROFILE: dict[str, object] = {
@@ -979,7 +1005,7 @@ plugins/formant_tracker.py           → LPC F1–F4 (DSP, kein Modell)
 plugins/rmvpe_plugin.py              → ✅ Pitch-Tracking PRIMÄR (rmvpe.onnx, 26 MB) — RMVPE 2023
 plugins/fcpe_plugin.py               → ✅ Pitch-Tracking Fallback (FCPE ONNX)
 plugins/mert_plugin.py               → MERT-v1-330M (3,9 GB, lazy load)
-plugins/audiosr_plugin.py            → AudioSR BW-Erweiterung (5,9 GB, lazy load)
+plugins/flashsr_plugin.py            → FlashSR BW-Erweiterung (5,9 GB, lazy load)
 plugins/matchering_plugin.py         → ✅ Reference Mastering (matchering==2.0.6) — nur Studio 2026
 
 # Ära & Genre

@@ -126,7 +126,13 @@ def clear_readiness_cache() -> None:
 
 
 def _probe_plugin(module_path: str, getter_name: str, attr: str | None = None) -> Callable[[], bool]:
-    """Return a check function that probes a plugin's getter + optional attr."""
+    """Return a check function that probes a plugin's availability WITHOUT loading it.
+
+    IMPORTANT: Does NOT call the getter — calling get_*_plugin() triggers full
+    model load + try_allocate() which can deadlock if called during another
+    model's load sequence (re-entrant _lock in ml_memory_budget).
+    Instead, only checks if the module is importable and has the getter.
+    """
 
     def _check() -> bool:
         try:
@@ -134,16 +140,8 @@ def _probe_plugin(module_path: str, getter_name: str, attr: str | None = None) -
             getter = getattr(mod, getter_name, None)
             if getter is None:
                 return False
-            instance = getter()
-            if instance is None:
-                return False
-            if attr is not None:
-                if isinstance(attr, str):
-                    # Check attribute
-                    val = getattr(instance, attr, None)
-                    if callable(val):
-                        return bool(val())
-                    return bool(val)
+            # Do NOT call getter() — that triggers full model load.
+            # Module existence + getter existence = probe success.
             return True
         except ImportError:
             return False
@@ -154,16 +152,19 @@ def _probe_plugin(module_path: str, getter_name: str, attr: str | None = None) -
 
 
 def _probe_function(module_path: str, fn_name: str) -> Callable[[], bool]:
-    """Return a check function that probes a module-level function."""
+    """Return a check function that probes a module-level function WITHOUT calling it.
+
+    IMPORTANT: Does NOT call fn() — calling it can trigger full model load +
+    try_allocate() which deadlocks if called during another model's load sequence.
+    Instead, only checks if the module is importable and has the function.
+    """
 
     def _check() -> bool:
         try:
             mod = __import__(module_path, fromlist=[fn_name])
             fn = getattr(mod, fn_name, None)
-            if fn is None:
-                return False
-            result = fn()
-            return result is not None and result is not False
+            # Do NOT call fn() — that triggers full model load.
+            return fn is not None
         except ImportError:
             return False
         except Exception:
@@ -190,8 +191,8 @@ def _register_all() -> None:
 
     # --- Bandwidth Extension / Inpainting ---
     register_ml_check(
-        "AudioSR",
-        _probe_function("plugins.audiosr_plugin", "_get_ml_model"),
+        "FlashSR",
+        _probe_function("plugins.flashsr_plugin", "_get_ml_model"),
     )
     register_ml_check(
         "GACELA",

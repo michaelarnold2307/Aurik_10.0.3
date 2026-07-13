@@ -227,7 +227,7 @@ if not has_sufficient_ml_headroom(audio, sr, model_name):
 
 **Pflichtregeln:**
 
-- `AudioSRPlugin()` / `InferenceSession()` / `torch.load()` nur nach positivem Guard.
+- `FlashSRPlugin()` / `InferenceSession()` / `torch.load()` nur nach positivem Guard.
 - Bei knappem RAM erst proaktiv aufraeumen (`evict_stale_plugins`, `gc.collect`, `malloc_trim`).
 - Guard-Fallback darf nicht auf Original-Audio zurueckspringen.
 - Log-Meldungen bleiben technisch auf Englisch; Nutzertexte bleiben Deutsch.
@@ -670,7 +670,7 @@ plugins/diffwave_plugin.py            ✅ DiffWave (552 KB ONNX) — Fallback
 # Ära / Genre / BW-Erweiterung
 plugins/era_classifier_plugin.py      EraClassifier (CLAP + DSP-Rolloff)
 core/genre_classifier.py              GermanSchlagerClassifier (6-Schicht)
-plugins/audiosr_plugin.py             AudioSR BW-Erweiterung (5,9 GB, lazy load)
+plugins/flashsr_plugin.py             FlashSR BW-Erweiterung (5,9 GB, lazy load)
 plugins/matchering_plugin.py          ✅ Reference Mastering (matchering==2.0.6)
 ```
 
@@ -1037,7 +1037,7 @@ GFX-IDs gegen `_AMD_ARCH_PATTERNS` → `AMDArchitecture` (RDNA3, RDNA2, RDNA1, G
 
 **Tier-basierte Plugin-Ausschlüsse**:
 
-- Tier 3: AudioSR, AudioLDM2, MERT-330M-fairseq → CPU-only (VRAM zu knapp)
+- Tier 3: FlashSR, AudioLDM2, MERT-330M-fairseq → CPU-only (VRAM zu knapp)
 - Tier 4: + MERT-330M-HF, BSRoFormer, MDXNet, BigVGAN, CQTDiffPlus, SGMSE → CPU-only
 
 **Auto-fp16**: `get_ort_providers(plugin_name)` aktiviert auf ROCm automatisch fp16 für

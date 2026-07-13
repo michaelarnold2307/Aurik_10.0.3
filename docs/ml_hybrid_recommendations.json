@@ -138,10 +138,10 @@
   },
   "implementation_priority": [
     {
-      "effort": "Medium (AudioSR Plugin existiert bereits)",
+      "effort": "Medium (FlashSR Plugin existiert bereits)",
       "expected_gain": "+0.45 (0.39 \u2192 0.84)",
       "impact": "MASSIV - Transparenz von 0.12 \u2192 0.80",
-      "ml_model": "AudioSR",
+      "ml_model": "FlashSR",
       "name": "Spectral Repair",
       "phase": 23,
       "priority": 1,
@@ -280,24 +280,24 @@
     "23": {
       "current_approach": "DSP (Interpolation + Median Filtering)",
       "hybrid_mode": {
-        "performance": "0.5\u00d7 RT (DSP) + 8.0\u00d7 RT (AudioSR selective) = ~4\u00d7 RT",
+        "performance": "0.5\u00d7 RT (DSP) + 8.0\u00d7 RT (FlashSR selective) = ~4\u00d7 RT",
         "quality_gain": "+0.45 (0.39 \u2192 0.84) - MASSIV!",
         "steps": [
           "1. DSP: STFT-Analyse, Defekt-Detektion (z-score, energy)",
           "2. DSP: Masken-Erstellung (wo reparieren?)",
-          "3. ML: AudioSR rekonstruiert fehlende Spektral-Regionen",
+          "3. ML: FlashSR rekonstruiert fehlende Spektral-Regionen",
           "4. Blend: 80% ML, 20% DSP f\u00fcr Sicherheit"
         ],
-        "strategy": "Defect-Detect (DSP) + ML-Inpainting (AudioSR)"
+        "strategy": "Defect-Detect (DSP) + ML-Inpainting (FlashSR)"
       },
       "ml_models": [
         {
           "advantage": "Diffusion-basierte Audio-SR, rekonstruiert fehlende Frequenzen",
           "expected_improvement": "+0.45 (0.39 \u2192 0.84)",
-          "hybrid_strategy": "DSP f\u00fcr Defect-Detection, AudioSR f\u00fcr Inpainting",
-          "name": "AudioSR (Super-Resolution)",
-          "path": "models/audiosr/",
-          "plugin": "audiosr_plugin.py"
+          "hybrid_strategy": "DSP f\u00fcr Defect-Detection, FlashSR f\u00fcr Inpainting",
+          "name": "FlashSR (Super-Resolution)",
+          "path": "models/flashsr/",
+          "plugin": "flashsr_plugin.py"
         },
         {
           "advantage": "Trennt Quellen (Vocals/Instruments), repariert dann einzeln",
@@ -321,7 +321,7 @@
           "1. Dropout-Detection: Messe L\u00e4nge und Kontext",
           "2. If <50ms: DSP Linear Interpolation (schnell)",
           "3. If 50-200ms: DSP Cubic Spline (besser)",
-          "4. If >200ms: ML AudioSR Inpainting (nat\u00fcrlich)",
+          "4. If >200ms: ML FlashSR Inpainting (nat\u00fcrlich)",
           "5. Crossfade: Sanfte \u00dcberg\u00e4nge"
         ],
         "strategy": "Length-Based Routing"
@@ -331,9 +331,9 @@
           "advantage": "Halluziniert plausible Audio-Inhalte f\u00fcr Dropouts",
           "expected_improvement": "+0.30 (0.50 \u2192 0.80)",
           "hybrid_strategy": "DSP f\u00fcr kurze Dropouts (<100ms), ML f\u00fcr lange",
-          "name": "AudioSR",
-          "path": "models/audiosr/",
-          "plugin": "audiosr_plugin.py"
+          "name": "FlashSR",
+          "path": "models/flashsr/",
+          "plugin": "flashsr_plugin.py"
         },
         {
           "advantage": "Diffusion Model, nat\u00fcrliche Audio-Generierung",

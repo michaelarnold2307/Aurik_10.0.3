@@ -43,7 +43,7 @@ _SWAP_RELAX_FREE_MB: float = 10_000.0  # Mit viel freiem RAM sind alte Swap-Rest
 # Rationale: Crash 2026-04-14 — swap=99 %, avail=18.79 GB → OOM-Killer wegen
 # Apollo-TorchScript-Allokation. RAM-only-Guards erkannten die Gefahr nicht.
 _MONITOR_JOIN_TIMEOUT_S: float = 1.0  # Shutdown darf Tests/App-Ende nicht unbounded blockieren
-# Begründung Absenkung: 82% war zu konservativ — AudioSR (7 GB) konnte nicht geladen werden weil
+# Begründung Absenkung: 82% war zu konservativ — FlashSR (7 GB) konnte nicht geladen werden weil
 # Eviction erst bei 82% erlaubt war, RAM aber schon bei 78% knapp wurde. Modelle die gerade
 # NICHT in Inferenz sind (active=False) können sicher entladen werden auch bei 78%.
 
@@ -56,17 +56,17 @@ _PHASE_REQUIRED_MODELS: dict[str, frozenset[str]] = {
     "phase_01_click_removal": frozenset({"DeepFilterNetV3"}),
     "phase_02_hum_removal": frozenset({"DeepFilterNetV3"}),
     "phase_03_denoise": frozenset({"SGMSE+", "ResembleEnhance", "DeepFilterNetV3"}),
-    "phase_06_frequency_restoration": frozenset({"AudioSR"}),
+    "phase_06_frequency_restoration": frozenset({"FlashSR"}),
     "phase_09_crackle_removal": frozenset({"BanquetVinyl"}),
     "phase_12_wow_flutter_fix": frozenset({"FCPE", "RMVPE", "CREPE"}),
     "phase_18_noise_gate": frozenset({"SileroVAD"}),
     "phase_20_reverb_reduction": frozenset(
         {"SGMSE+", "ResembleEnhance"}
     ),  # §4.6c: HybridDereverb uses SGMSE+ primary + ResembleEnhance fallback
-    "phase_23_spectral_repair": frozenset({"Apollo", "AudioSR"}),
+    "phase_23_spectral_repair": frozenset({"Apollo", "FlashSR"}),
     "phase_24_dropout_repair": frozenset(
-        {"AudioSR", "GACELA", "AudioLDM2"}
-    ),  # §4.6c: cascade DSP→GACELA→AudioSR→AudioLDM2
+        {"FlashSR", "GACELA", "AudioLDM2"}
+    ),  # §4.6c: cascade DSP→GACELA→FlashSR→AudioLDM2
     "phase_29_tape_hiss_reduction": frozenset({"DeepFilterNetV3"}),
     "phase_31_speed_pitch_correction": frozenset(
         {"BasicPitch", "FCPE", "RMVPE", "CREPE"}
@@ -624,7 +624,7 @@ def evict_for_phase_window(upcoming_phase_ids: list[str] | tuple[str, ...]) -> i
     """§Perf Look-Ahead-Eviction: behält Modelle, die eine baldige Phase erneut braucht.
 
     Schützt die Vereinigung aller von ``upcoming_phase_ids`` benötigten Modelle vor
-    proaktiver Entladung → eliminiert Reload-Thrashing (z. B. AudioSR phase_06 → phase_23).
+    proaktiver Entladung → eliminiert Reload-Thrashing (z. B. FlashSR phase_06 → phase_23).
     Bit-identisch zum Audio-Ergebnis; berührt nur RAM-Scheduling. Druckgetriebene
     Eviction (``evict_if_needed``) bleibt unabhängig aktiv → kein OOM-Risiko.
     """

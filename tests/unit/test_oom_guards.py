@@ -166,9 +166,9 @@ def test_try_allocate_blocks_heavy_model_on_preemptive_swap_pressure(monkeypatch
     monkeypatch.setattr(budget, "_swap_io_rate_mb_per_s", lambda swap_obj: 3.5)
     monkeypatch.setattr(budget, "_preflight_system_memory", lambda required_mb=0: True)
 
-    ok = budget.try_allocate("AudioSR", size_gb=2.0)
+    ok = budget.try_allocate("FlashSR", size_gb=2.0)
     assert ok is False
-    assert "AudioSR" not in budget._allocated
+    assert "FlashSR" not in budget._allocated
 
 
 def test_try_allocate_allows_heavy_model_when_swap_pressure_is_low(monkeypatch):
@@ -191,9 +191,9 @@ def test_try_allocate_allows_heavy_model_when_swap_pressure_is_low(monkeypatch):
     monkeypatch.setattr(budget, "_swap_io_rate_mb_per_s", lambda swap_obj: 0.2)
     monkeypatch.setattr(budget, "_preflight_system_memory", lambda required_mb=0: True)
 
-    ok = budget.try_allocate("AudioSR", size_gb=2.0)
+    ok = budget.try_allocate("FlashSR", size_gb=2.0)
     assert ok is True
-    assert budget._allocated.get("AudioSR") == 2.0
+    assert budget._allocated.get("FlashSR") == 2.0
 
 
 def test_try_allocate_blocks_heavy_model_on_early_swap_plus_low_headroom(monkeypatch):
@@ -217,9 +217,9 @@ def test_try_allocate_blocks_heavy_model_on_early_swap_plus_low_headroom(monkeyp
     monkeypatch.setattr(budget, "_swap_io_rate_mb_per_s", lambda swap_obj: 0.5)
     monkeypatch.setattr(budget, "_preflight_system_memory", lambda required_mb=0: True)
 
-    ok = budget.try_allocate("AudioSR", size_gb=2.0)
+    ok = budget.try_allocate("FlashSR", size_gb=2.0)
     assert ok is False
-    assert "AudioSR" not in budget._allocated
+    assert "FlashSR" not in budget._allocated
 
 
 def test_try_allocate_retries_after_thrashing_recovery(monkeypatch):
@@ -241,9 +241,9 @@ def test_try_allocate_retries_after_thrashing_recovery(monkeypatch):
     monkeypatch.setattr(budget, "is_system_thrashing", _thrashing_toggle)
     monkeypatch.setattr(budget, "_should_block_heavy_ml_load", lambda size_gb: False)
 
-    ok = budget.try_allocate("AudioSR", size_gb=2.0)
+    ok = budget.try_allocate("FlashSR", size_gb=2.0)
     assert ok is True
-    assert budget._allocated.get("AudioSR") == 2.0
+    assert budget._allocated.get("FlashSR") == 2.0
 
 
 def test_try_allocate_retries_after_preemptive_block_recovery(monkeypatch):
@@ -265,9 +265,9 @@ def test_try_allocate_retries_after_preemptive_block_recovery(monkeypatch):
 
     monkeypatch.setattr(budget, "_should_block_heavy_ml_load", _preemptive_toggle)
 
-    ok = budget.try_allocate("AudioSR", size_gb=2.0)
+    ok = budget.try_allocate("FlashSR", size_gb=2.0)
     assert ok is True
-    assert budget._allocated.get("AudioSR") == 2.0
+    assert budget._allocated.get("FlashSR") == 2.0
 
 
 def test_adaptive_resource_manager_start_monitoring_is_idempotent(monkeypatch):

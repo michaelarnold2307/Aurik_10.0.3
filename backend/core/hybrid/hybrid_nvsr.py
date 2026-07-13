@@ -3,19 +3,19 @@ Hybrid NVSR (Neural Vocoder Super Resolution) - Phase 06/07
 ============================================================
 
 Combines traditional DSP bandwidth extension (SBR + LPC) with ML-based
-Neural Vocoder Super Resolution using AudioSR for high-quality frequency restoration.
+Neural Vocoder Super Resolution using FlashSR for high-quality frequency restoration.
 
 Architecture
 ------------
 - DSP Baseline: Spectral Band Replication (SBR) + LPC harmonics
-- ML Enhancement: AudioSR neural super-resolution
-- Hybrid: Combine SBR for stability + AudioSR for naturalness
+- ML Enhancement: FlashSR neural super-resolution
+- Hybrid: Combine SBR for stability + FlashSR for naturalness
 
 Quality Modes
 -------------
 - FAST: DSP-only SBR + LPC (~0.5× RT)
-- BALANCED: Adaptive (skip AudioSR if high bandwidth detected)
-- MAXIMUM: Full AudioSR neural bandwidth extension (~2-3× RT)
+- BALANCED: Adaptive (skip FlashSR if high bandwidth detected)
+- MAXIMUM: Full FlashSR neural bandwidth extension (~2-3× RT)
 
 Author: Aurik Phase 06/07 ML-Hybrid Integration
 Version: 1.0
@@ -38,9 +38,9 @@ class NVSRStrategy(Enum):
     """Strategy for bandwidth extension"""
 
     DSP_ONLY = "dsp_only"  # Pure SBR + LPC (fast)
-    AUDIOSR_ONLY = "audiosr_only"  # Pure AudioSR (slow, high quality)
-    ADAPTIVE = "adaptive"  # Skip AudioSR if bandwidth sufficient
-    HYBRID = "hybrid"  # Blend SBR + AudioSR
+    FLASHSR_ONLY = "flashsr_only"  # Pure FlashSR (slow, high quality)
+    ADAPTIVE = "adaptive"  # Skip FlashSR if bandwidth sufficient
+    HYBRID = "hybrid"  # Blend SBR + FlashSR
 
 
 @dataclass
@@ -50,9 +50,9 @@ class NVSRConfig:
     strategy: NVSRStrategy = NVSRStrategy.ADAPTIVE
     target_bandwidth_hz: int = 20000  # Target upper frequency
     bandwidth_threshold_hz: int = 12000  # Skip ML if > this
-    audiosr_target_sr: int = 48000  # AudioSR output sample rate
-    blend_ratio: float = 0.7  # AudioSR weight in hybrid (0.0-1.0)
-    confidence_threshold: float = 0.65  # Skip AudioSR if DSP confidence above this
+    flashsr_target_sr: int = 48000  # FlashSR output sample rate
+    blend_ratio: float = 0.7  # FlashSR weight in hybrid (0.0-1.0)
+    confidence_threshold: float = 0.65  # Skip FlashSR if DSP confidence above this
 
 
 @dataclass
@@ -62,7 +62,7 @@ class NVSRResult:
     restored_audio: np.ndarray
     strategy_used: str
     dsp_applied: bool
-    audiosr_applied: bool
+    flashsr_applied: bool
     detected_bandwidth_hz: float
     target_bandwidth_hz: int
     processing_time_sec: float
@@ -79,35 +79,35 @@ class HybridNVSR:
     - Good for moderate bandwidth extension
     - Material-adaptive rolloff frequencies
 
-    ML Approach (AudioSR):
+    ML Approach (FlashSR):
     - High quality, natural harmonics
     - Best for severe bandwidth limitations
     - Expensive (~2-3× RT)
 
     Adaptive Strategy:
     - Analyze existing bandwidth
-    - Skip AudioSR if bandwidth > 12 kHz
+    - Skip FlashSR if bandwidth > 12 kHz
     - Use DSP only for fast path
     """
 
     def __init__(self, config: NVSRConfig | None = None) -> None:
         self.config = config or NVSRConfig()
-        self.audiosr_plugin = None
+        self.flashsr_plugin = None
         self._ml_guard_events: list[dict[str, Any]] = []
 
-    def _init_audiosr(self) -> None:
-        """Initialisiert AudioSR plugin lazily when needed."""
+    def _init_flashsr(self) -> None:
+        """Initialisiert FlashSR plugin lazily when needed."""
         try:
-            from plugins.audiosr_plugin import AudioSRPlugin
+            from plugins.flashsr_plugin import FlashSRPlugin
 
-            self.audiosr_plugin = AudioSRPlugin(timeout=300)  # type: ignore[assignment]
-            logger.info("AudioSR plugin initialized for NVSR")
+            self.flashsr_plugin = FlashSRPlugin(timeout=300)  # type: ignore[assignment]
+            logger.info("FlashSR plugin initialized for NVSR")
         except Exception as e:
-            logger.warning("AudioSR plugin not available: %s", e)
-            self.audiosr_plugin = None
+            logger.warning("FlashSR plugin not available: %s", e)
+            self.flashsr_plugin = None
 
     def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int, phase_id: str) -> bool:
-        """Gibt True when enough physical RAM is available for AudioSR stage zurück."""
+        """Gibt True when enough physical RAM is available for FlashSR stage zurück."""
         try:
             import gc
 
@@ -153,7 +153,7 @@ class HybridNVSR:
             self._ml_guard_events.append(
                 {
                     "phase_id": phase_id,
-                    "model": "AudioSR",
+                    "model": "FlashSR",
                     "reason": "insufficient_physical_ram_headroom",
                     "required_gb": float(required_gb),
                     "available_gb": float(available_gb),
@@ -173,13 +173,13 @@ class HybridNVSR:
 
         return True
 
-    def _get_audiosr_plugin(self, audio: np.ndarray, sample_rate: int, phase_id: str) -> Any:
-        """Gibt AudioSR plugin only when guard allows ML stage zurück."""
+    def _get_flashsr_plugin(self, audio: np.ndarray, sample_rate: int, phase_id: str) -> Any:
+        """Gibt FlashSR plugin only when guard allows ML stage zurück."""
         if not self._has_sufficient_ml_headroom(audio, sample_rate, phase_id):
             return None
-        if self.audiosr_plugin is None:
-            self._init_audiosr()
-        return self.audiosr_plugin
+        if self.flashsr_plugin is None:
+            self._init_flashsr()
+        return self.flashsr_plugin
 
     def restore_bandwidth(
         self,
@@ -214,7 +214,7 @@ class HybridNVSR:
         if strategy == NVSRStrategy.DSP_ONLY:
             result = self._apply_dsp_only(dsp_restored_audio or audio, sample_rate, detected_bandwidth)
         elif strategy == NVSRStrategy.AUDIOSR_ONLY:
-            result = self._apply_audiosr_only(audio, sample_rate, detected_bandwidth)
+            result = self._apply_flashsr_only(audio, sample_rate, detected_bandwidth)
         elif strategy == NVSRStrategy.ADAPTIVE:
             result = self._apply_adaptive(audio, sample_rate, dsp_restored_audio, detected_bandwidth, material_type)
         elif strategy == NVSRStrategy.HYBRID:
@@ -269,35 +269,35 @@ class HybridNVSR:
             restored_audio=audio,
             strategy_used="dsp_only",
             dsp_applied=True,
-            audiosr_applied=False,
+            flashsr_applied=False,
             detected_bandwidth_hz=detected_bandwidth,
             target_bandwidth_hz=self.config.target_bandwidth_hz,
             processing_time_sec=0.0,
             skipped_reason="DSP-only mode selected",
         )
 
-    def _apply_audiosr_only(self, audio: np.ndarray, sample_rate: int, detected_bandwidth: float) -> NVSRResult:
-        """AudioSR-only path."""
-        plugin = self._get_audiosr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
+    def _apply_flashsr_only(self, audio: np.ndarray, sample_rate: int, detected_bandwidth: float) -> NVSRResult:
+        """FlashSR-only path."""
+        plugin = self._get_flashsr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
         if plugin is None:
-            logger.warning("AudioSR not available, falling back to DSP")
+            logger.warning("FlashSR not available, falling back to DSP")
             return self._apply_dsp_only(audio, sample_rate, detected_bandwidth)
 
         try:
-            # Apply AudioSR
-            restored = self._run_audiosr(audio, sample_rate, plugin)
+            # Apply FlashSR
+            restored = self._run_flashsr(audio, sample_rate, plugin)
 
             return NVSRResult(
                 restored_audio=restored,
-                strategy_used="audiosr_only",
+                strategy_used="flashsr_only",
                 dsp_applied=False,
-                audiosr_applied=True,
+                flashsr_applied=True,
                 detected_bandwidth_hz=detected_bandwidth,
                 target_bandwidth_hz=self.config.target_bandwidth_hz,
                 processing_time_sec=0.0,
             )
         except Exception as e:
-            logger.error("AudioSR processing failed: %s", e)
+            logger.error("FlashSR processing failed: %s", e)
             return self._apply_dsp_only(audio, sample_rate, detected_bandwidth)
 
     def _apply_adaptive(
@@ -309,7 +309,7 @@ class HybridNVSR:
         material_type: str,
     ) -> NVSRResult:
         """
-        Adaptive strategy: Skip AudioSR if bandwidth already sufficient.
+        Adaptive strategy: Skip FlashSR if bandwidth already sufficient.
         """
         # Use DSP restoration if provided
         base_audio = dsp_restored_audio if dsp_restored_audio is not None else audio
@@ -317,98 +317,98 @@ class HybridNVSR:
         # Check if bandwidth is already sufficient
         if detected_bandwidth >= self.config.bandwidth_threshold_hz:
             logger.info(
-                f"Bandwidth {detected_bandwidth:.0f} Hz >= {self.config.bandwidth_threshold_hz} Hz, skipping AudioSR"
+                f"Bandwidth {detected_bandwidth:.0f} Hz >= {self.config.bandwidth_threshold_hz} Hz, skipping FlashSR"
             )
             return NVSRResult(
                 restored_audio=base_audio,
                 strategy_used="adaptive_dsp_only",
                 dsp_applied=True,
-                audiosr_applied=False,
+                flashsr_applied=False,
                 detected_bandwidth_hz=detected_bandwidth,
                 target_bandwidth_hz=self.config.target_bandwidth_hz,
                 processing_time_sec=0.0,
                 skipped_reason=f"Bandwidth sufficient ({detected_bandwidth:.0f} Hz >= {self.config.bandwidth_threshold_hz} Hz)",
             )
 
-        # Bandwidth insufficient, apply AudioSR
+        # Bandwidth insufficient, apply FlashSR
         logger.info(
-            f"Bandwidth {detected_bandwidth:.0f} Hz < {self.config.bandwidth_threshold_hz} Hz, applying AudioSR"
+            f"Bandwidth {detected_bandwidth:.0f} Hz < {self.config.bandwidth_threshold_hz} Hz, applying FlashSR"
         )
 
-        plugin = self._get_audiosr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
+        plugin = self._get_flashsr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
         if plugin is None:
-            logger.warning("AudioSR not available, using DSP restoration")
+            logger.warning("FlashSR not available, using DSP restoration")
             return NVSRResult(
                 restored_audio=base_audio,
                 strategy_used="adaptive_dsp_fallback",
                 dsp_applied=True,
-                audiosr_applied=False,
+                flashsr_applied=False,
                 detected_bandwidth_hz=detected_bandwidth,
                 target_bandwidth_hz=self.config.target_bandwidth_hz,
                 processing_time_sec=0.0,
-                skipped_reason="AudioSR plugin not available",
+                skipped_reason="FlashSR plugin not available",
             )
 
         try:
-            # Apply AudioSR for bandwidth extension
-            restored = self._run_audiosr(audio, sample_rate, plugin)
+            # Apply FlashSR for bandwidth extension
+            restored = self._run_flashsr(audio, sample_rate, plugin)
 
             return NVSRResult(
                 restored_audio=restored,
-                strategy_used="adaptive_audiosr",
+                strategy_used="adaptive_flashsr",
                 dsp_applied=True,
-                audiosr_applied=True,
+                flashsr_applied=True,
                 detected_bandwidth_hz=detected_bandwidth,
                 target_bandwidth_hz=self.config.target_bandwidth_hz,
                 processing_time_sec=0.0,
             )
         except Exception as e:
-            logger.error("AudioSR processing failed: %s", e)
+            logger.error("FlashSR processing failed: %s", e)
             return NVSRResult(
                 restored_audio=base_audio,
                 strategy_used="adaptive_dsp_fallback",
                 dsp_applied=True,
-                audiosr_applied=False,
+                flashsr_applied=False,
                 detected_bandwidth_hz=detected_bandwidth,
                 target_bandwidth_hz=self.config.target_bandwidth_hz,
                 processing_time_sec=0.0,
-                skipped_reason=f"AudioSR error: {e!s}",
+                skipped_reason=f"FlashSR error: {e!s}",
             )
 
     def _apply_hybrid(
         self, audio: np.ndarray, sample_rate: int, dsp_restored_audio: np.ndarray | None, detected_bandwidth: float
     ) -> NVSRResult:
         """
-        Hybrid strategy: Blend DSP (SBR) with AudioSR.
+        Hybrid strategy: Blend DSP (SBR) with FlashSR.
 
         Approach:
         - Use DSP restoration (SBR + LPC) for stability
-        - Use AudioSR for naturalness
-        - Blend: DSP in low frequencies, AudioSR in high frequencies
+        - Use FlashSR for naturalness
+        - Blend: DSP in low frequencies, FlashSR in high frequencies
         """
         base_audio = dsp_restored_audio if dsp_restored_audio is not None else audio
 
-        plugin = self._get_audiosr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
+        plugin = self._get_flashsr_plugin(audio, sample_rate, "phase_06_frequency_restoration")
         if plugin is None:
-            logger.warning("AudioSR not available, falling back to DSP")
+            logger.warning("FlashSR not available, falling back to DSP")
             return self._apply_dsp_only(base_audio, sample_rate, detected_bandwidth)
 
         try:
-            # Apply AudioSR
-            audiosr_result = self._run_audiosr(audio, sample_rate, plugin)
+            # Apply FlashSR
+            flashsr_result = self._run_flashsr(audio, sample_rate, plugin)
 
-            # Blend DSP and AudioSR
-            # Strategy: DSP for low frequencies (stable), AudioSR for high frequencies (natural)
+            # Blend DSP and FlashSR
+            # Strategy: DSP for low frequencies (stable), FlashSR for high frequencies (natural)
             crossover_freq = 8000  # Hz
             blended = self._blend_audio(
-                base_audio, audiosr_result, sample_rate, crossover_freq, self.config.blend_ratio
+                base_audio, flashsr_result, sample_rate, crossover_freq, self.config.blend_ratio
             )
 
             return NVSRResult(
                 restored_audio=blended,
                 strategy_used="hybrid",
                 dsp_applied=True,
-                audiosr_applied=True,
+                flashsr_applied=True,
                 detected_bandwidth_hz=detected_bandwidth,
                 target_bandwidth_hz=self.config.target_bandwidth_hz,
                 processing_time_sec=0.0,
@@ -417,32 +417,32 @@ class HybridNVSR:
             logger.error("Hybrid processing failed: %s", e)
             return self._apply_dsp_only(base_audio, sample_rate, detected_bandwidth)
 
-    def _run_audiosr(self, audio: np.ndarray, sample_rate: int, plugin: Any) -> np.ndarray:
+    def _run_flashsr(self, audio: np.ndarray, sample_rate: int, plugin: Any) -> np.ndarray:
         """
-        Führt aus: AudioSR neural super-resolution via array-based plugin API.
+        Führt aus: FlashSR neural super-resolution via array-based plugin API.
 
-        AudioSRPlugin.process() accepts [samples] or [channels, samples] and
+        FlashSRPlugin.process() accepts [samples] or [channels, samples] and
         handles resampling, NaN-guards and target_sr internally.
         """
         if not self._has_sufficient_ml_headroom(audio, sample_rate, "phase_06_frequency_restoration"):
-            raise RuntimeError("AudioSR guard triggered before inference")
+            raise RuntimeError("FlashSR guard triggered before inference")
         # §4.6b PLM Active-Guard — prevents Emergency-Eviction during inference
         _plm_nvsr = None
         try:
             from backend.core.plugin_lifecycle_manager import get_plugin_lifecycle_manager as _get_plm_nvsr
 
             _plm_nvsr = _get_plm_nvsr()
-            _plm_nvsr.set_active("AudioSR", True)
+            _plm_nvsr.set_active("FlashSR", True)
         except Exception as e:
-            logger.warning("hybrid_nvsr.py::_run_audiosr fallback: %s", e)
+            logger.warning("hybrid_nvsr.py::_run_flashsr fallback: %s", e)
         try:
-            return plugin.process(audio, sample_rate, target_sr=self.config.audiosr_target_sr)  # type: ignore[no-any-return]
+            return plugin.process(audio, sample_rate, target_sr=self.config.flashsr_target_sr)  # type: ignore[no-any-return]
         finally:
             if _plm_nvsr is not None:
                 try:
-                    _plm_nvsr.set_active("AudioSR", False)
+                    _plm_nvsr.set_active("FlashSR", False)
                 except Exception as e:
-                    logger.warning("hybrid_nvsr.py::_run_audiosr fallback: %s", e)
+                    logger.warning("hybrid_nvsr.py::_run_flashsr fallback: %s", e)
 
     def _blend_audio(
         self, audio_a: np.ndarray, audio_b: np.ndarray, sample_rate: int, crossover_freq: float, blend_ratio: float
@@ -452,7 +452,7 @@ class HybridNVSR:
 
         Args:
             audio_a: Base audio (DSP)
-            audio_b: Enhanced audio (AudioSR)
+            audio_b: Enhanced audio (FlashSR)
             sample_rate: Sample rate
             crossover_freq: Crossover frequency (Hz)
             blend_ratio: Weight for audio_b (0.0-1.0)
@@ -485,7 +485,7 @@ class HybridNVSR:
             audio_a_low = signal.sosfiltfilt(sos_low, audio_a)
             audio_b_high = signal.sosfiltfilt(sos_high, audio_b)
 
-        # Blend: keep DSP low frequencies, add AudioSR high frequencies
+        # Blend: keep DSP low frequencies, add FlashSR high frequencies
         blended = audio_a_low + blend_ratio * audio_b_high
 
         return blended  # type: ignore[no-any-return]
@@ -514,9 +514,9 @@ def create_nvsr_config(quality_mode: str = "balanced", material_type: str = "unk
             strategy=NVSRStrategy.DSP_ONLY,
             target_bandwidth_hz=20000,
             bandwidth_threshold_hz=12000,
-            audiosr_target_sr=48000,
-            blend_ratio=0.0,  # No AudioSR
-            confidence_threshold=1.0,  # Always skip AudioSR
+            flashsr_target_sr=48000,
+            blend_ratio=0.0,  # No FlashSR
+            confidence_threshold=1.0,  # Always skip FlashSR
         )
     elif _qm == "maximum":
         # Material-adaptive target bandwidth
@@ -529,17 +529,17 @@ def create_nvsr_config(quality_mode: str = "balanced", material_type: str = "unk
         return NVSRConfig(
             strategy=NVSRStrategy.HYBRID,
             target_bandwidth_hz=target_bw,
-            bandwidth_threshold_hz=999999,  # Always apply AudioSR
-            audiosr_target_sr=48000,
-            blend_ratio=0.7,  # 70% AudioSR
+            bandwidth_threshold_hz=999999,  # Always apply FlashSR
+            flashsr_target_sr=48000,
+            blend_ratio=0.7,  # 70% FlashSR
             confidence_threshold=0.0,  # Never skip
         )
     else:  # balanced / quality
         return NVSRConfig(
             strategy=NVSRStrategy.ADAPTIVE,
             target_bandwidth_hz=20000,
-            bandwidth_threshold_hz=12000,  # Skip AudioSR if > 12 kHz
-            audiosr_target_sr=48000,
+            bandwidth_threshold_hz=12000,  # Skip FlashSR if > 12 kHz
+            flashsr_target_sr=48000,
             blend_ratio=0.6,
             confidence_threshold=0.65,
         )

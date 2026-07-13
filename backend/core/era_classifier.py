@@ -1365,7 +1365,29 @@ class EraClassifier:
                 )
                 and _clap_decade > 1989
             )
-            if _stereo_violation or _hf_violation or _analog_era_violation:
+            # Material-Floor-Prüfung: CLAP-Jahrzehnt muss ≥ Einführungsjahr
+            # des analogen Trägermediums sein. Bsp: vinyl (floor=1950) +
+            # CLAP=1930 → physikalisch unmöglich → Tier-2 DSP-Override.
+            _material_floor_violation = (
+                transfer_chain is not None
+                and any(
+                    MEDIUM_DECADE_FLOOR.get(m, 0) > _clap_decade
+                    for m in (str(t).lower().replace(" ", "_").replace("-", "_") for t in transfer_chain)
+                    if m
+                    in (
+                        "vinyl",
+                        "cassette",
+                        "shellac",
+                        "lacquer_disc",
+                        "wax_cylinder",
+                        "tape",
+                        "reel_tape",
+                        "wire_recording",
+                        "8track",
+                    )
+                )
+            )
+            if _stereo_violation or _hf_violation or _analog_era_violation or _material_floor_violation:
                 _violations = []
                 if _stereo_violation:
                     _violations.append("stereo")
@@ -1373,6 +1395,8 @@ class EraClassifier:
                     _violations.append("hf_presence")
                 if _analog_era_violation:
                     _violations.append("analog_chain")
+                if _material_floor_violation:
+                    _violations.append("material_floor")
                 logger.info(
                     "EraClassifier: Tier-1 Plausibilitätsverletzung ("
                     "CLAP-Jahrzehnt=%d, violations=%s) → Tier-2 DSP-Override",
@@ -1425,20 +1449,40 @@ class EraClassifier:
                                        material_prior=DECADE_MATERIAL_PRIOR.get(_corrected, result.material_prior),
                                        confidence=result.confidence * 0.85)
 
-        # Tier-2: DSP-Fingerprint (multi-factor)
+        # Tier-2: DSP-Fingerprint (multi-factor) — immer als Sanity-Check für CLAP Tier-1.
+        # CLAP ist ein general-purpose Audio-Modell und kein Ära-Spezialist.
+        # DSP nutzt physikalische Signalcharakteristika (Bandbreite, SNR, Stereo-Breite,
+        # Dynamikumfang, Klirr/Modulation) und ist damit der härtere Faktencheck.
+        _tier2_result = self._tier2(
+            bark,
+            rolloff_hz,
+            snr_db,
+            is_stereo=is_stereo,
+            stereo_width=stereo_width,
+            spectral_tilt=spectral_tilt,
+            dynamic_range_db=dynamic_range_db,
+            noise_modulation=noise_modulation,
+            lf_presence=lf_presence,
+            highband_presence=highband_presence,
+        )
         if result is None or result.confidence < 0.40:
-            result = self._tier2(
-                bark,
-                rolloff_hz,
-                snr_db,
-                is_stereo=is_stereo,
-                stereo_width=stereo_width,
-                spectral_tilt=spectral_tilt,
-                dynamic_range_db=dynamic_range_db,
-                noise_modulation=noise_modulation,
-                lf_presence=lf_presence,
-                highband_presence=highband_presence,
+            result = _tier2_result
+        elif (
+            _tier2_result.confidence >= 0.35
+            and _tier2_result.decade != result.decade
+            and result.tier_used == 1
+        ):
+            # DSP widerspricht CLAP Tier-1 — DSP ist physikalisch fundiert,
+            # CLAP ist general-purpose. Bei Diskrepanz DSP bevorzugen.
+            logger.info(
+                "EraClassifier: Tier-2 DSP-Sanity-Check widerspricht CLAP Tier-1 "
+                "(CLAP=%d/%.2f, DSP=%d/%.2f) → DSP-Override",
+                result.decade,
+                result.confidence,
+                _tier2_result.decade,
+                _tier2_result.confidence,
             )
+            result = _tier2_result
 
         # §2.13 Multi-Generation Era Ceiling: Wenn die Kette einen analogen
         # Ursprungsträger enthält, darf die erkannte Ära nicht jünger sein

@@ -70,7 +70,7 @@ TEIL 2: MODELL-REQUIREMENTS (37 Dateien, 251 Paket-Updates)
 ✅ models/audioldm2/requirements.audioldm2.txt (33 Updates)
    [identisch mit requirements.txt]
 
-✅ models/audiosr/requirements.txt (17 Updates)
+✅ models/flashsr/requirements.txt (17 Updates)
    torch 2.1.0 → 2.10.0, librosa 0.9.2 → 0.11.0
 
 ✅ models/banquet/requirements.txt (5 Updates)

@@ -321,7 +321,6 @@ _TIER_VRAM_PARAMS: dict[GPUTier, dict[str, float]] = {
 # Tier 3/4 plugins that are too large for small-VRAM GPUs → CPU-only
 _TIER3_GPU_EXCLUDE: frozenset[str] = frozenset(
     {
-        "AudioSR",  # ~7 GB VRAM — only Tier 1
         "AudioLDM2",  # ~1.3 GB peak — needs headroom
         "MERT-330M-fairseq",  # ~3.7 GB — only Tier 1/2
     }
@@ -353,7 +352,7 @@ _HEAVY_ML_PLUGINS: frozenset[str] = frozenset(
     {
         # --- Stem Separation (>500 MB) ---
         "SGMSE",  # sgmse_plugin — diffusion score-matching (251 MB)
-        "AudioSR",  # audiosr_plugin — bandwidth extension (7 GB)
+        "FlashSR",  # flashsr_plugin — FlashSR ONNX bandwidth extension (~2 GB)
         "BSRoFormer",  # bs_roformer_plugin — stem separation ONNX (860 MB)
         "MDXNet",  # uvr_mdxnet_plugin — stem separation ONNX (~1.2 GB)
         "DemucsV5",  # demucs_v5_wrapper — stem separation
@@ -1207,7 +1206,7 @@ class MLDeviceManager:
 
         Only active on ROCm; returns the original array unchanged on all other backends.
         Pinned memory avoids an extra memcopy during `.to('cuda')` and reduces plugin
-        inference latency by 10–25 % for large tensors (AudioSR, MERT, etc.).
+        inference latency by 10–25 % for large tensors (FlashSR, MERT, etc.).
         """
         if self._backend != GPUBackend.ROCM or not self._gpu_available:
             return array

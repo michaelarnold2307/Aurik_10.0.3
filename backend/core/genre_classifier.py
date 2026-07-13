@@ -218,6 +218,20 @@ class GermanSchlagerClassifier:
             confidence = float(np.clip(weighted_mean, 0.0, 1.0))
         else:
             confidence = float(np.clip(0.30 * clap_score + 0.70 * weighted_mean, 0.0, 1.0))
+            # §2.13 CLAP-DSP-Konsistenz-Gate: CLAP ist ein general-purpose
+            # Audio-Modell und kein Genre-Spezialist. Wenn CLAP den Schlager-Score
+            # systematisch unter das DSP-Ensemble drückt (CLAP < 0.35, DSP ≥ 0.50),
+            # ist CLAP für dieses Material nicht aussagekräftig → pure DSP verwenden.
+            # Sonst würde ein funktionierendes DSP-Ensemble durch irrelevante
+            # CLAP-Embeddings künstlich verschlechtert.
+            if clap_score < 0.35 and weighted_mean >= 0.50:
+                logger.info(
+                    "GenreClassifier: CLAP-Score %.3f < 0.35 bei DSP-Ensemble %.3f ≥ 0.50 "
+                    "→ CLAP nicht aussagekräftig, pure-DSP-Konfidenz",
+                    clap_score,
+                    weighted_mean,
+                )
+                confidence = float(np.clip(weighted_mean, 0.0, 1.0))
 
         # Sprach-Penalty: klar englischer Gesang (lang_de_score < 0.30) → confidence −15 %
         if lang_de_score < 0.30:
@@ -2134,8 +2148,8 @@ SCHLAGER_RESTORATION_PROFILE: dict = {
 
 # Subgenre-Erweiterungen (werden über das Basis-Profil gelegt)
 _SUBGENRE_EXTENSIONS: dict = {
-    "schlager_1950s": {"audiosr_disabled": True, "max_bandwidth_hz": 12000},
-    "schlager_modern": {"audiosr_disabled": True},
+    "schlager_1950s": {"flashsr_disabled": True, "max_bandwidth_hz": 12000},
+    "schlager_modern": {"flashsr_disabled": True},
     "volksmusik": {"phase_45_priority": "high"},
     "marsch": {"transient_preservation_strength": 1.0, "snare_attack_max_ms": 1.0},
     "walzer": {"groove_meter": "3/4"},

@@ -279,6 +279,9 @@ def run_pre_analysis(
     _material_str = "unknown"
     if _medium_result is not None:
         _material_str = str(getattr(_medium_result, "primary_material", None) or "unknown")
+        _transfer_chain = list(getattr(_medium_result, "transfer_chain", None) or [])
+    else:
+        _transfer_chain = []
 
     # ------------------------------------------------------------------
     # Steps 2–5 — Era, Genre, DefectScan, Restorability in parallel
@@ -286,7 +289,7 @@ def run_pre_analysis(
     def _run_era() -> object:
         """Era classification via Bridge (kanonischer Pfad)."""
         _classify = cast(Callable[..., Any], _load_symbol("backend.api.bridge", "get_era_classifier_fn"))
-        return _classify()(audio_native, sr_native)
+        return _classify()(audio_native, sr_native, transfer_chain=_transfer_chain)
 
     def _run_genre() -> object:
         """Genre classification via Bridge (kanonischer Pfad)."""

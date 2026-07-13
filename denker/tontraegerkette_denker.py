@@ -45,16 +45,16 @@ logger = logging.getLogger(__name__)
 #   3 = verlustbehaftetes Digitalformat (Container/End-Format)
 # Höherer Wert = weiter hinten in der zeitlichen Kette.
 _MEDIUM_ORDER: dict[str, int] = {
-    # Physikalisch-analoge Quellmedien (Ära 0)
+    # Physikalisch-analoge Quellmedien (Ära 0) — direkte Aufzeichnung
     "wax_cylinder": 0,
     "lacquer_disc": 0,
     "shellac": 0,
-    "vinyl": 0,
     "wire_recording": 0,
-    # Analoge Zwischenformate (Ära 1)
-    "reel_tape": 1,
-    "tape": 1,
-    "cassette": 1,
+    "reel_tape": 0,   # Original-Aufnahmemedium (kommt VOR Vinyl-Pressung)
+    "tape": 0,         # Original-Aufnahmemedium
+    # Analoge Kopien/Vervielfältigungen (Ära 1) — vom Quellmedium abgeleitet
+    "vinyl": 1,        # Schallplatten-Pressung aus Tape-Master
+    "cassette": 1,     # Bandkopie
     # Verlustfreie Digitalformate (Ära 2)
     "dat": 2,
     "cd_digital": 2,

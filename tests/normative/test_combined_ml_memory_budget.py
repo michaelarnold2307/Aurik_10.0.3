@@ -4,7 +4,7 @@ from __future__ import annotations
 
 Validates that:
 - Budget auto-detection formula is correct (RAM/3, cap [4, 12] GB)
-- Lazy models (AudioSR 7.0 GB, MERT 3.7 GB) correctly block on a 16 GB system
+- Lazy models (FlashSR 7.0 GB, MERT 3.7 GB) correctly block on a 16 GB system
 - Core always-active plugin sizes sum to < minimum budget (i.e. non-lazy stack fits)
 - try_allocate / release maintain consistent accounting
 - set_budget override works and resets correctly
@@ -40,7 +40,7 @@ _MAX_BUDGET_GB = 12.0
 # Threshold adjusted to 3.5 GB to accommodate Lazy-Load requirement semantics (§2.37).
 _LAZY_THRESHOLD_GB = 3.5
 _LAZY_MODEL_SIZES: dict[str, float] = {
-    "AudioSR": 5.75,  # plugins/audiosr_plugin.py  _AUDIOSR_BUDGET_GB
+    "FlashSR": 5.75,  # plugins/flashsr_plugin.py  _FLASHSR_BUDGET_GB
     "MERT": 3.7,  # plugins/mert_plugin.py     MERT full checkpoint
 }
 
@@ -250,14 +250,14 @@ def test_budget_is_thread_safe_under_concurrent_allocation() -> None:
 @pytest.mark.normative
 @pytest.mark.timeout(5)
 def test_all_known_lazy_plugins_are_correctly_sized() -> None:
-    """AudioSR and MERT lazy model sizes match the values declared in their plugins."""
+    """FlashSR and MERT lazy model sizes match the values declared in their plugins."""
     # Import actual constants to verify they haven't been silently changed.
     try:
-        from plugins.audiosr_plugin import _AUDIOSR_BUDGET_GB  # type: ignore[import]
+        from plugins.flashsr_plugin import _FLASHSR_BUDGET_GB  # type: ignore[import]
 
-        assert _LAZY_MODEL_SIZES["AudioSR"] == _AUDIOSR_BUDGET_GB, (
-            f"AudioSR budget mismatch: plugin declares {_AUDIOSR_BUDGET_GB} GB, "
-            f"test expects {_LAZY_MODEL_SIZES['AudioSR']} GB"
+        assert _LAZY_MODEL_SIZES["FlashSR"] == _FLASHSR_BUDGET_GB, (
+            f"FlashSR budget mismatch: plugin declares {_FLASHSR_BUDGET_GB} GB, "
+            f"test expects {_LAZY_MODEL_SIZES['FlashSR']} GB"
         )
     except ImportError:
         pass  # Plugin not available in test environment — structural check still satisfied
@@ -277,15 +277,15 @@ def test_all_known_lazy_plugins_are_correctly_sized() -> None:
 @pytest.mark.normative
 @pytest.mark.timeout(5)
 def test_combined_lazy_plus_core_fits_maximum_budget() -> None:
-    """AudioSR + all core always-active models must fit within the 12 GB max budget.
+    """FlashSR + all core always-active models must fit within the 12 GB max budget.
 
-    This is the peak RAM scenario when AudioSR is loaded on a 32+ GB system.
-    If this fails, a model must be reclassified or evicted before AudioSR loads.
+    This is the peak RAM scenario when FlashSR is loaded on a 32+ GB system.
+    If this fails, a model must be reclassified or evicted before FlashSR loads.
     """
-    lazy_audiosr = _LAZY_MODEL_SIZES["AudioSR"]
+    lazy_flashsr = _LAZY_MODEL_SIZES["FlashSR"]
     core_total = sum(_CORE_ALWAYS_ACTIVE.values())
-    combined = lazy_audiosr + core_total
+    combined = lazy_flashsr + core_total
     assert combined <= _MAX_BUDGET_GB, (
-        f"AudioSR ({lazy_audiosr} GB) + core stack ({core_total:.2f} GB) = {combined:.2f} GB "
-        f"exceeds max budget ({_MAX_BUDGET_GB} GB). PLM eviction must clear room before AudioSR loads."
+        f"FlashSR ({lazy_flashsr} GB) + core stack ({core_total:.2f} GB) = {combined:.2f} GB "
+        f"exceeds max budget ({_MAX_BUDGET_GB} GB). PLM eviction must clear room before FlashSR loads."
     )

@@ -1997,7 +1997,7 @@ class BatchProcessingThread(QThread):
                     "apollo": "Apollo",
                     "rmvpe": "RMVPE",
                     "crepe": "CREPE",
-                    "audiosr": "AudioSR",
+                    "flashsr": "FlashSR",
                     "vocos": "Vocos",
                     "bigvgan": "BigVGAN",
                     "panns": "PANNs",
@@ -2011,8 +2011,8 @@ class BatchProcessingThread(QThread):
                     "denoise": "DeepFilterNet",
                     "tape_hiss": "DeepFilterNet",
                     "diffusion_inpainting": "Flow-Matching",
-                    "dropout_repair": "AudioSR",
-                    "frequency_restoration": "AudioSR",
+                    "dropout_repair": "FlashSR",
+                    "frequency_restoration": "FlashSR",
                     "wow_flutter": "CREPE",
                     "vocal_enhancement": "VocalAI",
                     "ml_deesser": "ML-DeEsser",
@@ -2266,7 +2266,7 @@ class BatchProcessingThread(QThread):
                                 # IMPORTANT: use sub_phase_start (reset only on phase change),
                                 # NOT elapsed_since_tgt (reset on every progress callback).
                                 # The latter caused the sub-bar to barely move during long ML
-                                # phases with frequent callbacks (e.g. AudioSR), then jump to 100.
+                                # phases with frequent callbacks (e.g. FlashSR), then jump to 100.
                                 _elapsed_phase = time.perf_counter() - sub_phase_start
                                 # Langphasen-taugliche Zeitkurve ohne frühe Sättigung:
                                 # exponentiell ansteigend, läuft über Minuten sichtbar weiter.
@@ -4142,11 +4142,11 @@ class WaveformWidget(QWidget):
         "diffusion_inpainting": "diffusion",
         "flow_matching": "diffusion",
         "cqtdiff": "diffusion",
-        # Spectral inpainting (AudioSR)
+        # Spectral inpainting (FlashSR)
         "spectral_repair": "inpainting",
         # Frequency bandwidth extension
         "frequency_restoration": "bandwidth",
-        "audiosr": "bandwidth",
+        "flashsr": "bandwidth",
         # Harmonic series staircase
         "harmonic_restoration": "harmonic",
         # EQ frequency tilt
@@ -4357,7 +4357,7 @@ class WaveformWidget(QWidget):
         "RMVPE": ((200, 255, 80), "🎵"),  # lime green
         "CREPE": ((80, 220, 120), "🎶"),  # fresh green
         "FCPE": ((100, 240, 100), "🎼"),  # green
-        "AudioSR": ((160, 100, 255), "📡"),  # deep violet
+        "FlashSR": ((160, 100, 255), "📡"),  # deep violet
         "Vocos": ((255, 215, 0), "💎"),  # gold
         "BigVGAN": ((220, 160, 255), "🔊"),  # soft lavender
         "PANNs": ((0, 200, 200), "👂"),  # teal
@@ -4427,7 +4427,7 @@ class WaveformWidget(QWidget):
         "apollo": "Apollo",
         "rmvpe": "RMVPE",
         "crepe": "CREPE",
-        "audiosr": "AudioSR",
+        "flashsr": "FlashSR",
         "vocos": "Vocos",
         "bigvgan": "BigVGAN",
         "panns": "PANNs",
@@ -4443,9 +4443,9 @@ class WaveformWidget(QWidget):
         "denoise": "DeepFilterNet",
         "tape_hiss": "DeepFilterNet",
         "diffusion_inpainting": "Flow-Matching",
-        "dropout_repair": "AudioSR",
-        "dropout": "AudioSR",
-        "frequency_restoration": "AudioSR",
+        "dropout_repair": "FlashSR",
+        "dropout": "FlashSR",
+        "frequency_restoration": "FlashSR",
         "wow_flutter": "CREPE",
         "speed_pitch": "CREPE",
         "spectral_band_gap": "CQTdiff+",
@@ -5544,7 +5544,7 @@ class WaveformWidget(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
 
         elif effect == "bandwidth":
-            # AudioSR frequency extension — HF content appearing at top edge
+            # FlashSR frequency extension — HF content appearing at top edge
             _nb8 = min(28, max(6, npx // 6))
             for _i8b in range(_nb8):
                 _idx8 = min(int(_i8b * npx / _nb8), npx - 1)
@@ -5904,7 +5904,7 @@ class WaveformWidget(QWidget):
                 painter.drawEllipse(QPointF(float(cx + _pi24 * ps) + _sdx24, _wf_y24 + _sdy24), _sz24, _sz24)
 
         elif effect == "inpainting":
-            # AudioSR spectral inpainting — rectangular gap being filled from edges
+            # FlashSR spectral inpainting — rectangular gap being filled from edges
             _gap_cx25 = cx + cw // 2
             _gap_hw25 = max(8, cw // 5)
             _ia25 = int(132 * _vf)
@@ -7553,7 +7553,7 @@ class WaveformWidget(QWidget):
             _ki_tools = {
                 "DeepFilterNet",
                 "SGMSE+",
-                "AudioSR",
+                "FlashSR",
                 "Vocos",
                 "Resemble-Enhance",
                 "MelBandRoformer",
@@ -8134,7 +8134,7 @@ class WaveformWidget(QWidget):
                     painter.drawRect(_gx_do, int(_cy_do - _fill_h_do), _gw_do, _fill_h_do * 2)
 
         elif effect == "bandwidth":
-            # ── HF content appearing at top edge — AudioSR extension ──────
+            # ── HF content appearing at top edge — FlashSR extension ──────
             n_hf = 20
             _bw_bw = max(2, int(width / (n_hf * 2)))
             for _ihf in range(n_hf):
@@ -15010,7 +15010,7 @@ class ModernMainWindow(QMainWindow):
             "<td style='color:#d0d8ff;'>5/15/60/120 s</td>"
             "<td style='color:#8899bb; padding-left:12px;'>defektdichte-adaptiv</td></tr>"
             "<tr><td style='color:#8899bb;'>ML-Hybrid</td>"
-            "<td style='color:#d0d8ff;'>DeepFilterNet · Demucs · AudioSR</td>"
+            "<td style='color:#d0d8ff;'>DeepFilterNet · Demucs · FlashSR</td>"
             "<td style='color:#8899bb; padding-left:12px;'>RAM-abhängig, CPU-fallback</td></tr>"
             "</table>"
         )
@@ -18272,7 +18272,7 @@ class ModernMainWindow(QMainWindow):
         if _ww is not None and getattr(_ww, "audio_data", None) is not None:
             _sr = max(1, getattr(_ww, "sample_rate", 48000))
             _audio_dur_s = _ww.audio_data.shape[0] / _sr
-        _per_file_ms = max(5_400_000, int(_audio_dur_s * 32_000) + 1_800_000)  # 32xRT + 30min overhead (Spec §11.4)
+        _per_file_ms = max(900_000, int(_audio_dur_s * 8_000) + 300_000)  # 8×RT + 5min overhead
         _watchdog_ms = max(5_400_000, stats["pending"] * _per_file_ms)
         # ── §WATCHDOG-STARTUP-CHECK ──────────────────────────────────
         logger.info("Watchdog: W-PREANALYSIS-LIVENESS ✅ — 60s ohne _cb() → Force-Finalize")
@@ -18313,7 +18313,7 @@ class ModernMainWindow(QMainWindow):
             return  # Watchdog nicht aktiv (Batch bereits abgeschlossen oder gestoppt)
         # Noch verbleibende ausstehende Dateien (aktuelle Datei + noch nicht gestartete)
         _pending = max(1, self.batch_queue.get_stats().get("pending", 1))
-        _per_file_ms = max(5_400_000, int(audio_duration_s * 32_000) + 1_800_000)
+        _per_file_ms = max(900_000, int(audio_duration_s * 8_000) + 300_000)
         _watchdog_ms = max(5_400_000, _pending * _per_file_ms)
         self._watchdog_timer.start(_watchdog_ms)
         logger.debug(
@@ -18348,8 +18348,8 @@ class ModernMainWindow(QMainWindow):
         self.title_bar.set_status("Zeitlimit — bestes Ergebnis wird gespeichert …", "#B8A068")
         self.status_text.setText("⏳ Bestes bisher erreichtes Ergebnis wird exportiert …")
 
-        # 3. Batch-Thread 60 s Zeit geben, graceful zu enden (AudioSR-Timeout ≤ 180 s,
-        #    aber nach graceful_stop_event bricht die Phase-Loop sofort nach AudioSR-Return ab).
+        # 3. Batch-Thread 60 s Zeit geben, graceful zu enden (FlashSR-Timeout ≤ 180 s,
+        #    aber nach graceful_stop_event bricht die Phase-Loop sofort nach FlashSR-Return ab).
         self._request_processing_stop("watchdog_timeout", timeout_s=60.0)
 
     def _check_offtrack_stop_request(self) -> None:
@@ -22663,7 +22663,7 @@ class ModernMainWindow(QMainWindow):
                 _needle in _phase_id for _needle in ("dropout", "inpainting", "diffusion_inpainting")
             ) or bool(_active_defects.intersection({"dropout", "dropouts", "gap", "gaps", "tape_dropout"}))
             if _dropout_phase:
-                _tool = "AudioSR" if "dropout" in _phase_id else "Inpainting"
+                _tool = "FlashSR" if "dropout" in _phase_id else "Inpainting"
                 self.waveform_widget.mark_defects_resolved_up_to(["dropout"], float(frac), _tool)
         if hasattr(self, "waveform_widget_rest_ab"):
             if not _playback_active:

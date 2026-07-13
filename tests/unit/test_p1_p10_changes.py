@@ -6,7 +6,7 @@ tests/unit/test_p1_p10_changes.py — Verifikation der P1–P10 Audit-Implementi
 Prüft die konkreten neuen Verhaltensweisen aus dem ML-Modell-Audit (Feb 2026):
 
   P1  CREPE Chunk-Streaming (_CHUNK_FRAMES=512 statt _MAX_ONNX_FRAMES=10)
-  P2  AudioSR 5.8 GB entfernt (kein bundled-Eintrag mehr)
+  P2  FlashSR 5.8 GB entfernt (kein bundled-Eintrag mehr)
   P3  MERT Lizenz-Bereinigung (nicht länger bundled)
   P4  DiffWave → NMF-β DSP-Inpainting als primärer Pfad
   P5  HTDemucs 6s korrekt als experimentell/stub markiert
@@ -434,20 +434,20 @@ class TestManifestIntegritaet:
         assert isinstance(man.get("models"), list)
         assert len(man["models"]) >= 10, f"Nur {len(man['models'])} Modelle im Manifest"
 
-    # --- P2: AudioSR --------------------------------------------------------
+    # --- P2: FlashSR --------------------------------------------------------
 
-    def test_04_audiosr_not_bundled(self):
-        """P2: audiosr darf nicht bundled=True sein (5.8 GB-Datei entfernt)."""
+    def test_04_flashsr_not_bundled(self):
+        """P2: flashsr darf nicht bundled=True sein (5.8 GB-Datei entfernt)."""
         models = _manifest_by_name()
-        assert "audiosr" in models, "audiosr fehlt im Manifest"
-        assert models["audiosr"].get("bundled") is not True, (
-            "audiosr bundled=True — Prüfe ob 5.8 GB-Datei noch existiert"
+        assert "flashsr" in models, "flashsr fehlt im Manifest"
+        assert models["flashsr"].get("bundled") is not True, (
+            "flashsr bundled=True — Prüfe ob 5.8 GB-Datei noch existiert"
         )
 
-    def test_05_audiosr_has_sota_upgrade(self):
-        """P2: audiosr muss sota_upgrade-Feld haben (optionaler Download)."""
+    def test_05_flashsr_has_sota_upgrade(self):
+        """P2: flashsr muss sota_upgrade-Feld haben (optionaler Download)."""
         models = _manifest_by_name()
-        assert "sota_upgrade" in models["audiosr"], "audiosr hat kein sota_upgrade-Feld"
+        assert "sota_upgrade" in models["flashsr"], "flashsr hat kein sota_upgrade-Feld"
 
     # --- P3: MERT -----------------------------------------------------------
 

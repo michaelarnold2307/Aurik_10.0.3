@@ -421,7 +421,7 @@ class TestTierBasedExclusion:
         )
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
@@ -436,27 +436,26 @@ class TestTierBasedExclusion:
         mgr._gpu_tier = _compute_gpu_tier(mgr._gpu_architecture, vram_gb)
         return mgr
 
-    def test_audiosr_excluded_tier3(self) -> None:
-        """AudioSR (7 GB) must not get GPU on Tier 3 (4–7 GB VRAM)."""
+    def test_flashsr_onnx_gpu_tier3(self) -> None:
+        """FlashSR (ONNX, ~200MB) — GPU auf Tier 3 (4-7 GB VRAM) nutzbar."""
         mgr = self._mgr_rocm_tier("AMD Radeon RX 6500 XT", 4.0)
-        assert mgr.get_torch_device("AudioSR") == "cpu", "AudioSR must be CPU on Tier 3"
-        assert mgr.is_ort_gpu_supported("AudioSR") is False
+        # FlashSR ONNX ist klein genug für Tier 3 GPU
+        assert mgr.is_ort_gpu_supported("FlashSR") is True
 
-    def test_audiosr_excluded_tier4(self) -> None:
-        """AudioSR must be CPU-only on Tier 4."""
+    def test_flashsr_onnx_gpu_tier4(self) -> None:
+        """FlashSR ONNX — GPU auf Tier 4 nutzbar."""
         mgr = self._mgr_rocm_tier("AMD Radeon RX 580", 4.0)
-        assert mgr.get_torch_device("AudioSR") == "cpu"
+        assert mgr.is_ort_gpu_supported("FlashSR") is True
 
-    def test_audiosr_allowed_tier1(self) -> None:
-        """AudioSR must get GPU on Tier 1 (≥16 GB VRAM)."""
+    def test_flashsr_onnx_gpu_tier1(self) -> None:
+        """FlashSR ONNX darf GPU auf Tier 1 (≥16 GB VRAM) nutzen."""
         mgr = self._mgr_rocm_tier("AMD Radeon RX 7900 XTX", 24.0)
-        assert mgr.get_torch_device("AudioSR") == "cuda", "AudioSR must be cuda on Tier 1"
-        assert mgr.is_ort_gpu_supported("AudioSR") is True
+        assert mgr.is_ort_gpu_supported("FlashSR") is True
 
-    def test_audiosr_allowed_tier2(self) -> None:
-        """AudioSR must get GPU on Tier 2 (8 GB VRAM, RDNA2)."""
+    def test_flashsr_onnx_gpu_tier2(self) -> None:
+        """FlashSR ONNX darf GPU auf Tier 2 (8 GB VRAM, RDNA2) nutzen."""
         mgr = self._mgr_rocm_tier("AMD Radeon RX 6700 XT", 12.0)
-        assert mgr.get_torch_device("AudioSR") == "cuda"
+        assert mgr.is_ort_gpu_supported("FlashSR") is True
 
     def test_sgmse_excluded_tier4(self) -> None:
         """SGMSE must be CPU-only on Tier 4 (GCN4 / <4 GB)."""
@@ -494,7 +493,7 @@ class TestAutoFp16:
         )
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
@@ -545,7 +544,7 @@ class TestAutoFp16:
         from backend.core.ml_device_manager import MLDeviceManager
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
@@ -566,7 +565,7 @@ class TestGpuStatusSummaryExtended:
         from backend.core.ml_device_manager import MLDeviceManager
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
@@ -588,7 +587,7 @@ class TestGpuStatusSummaryExtended:
         )
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
@@ -616,7 +615,7 @@ class TestManagerProperties:
         from backend.core.ml_device_manager import AMDArchitecture, GPUTier, MLDeviceManager
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
@@ -837,7 +836,7 @@ class TestDirectMlArchTierDetection:
         )
 
         with (
-            patch("backend.core.ml_device_manager.MLDeviceManager._detect_rocm"),
+            patch("backend.core.ml_device_manager.MLDeviceManager._detect_cuda_or_rocm"),
             patch("backend.core.ml_device_manager.MLDeviceManager._detect_directml"),
         ):
             mgr = MLDeviceManager()
