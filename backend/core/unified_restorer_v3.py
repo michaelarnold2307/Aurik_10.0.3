@@ -22395,6 +22395,40 @@ class UnifiedRestorerV3:
                 "recommendations": list(_mqa_report.recommendations),
                 "medium_type": _mqa_medium.value,
             }
+
+            # §GEBOT-G52/G54: RestorationQualityIndex — Cross-Validation
+            # Misst, ob die Restaurierung TATSÄCHLICH verbessert hat.
+            # RQI > 0.5 → MQA-Warnings sind False-Positives (Restaurierungserfolg)
+            try:
+                from backend.core.restoration_quality_index import compute_rqi
+
+                _rest_sev = float(getattr(self, "_last_restorability_score", 50.0)) / 100.0
+                _rqi_result = compute_rqi(
+                    original=_mqa_ref,
+                    restored=restored_audio,
+                    sr=sample_rate,
+                    defect_severity_before=max(0.3, 1.0 - _rest_sev),
+                )
+                _mqa_result["rqi"] = _rqi_result["rqi"]
+                _mqa_result["rqi_detail"] = {
+                    "defect_reduction": _rqi_result["defect_reduction"],
+                    "bandwidth_gain": _rqi_result["bandwidth_gain"],
+                    "naturalness": _rqi_result["naturalness"],
+                    "bandwidth_before_hz": _rqi_result["bandwidth_before_hz"],
+                    "bandwidth_after_hz": _rqi_result["bandwidth_after_hz"],
+                }
+                # RQI-Cross-Validation: erfolgreiche Restaurierung → Warnings entschärfen
+                if _rqi_result["suppress_warnings"] and _mqa_result.get("warnings"):
+                    _mqa_result["warnings_suppressed_by_rqi"] = True
+                    _mqa_result["rqi_interpretation"] = _rqi_result["interpretation"]
+                    logger.info(
+                        "§G54 RQI-Cross-Validation: RQI=%.2f — %s. MQA-Warnings unterdrückt.",
+                        _rqi_result["rqi"],
+                        _rqi_result["interpretation"],
+                    )
+            except Exception as _rqi_exc:
+                logger.debug("RQI-Berechnung fehlgeschlagen (non-blocking): %s", _rqi_exc)
+
             logger.debug(
                 "🎵 MusicalQualityAssurance: %s | Verbesserung=%.1f%% authentisch=%s natürlich=%s",
                 "✅ GARANTIERT" if _mqa_report.quality_guaranteed else "⚠ NICHT GARANTIERT",

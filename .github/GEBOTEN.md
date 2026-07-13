@@ -140,3 +140,16 @@ Jede G-Regel kann durch einen Linter automatisiert geprüft werden:
 | **G48** | Jede Korrektur-Operation MUSS von einer Verifikation gefolgt werden: Korrektur → Messung → Vergleich mit Schwellwert → ggf. Nachkorrektur → erneute Messung | Stereo-Lag wurde 0B als 0 gemessen → nie korrigiert → 2a zeigt −8777 → immer noch nicht korrigiert | `unified_restorer_v3.py:LAG_PROBE_2a` |
 | **G49** | Chunk-übergreifender Zustand (Stereo-Lag, Gain, Phase, DC-Offset) MUSS in einem persistenten State-Objekt gespeichert werden. Jeder Chunk MUSS den akkumulierten Zustand des vorherigen Chunks lesen, nicht bei Null beginnen | STCG korrigierte pro Chunk, jeder Chunk begann bei lag=0 → 183ms akkumuliert | `phase_12_wow_flutter_fix.py`, `backend/core/stereo_temporal_coherence_guard.py` |
 | **G50** | Log-Level-Hierarchie MUSS strikt eingehalten werden: ERROR = Pipeline-Fehler, WARNING = degradierte Qualität, INFO = normale Operation, DEBUG = Chunk-interne Details. Niemals ERROR/WARNING für normale Fallbacks | `logger.warning("fallback", exc_info=True)` für erwarteten DSP-Fallback → False-Positives bei Log-Analyse | Diverse Plugins |
+
+## Kategorie M: Restaurierungs-Qualitätsmetrik (2026-07-13)
+
+> **Prinzip**: Restoration MUSS das Signal verändern. Die Metriken müssen Verbesserung messen,
+> nicht Ähnlichkeit zum degradierten Original. Ein restauriertes Signal, das dem Original
+> ähnlich ist, wurde NICHT restauriert.
+
+| ID | Gebot | Begründung | Fundstelle |
+|----|-------|-----------|------------|
+| **G51** | Jede Qualitätsmetrik MUSS zwischen "Veränderung durch Restaurierung" und "Verschlechterung" unterscheiden. PQS-MOS, SNR-Delta, THD-Delta MÜSSEN im Kontext der Restorability und des Materialtyps interpretiert werden | Kassette mit MOS=2.39 hat 0.95% "THD-Erhöhung" und SNR-Drop von 0.7dB — allesamt erwartete Folgen von NR+BW-Extension, keine Fehler | `unified_restorer_v3.py` PQS-MOS, MQA SNR/THD |
+| **G52** | Ein `RestorationQualityIndex` (RQI) MUSS berechnet werden: (Defekt-Reduktion × 0.4) + (Bandbreiten-Gewinn × 0.3) + (Natürlichkeit × 0.3). RQI > 0.5 MUSS Quality-Gate-Warnings unterdrücken | Studio-Metriken allein bestrafen Restaurierung systematisch → False-Positives | Neu: `backend/core/restoration_quality_index.py` |
+| **G53** | "Keine Veränderung" ist KEIN Qualitätsmerkmal für Restoration. Wenn alle Metriken "passed" zeigen, wurde entweder nichts restauriert, oder die Metriken sind falsch kalibriert | CD-Material mit 0 Defekten → alle Gates grün → korrekt. Kassette mit 12dB SNR → Gates rot → auch korrekt, wenn tatsächlich verbessert | Quality-Gate-Logik in UV3 |
+| **G54** | Jeder Quality-Gate-Fehlschlag MUSS den RQI als Cross-Validation enthalten. Wenn RQI > 0.5 und ein Gate fehlschlägt → INFO (Restaurierungserfolg). Nur wenn RQI < 0.3 und Gate fehlschlägt → WARNING (echtes Problem) | 18 Warnungen dieser Session: >80% False-Positives bei RQI-Prüfung | UV3 Quality-Gates |

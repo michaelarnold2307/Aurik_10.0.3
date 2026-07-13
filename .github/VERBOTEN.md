@@ -261,3 +261,14 @@
 | Korrektur ohne Verifikation | Lag wurde detektiert (−8777) aber nie korrigiert oder verifiziert | Korrektur → Messung → Nachkorrektur (§GEBOT-G48) |
 | Chunk-Zustand nicht persistent | Jeder Chunk begann bei lag=0 → 183ms akkumuliert über 45 Chunks | Persistentes State-Objekt pro Phase (§GEBOT-G49) |
 | ERROR/WARNING für erwartete Fallbacks | False-Positives in Log-Analyse, echte Fehler gehen unter | ERROR nur für Pipeline-Crash, WARNING nur für Qualitätsverlust |
+
+## Restaurierungs-Metriken [NEU 2026-07-13]
+
+> **Prinzip**: Keine Metrik, die Abweichung vom degradierten Original als Fehler wertet.
+
+| Verbot | Begründung | Korrektur |
+|--------|-----------|-----------|
+| PQS-MOS-Vergleich mit degradiertem Original als alleiniges Qualitätskriterium | MOS=2.39 bedeutet "anders als degradiertes Original" — genau das soll Restoration | RQI als Cross-Validation (§GEBOT-G52) |
+| SNR-Verbesserung als Pflicht für niedrige Baseline | Bei 12dB SNR kann NR auch Signalenergie entfernen → leichter SNR-Drop ist normal | Min-Improvement −0.5dB für Baseline ≤28dB |
+| "Keine Veränderung" als Bestehen-Kriterium | Kassette mit 0% THD-Änderung = keine Restaurierung durchgeführt | RQI misst Verbesserung, nicht Ähnlichkeit |
+| Quality-Gate-Fehlschlag ohne RQI-Cross-Validation loggen | 80% False-Positives → echte Probleme gehen in der Flut unter | WARNING nur wenn RQI < 0.3 |
