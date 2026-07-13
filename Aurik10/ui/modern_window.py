@@ -14880,6 +14880,86 @@ class ModernMainWindow(QMainWindow):
 
         inner.addSpacing(6)
 
+        # ── Wie arbeitet Aurik? ─────────────────────────────────────
+        how_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Wie arbeitet Aurik?</b>")
+        how_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(how_label)
+
+        how_text = QLabel(
+            "<span style='font-size:9pt; color:#b0bdd0;'>"
+            "Stell dir vor, du findest auf dem Dachboden eine alte Kiste mit Tonbändern "
+            "deines Großvaters. Darauf: seine Lieblingsmusik aus den 60ern. Aber die Bänder "
+            "sind 60 Jahre alt. Sie rauschen. Sie jaulen. Die Höhen klingen dumpf, als würde "
+            "die Musik durch eine Wand spielen. Manche Stellen sind so leise, dass man nichts "
+            "mehr hört. Andere knacksen und knistern.<br><br>"
+            "<b style='color:#d0d8ff;'>Aurik ist der Tontechniker, der diese Bänder wieder zum Leben erweckt.</b><br><br>"
+            "<b style='color:#AFC3DA;'>Schritt 1 — Den Patienten verstehen:</b> "
+            "Aurik hört sich den Song genau an — nicht nur die ersten 10 Sekunden, sondern "
+            "jeden einzelnen Ton, vom ersten bis zum letzten Sample. Es erkennt 62 verschiedene "
+            "Arten von Schäden: Band-Rauschen, Vinyl-Knistern, Gleichlaufschwankungen, Aussetzer, "
+            "Frequenzverlust, Verzerrungen — jedes einzelne Problem wird identifiziert und vermessen.<br><br>"
+            "<b style='color:#AFC3DA;'>Schritt 2 — Jeden Song individuell behandeln:</b> "
+            "Das ist Auriks wichtigstes Prinzip: Kein Song wird wie der andere behandelt. "
+            "Eine leise Ballade bekommt eine andere Bearbeitung als ein lautes Rockstück. "
+            "Aurik analysiert jeden Song separat und passt alle Restaurierungsschritte individuell an.<br><br>"
+            "<b style='color:#AFC3DA;'>Schritt 3 — Die Werkzeugkiste:</b> "
+            "Aurik hat 68 Spezialwerkzeuge. Es entscheidet für jeden Song, welche Werkzeuge es "
+            "wann und wie stark einsetzt: Entrauschen, Entknistern, Gleichlauf-Korrektur, "
+            "Frequenz-Wiederherstellung, Gesangs-Optimierung, Stereo-Korrektur — jedes Problem "
+            "bekommt das passende Werkzeug in der passenden Stärke.<br><br>"
+            "<b style='color:#AFC3DA;'>Schritt 4 — Das CD-Klangerlebnis:</b> "
+            "Nachdem alle Schäden behoben sind, fügt Aurik ein charakteristisches CD-Rauschen "
+            "hinzu — aber nur dort, wo das Ohr es wahrnimmt. In lauten Passagen wird es vom "
+            "Musiksignal überdeckt. In leisen Passagen, Pausen und Ausklängen ist es da — "
+            "genau wie bei einer echten CD. Das Ergebnis klingt, als wäre die Musik direkt "
+            "vom analogen Masterband auf CD gepresst worden.<br><br>"
+            "<b style='color:#AFC3DA;'>Schritt 5 — Qualitätssicherung:</b> "
+            "Aurik prüft das Ergebnis mit 14 verschiedenen Qualitätskriterien: Sind die Obertöne "
+            "erhalten? Sind die Anschläge knackig? Ist die Stereo-Breite erhalten? Sind neue "
+            "Störgeräusche entstanden? Jeder Test liefert eine Note — Aurik weiß selbst, "
+            "ob eine Restaurierung gelungen ist.</span>"
+        )
+        how_text.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        how_text.setWordWrap(True)
+        inner.addWidget(how_text)
+
+        inner.addSpacing(6)
+
+        # ── Die zwei Modi ───────────────────────────────────────────
+        modes_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Die zwei Modi</b>")
+        modes_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(modes_label)
+
+        modes_text = QLabel(
+            "<span style='font-size:9pt; color:#b0bdd0;'>"
+            "<b style='color:#d0d8ff;'>Restaurierung:</b><br>"
+            "<i>So klingt das Original — nur ohne die Schäden.</i><br>"
+            "• Bewahrt die Authentizität der Aufnahme<br>"
+            "• Entfernt Rauschen, Knistern, Knacksen, Gleichlauf-Schwankungen<br>"
+            "• Stellt fehlende Frequenzen wieder her<br>"
+            "• Erhält Atemgeräusche, Raumklang und den analogen Charakter<br>"
+            "• Original-Lautstärke bleibt erhalten<br>"
+            "• Fügt CD-charakteristisches Rauschprofil hinzu (nur wo hörbar)<br>"
+            "<b style='color:#8899bb;'>Ziel:</b> Die Musik klingt wie am Tag der Aufnahme — "
+            "nur ohne die Spuren der Zeit.<br><br>"
+            "<b style='color:#d0d8ff;'>Studio 2026:</b><br>"
+            "<i>Die Musik klingt, als wäre sie heute im Highend-Studio produziert.</i><br>"
+            "• Moderner, brillanter Klang mit kristallklaren Höhen<br>"
+            "• Straffere Dynamik, wettbewerbsfähige Lautheit (-14 LUFS Streaming-Standard)<br>"
+            "• Breiteres Stereobild für modernes Raumgefühl<br>"
+            "• Sanfte Multiband-Kompression für druckvollen Sound<br>"
+            "• Spektrale Reparatur für digitale Artefakte (MP3, Streaming)<br>"
+            "• Entfernt störenden Raumhall für klare, direkte Stimmwiedergabe<br>"
+            "• Ebenfalls mit CD-charakteristischem Rauschprofil<br>"
+            "<b style='color:#8899bb;'>Ziel:</b> Streaming-ready — bereit für Spotify, "
+            "YouTube, Apple Music.</span>"
+        )
+        modes_text.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        modes_text.setWordWrap(True)
+        inner.addWidget(modes_text)
+
+        inner.addSpacing(6)
+
         # ── Kern-Fähigkeiten ────────────────────────────────────────
         caps_label = QLabel("<b style='font-size:11pt; color:#C8D8FF;'>Kern-Fähigkeiten</b>")
         caps_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
