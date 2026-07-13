@@ -413,6 +413,23 @@ class WowFlutterFix(PhaseInterface):
 
         _original_audio = np.asarray(audio, dtype=np.float32).copy()
 
+        # §2.60/§2.51 STCG pre-phase: L/R-Alignment VOR Chunk-Verarbeitung.
+        # Phase 12's M/S-domain processing (§2.51) prevents NEW L/R time drift,
+        # but it must START with aligned channels. A residual lag from earlier
+        # pipeline stages (DC-offset removal, TDP) will cause the M/S matrix to
+        # mix temporally offset channels, creating phantom spatial artefacts.
+        # Sub-sample correction via GCC-PHAT + scipy.ndimage.shift.
+        if audio.ndim == 2:
+            try:
+                from backend.core.stereo_temporal_coherence_guard import (
+                    get_stereo_temporal_coherence_guard,
+                )
+                audio = get_stereo_temporal_coherence_guard().correct_interchannel_delay(
+                    audio, sample_rate, phase_id="phase_12_pre_chunking"
+                )
+            except Exception as _stcg_p12_exc:
+                logger.debug("Phase 12 STCG pre-chunking skipped: %s", _stcg_p12_exc)
+
         phase_locality_factor = float(kwargs.get("phase_locality_factor", 1.0))
         phase_locality_factor = float(np.clip(phase_locality_factor, 0.35, 1.0))
         _pmgg_strength = float(kwargs.get("strength", 1.0))
