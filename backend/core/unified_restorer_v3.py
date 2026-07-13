@@ -8462,6 +8462,10 @@ class UnifiedRestorerV3:
             )
         # §2.59.15: Fallback — ClippingDetector fand soft_saturation?
         # Dann preserve auch ohne Genre-Profil (Aufnahmecharakter bewahren).
+        # ABER: Bei tiefen Transfer-Ketten (>=3 analoge Stufen) oder digitalem
+        # Terminal (mp3_low) ist die Saturation wahrscheinlich Generation Loss,
+        # kein künstlerischer Charakter. Nur bei flachen Ketten (1-2 Stufen)
+        # ohne digitales Terminal auto-preserven.
         _sat_sev_fb = 0.0
         if _cached_defect_kwarg is not None and hasattr(_cached_defect_kwarg, "scores"):
             for _dk, _ds in _cached_defect_kwarg.scores.items():
@@ -8470,13 +8474,30 @@ class UnifiedRestorerV3:
                     _sat_sev_fb = float(_ds.severity)
                     break
         if _sat_sev_fb > 0.1 and not self._restoration_context.get("soft_saturation_preserve"):
-            self._restoration_context["soft_saturation_preserve"] = True
-            self._restoration_context["soft_saturation_severity"] = _sat_sev_fb
-            logger.info(
-                "§2.59.15 Soft-Saturation-Preserve: ClippingDetector fand "
-                "soft_saturation (sev=%.2f) → Phasen auf Erhalt geschaltet",
-                _sat_sev_fb,
-            )
+            # §2.59.15a: Chain-Depth-Guard — nur bei flachen analogen Ketten auto-preserven
+            _chain = self._restoration_context.get("effective_transfer_chain", [])
+            _analog_stages = sum(1 for m in _chain if m in (
+                "shellac", "wax_cylinder", "lacquer_disc", "wire_recording",
+                "vinyl", "tape", "reel_tape", "cassette"
+            ))
+            _digital_terminal = _chain[-1] in ("mp3_low", "mp3_high", "aac") if _chain else False
+            _auto_preserve = (_analog_stages <= 2 and not _digital_terminal)
+            if _auto_preserve:
+                self._restoration_context["soft_saturation_preserve"] = True
+                self._restoration_context["soft_saturation_severity"] = _sat_sev_fb
+                logger.info(
+                    "§2.59.15 Soft-Saturation-Preserve: ClippingDetector fand "
+                    "soft_saturation (sev=%.2f, chain_depth=%d, digital=%s) → Phasen auf Erhalt geschaltet",
+                    _sat_sev_fb, _analog_stages, _digital_terminal,
+                )
+            else:
+                logger.info(
+                    "§2.59.15a Soft-Saturation-Guard: chain too deep (%d analog stages%s) "
+                    "→ soft_saturation NICHT auto-preserved (likely generation loss). "
+                    "Phases may repair saturation artifacts.",
+                    _analog_stages,
+                    " + digital terminal" if _digital_terminal else "",
+                )
         # §6.2a Transfer-Chain-Injection: Ketten-Liste für phase-locale Skip-Guards.
         # Phasen wie phase_29 überspringen bei digitalem primary_material. Wenn aber
         # die Kette analoge Stufen enthält (z.B. vinyl→tape→mp3_low), muss die Phase
