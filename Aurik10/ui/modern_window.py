@@ -16155,24 +16155,9 @@ class ModernMainWindow(QMainWindow):
         # Export-Dialog jetzt MODAL und BLOCKIEREND vor jeglicher Verarbeitung
         logger.debug("_on_file_loaded: opening ExportConfigDialog (modal)")
 
-        # Export Preset dialog — try preset selection first
-        try:
-            from Aurik10.ui.export_presets import ExportPresetDialog
-
-            preset_dlg = ExportPresetDialog(self)
-            if preset_dlg.exec_() == QDialog.DialogCode.Accepted:
-                self._export_config = preset_dlg.get_config()
-                _cfg_out_dir = str(self._export_config.get("output_dir", "") or "").strip()
-                if _cfg_out_dir:
-                    self._output_dir = _cfg_out_dir
-                if hasattr(self, "progress_bar"):
-                    self.progress_bar.setVisible(False)
-                    self.progress_bar.setValue(0)
-                self._continue_file_loaded(audio, sr, file_path, carrier_label, carrier_score, load_token=load_token)
-                return
-        except Exception:
-            logger.debug("fallback in modern_window.py", exc_info=True)
-        # Fall through to existing ExportConfigDialog
+        # v10.0.8: Export-Presets (WhatsApp/Handy/Email) entfernt —
+        # Aurik exportiert standardmäßig in professioneller CD-Qualität.
+        # Direkt zum ExportConfigDialog.
 
         _dlg = ExportConfigDialog(file_path, parent=self)
         if _dlg.exec() != QDialog.DialogCode.Accepted:

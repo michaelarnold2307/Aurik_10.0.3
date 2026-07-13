@@ -145,7 +145,7 @@ class OnboardingWizard(QtWidgets.QDialog):
                 "💿",
                 "#FFB300",
             ),
-            ("studio", "🎯 Studio 2026", "Modern · Klar & kraftvoll\nFür Spotify, YouTube & Handy", "🎯", "#00B0FF"),
+            ("studio", "🎯 Studio 2026", "Modern · Klar & kraftvoll\nFür Spotify, YouTube & Streaming", "🎯", "#00B0FF"),
         ]:
             card = QtWidgets.QFrame()
             card.setStyleSheet(
@@ -240,23 +240,30 @@ class OnboardingWizard(QtWidgets.QDialog):
     def _apply_theme(self):
         self.setStyleSheet("""
             QDialog {
-                background: #080a18;
-                color: #c9d1d9;
+                background: #0d0d1f;
+                color: #d0d8ff;
                 font-family: 'Segoe UI', sans-serif;
+                border: 1px solid rgba(102,126,234,0.5);
+                border-radius: 10px;
             }
             QPushButton {
-                background: #667eea;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 8px 20px;
-                font-size: 13px;
+                background: rgba(102,126,234,0.25);
+                color: #fff;
+                border: 1px solid rgba(102,126,234,0.6);
+                border-radius: 6px;
+                padding: 8px 24px;
+                font-size: 10pt;
+                font-weight: 600;
             }
             QPushButton:hover {
-                background: #5b6fd4;
+                background: rgba(102,126,234,0.50);
             }
             QCheckBox {
-                color: #8894A8;
+                color: #8899bb;
+                font-size: 10pt;
+            }
+            QLabel {
+                color: #d0d8ff;
             }
         """)
 
