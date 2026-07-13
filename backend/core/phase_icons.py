@@ -173,6 +173,113 @@ SYSTEM_ICONS: dict[str, str] = {
 }
 
 
+
+# ── Deutsche Phasennamen ────────────────────────────────────────────────
+
+PHASE_NAMES_DE: dict[str, str] = {
+    # Analyse
+    "phase_01_click_removal": "Klick-Entfernung",
+    "phase_02_hum_removal": "Brumm-Entfernung",
+    "phase_correction": "Phasen-Korrektur",
+    "phase_interface": "Phasen-Schnittstelle",
+    "phase_glue_stage": "Zusammenführung",
+    # Reinigung
+    "phase_03_denoise": "Entrauschung",
+    "phase_05_rumble_filter": "Rumpelfilter",
+    "phase_09_crackle_removal": "Knistern-Entfernung",
+    "phase_23_spectral_repair": "Spektrale Reparatur",
+    "phase_27_click_pop_removal": "Knackser-Entfernung",
+    "phase_28_surface_noise_profiling": "Oberflächenrauschen",
+    "phase_29_tape_hiss_reduction": "Band-Rausch-Unterdrückung",
+    "phase_30_dc_offset_removal": "DC-Offset-Entfernung",
+    "phase_50_spectral_repair": "Spektrale Nachreparatur",
+    "phase_57_print_through_reduction": "Kopiereffekt-Reduktion",
+    "phase_59_modulation_noise_reduction": "Modulationsrauschen",
+    "phase_62_crosstalk_cancellation": "Übersprech-Kompensation",
+    "phase_63_intermodulation_reduction": "Intermodulations-Reduktion",
+    "phase_66_stem_targeted_nr": "Stem-Rauschunterdrückung",
+    # EQ/Frequenz
+    "phase_04_eq_correction": "EQ-Korrektur",
+    "phase_06_frequency_restoration": "Frequenz-Wiederherstellung",
+    "phase_16_final_eq": "Abschluss-EQ",
+    "phase_37_bass_enhancement": "Bass-Anhebung",
+    "phase_38_presence_boost": "Präsenz-Anhebung",
+    "phase_39_air_band_enhancement": "Luftband-Anhebung",
+    "phase_56_spectral_band_gap_repair": "Spektrallücken-Reparatur",
+    # Harmonik
+    "phase_07_harmonic_restoration": "Harmonische Wiederherstellung",
+    "phase_22_tape_saturation": "Band-Sättigung",
+    "phase_24_dropout_repair": "Aussetzer-Reparatur",
+    # Dynamik
+    "phase_08_transient_preservation": "Transienten-Erhaltung",
+    "phase_10_compression": "Kompression",
+    "phase_11_limiting": "Begrenzung",
+    "phase_18_noise_gate": "Störschwelle",
+    "phase_26_dynamic_range_expansion": "Dynamik-Erweiterung",
+    "phase_35_multiband_compression": "Multiband-Kompression",
+    "phase_36_transient_shaper": "Transienten-Former",
+    "phase_47_truepeak_limiter": "True-Peak-Begrenzer",
+    "phase_54_transparent_dynamics": "Transparente Dynamik",
+    # Stereo
+    "phase_13_stereo_enhancement": "Stereo-Verbesserung",
+    "phase_15_stereo_balance": "Stereo-Balance",
+    "phase_25_azimuth_correction": "Azimut-Korrektur",
+    "phase_32_mono_to_stereo": "Mono-zu-Stereo",
+    "phase_33_stereo_width_limiter": "Stereo-Breiten-Begrenzer",
+    "phase_34_mid_side_processing": "Mitte-Seite-Bearbeitung",
+    "phase_46_spatial_enhancement": "Räumlichkeits-Verbesserung",
+    "phase_48_stereo_width_enhancer": "Stereo-Breiten-Erweiterung",
+    # Speed/Pitch
+    "phase_12_wow_flutter_fix": "Gleichlauf-Korrektur",
+    "phase_31_speed_pitch_correction": "Geschwindigkeits-Korrektur",
+    # Gesang
+    "phase_19_de_esser": "De-Esser",
+    "phase_42_vocal_enhancement": "Gesangs-Verbesserung",
+    "phase_43_ml_deesser": "ML-De-Esser",
+    "phase_58_lyrics_guided_enhancement": "Textgeführte Verbesserung",
+    "phase_65_vocal_naturalness_restoration": "Gesangs-Natürlichkeit",
+    # Instrumente
+    "phase_44_guitar_enhancement": "Gitarren-Verbesserung",
+    "phase_45_brass_enhancement": "Bläser-Verbesserung",
+    "phase_51_drums_enhancement": "Schlagzeug-Verbesserung",
+    "phase_52_piano_restoration": "Klavier-Wiederherstellung",
+    # Effekte
+    "phase_20_reverb_reduction": "Hall-Reduktion",
+    "phase_21_exciter": "Exciter",
+    "phase_49_advanced_dereverb": "Erweiterte Hall-Entfernung",
+    # Mastering
+    "phase_17_mastering_polish": "Mastering-Politur",
+    "phase_40_loudness_normalization": "Lautheits-Normalisierung",
+    "phase_41_output_format_optimization": "Ausgabeformat-Optimierung",
+    # AI/ML
+    "phase_53_semantic_audio": "Semantische Audioanalyse",
+    "phase_55_diffusion_inpainting": "Diffusions-Inpainting",
+    # Spezial
+    "phase_60_inner_groove_distortion_repair": "Innenrillen-Verzerrung",
+    "phase_61_groove_echo_cancellation": "Rillenecho-Kompensation",
+    "phase_64_tape_splice_repair": "Band-Klebestelle",
+}
+
+
+def phase_name_de(phase_id: str) -> str:
+    """Gibt den deutschen Anzeigenamen einer Phase zurück."""
+    if phase_id in PHASE_NAMES_DE:
+        return PHASE_NAMES_DE[phase_id]
+    # Präfix-Match
+    for key, name in PHASE_NAMES_DE.items():
+        base = "_".join(key.split("_")[:2])
+        if phase_id.startswith(base):
+            return name
+    return phase_id.replace("_", " ").title()
+
+
+def phase_display(phase_id: str) -> str:
+    """Gibt Icon + deutschen Namen für Log-Ausgaben zurück."""
+    icon = phase_icon(phase_id)
+    name = phase_name_de(phase_id)
+    return f"{icon} {name}"
+
+
 # ── API ──────────────────────────────────────────────────────────────────
 
 

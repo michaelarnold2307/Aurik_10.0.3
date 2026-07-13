@@ -623,7 +623,7 @@ def export_audio(
         raise RuntimeError(f"Fehler beim Lesen der Audiodaten: {e}") from e
 
     logger.info(
-        "💿 Export gestartet: path=%s, format=%s, bit_depth=%d, sr=%d, shape=%s, duration=%.1fs",
+        "💿 Export gestartet: Pfad=%s, Format=%s, Bittiefe=%d, Abtastrate=%d, Shape=%s, Dauer=%.1fs",
         export_path,
         export_format,
         bit_depth,

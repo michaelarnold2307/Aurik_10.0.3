@@ -7113,13 +7113,13 @@ class UnifiedRestorerV3:
         def _cb(pct: float, phase: str) -> None:
             """Sendet Progress-Update mit Phasen-Icon, falls Callback registriert."""
             try:
-                from backend.core.phase_icons import phase_icon as _picon
-                _icon = _picon(phase)
+                from backend.core.phase_icons import phase_display as _pdisplay
+                _display = _pdisplay(phase)
             except Exception:
-                _icon = "🎵"
+                _display = f"🎵 {phase}"
             if progress_callback is not None:
                 try:
-                    progress_callback(pct, f"{_icon} {phase}", time.time() - start_time)
+                    progress_callback(pct, _display, time.time() - start_time)
                 except Exception as _cb_exc:
                     logger.debug(
                         "Progress-Callback fehlgeschlagen (Ursache: %s). "
