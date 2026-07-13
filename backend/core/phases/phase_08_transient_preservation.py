@@ -337,6 +337,23 @@ class TransientPreservationPhase(PhaseInterface):
         # Get material-specific parameters
         params: dict[str, Any] = self.MATERIAL_PARAMS.get(material_type, self.MATERIAL_PARAMS["unknown"])
 
+        # §GEBOT-G55: Adaptive Detection-Sensitivity via Transient-Analyse
+        # Material mit vielen Transienten braucht höhere Schwelle als gleichmäßiges.
+        try:
+            from backend.core.adaptive_parameter_infrastructure import derive_transient_sensitivity
+
+            _ts = derive_transient_sensitivity(audio, sample_rate)
+            params = dict(params)
+            params["detection_sensitivity"] = float(np.clip(
+                params.get("detection_sensitivity", 0.65) * _ts["onset_threshold"] / 3.5,
+                0.35, 0.90
+            ))
+            logger.debug("Phase 08 adaptive: sensitivity=%.2f (crest=%.1f onsets=%.1f)",
+                        params["detection_sensitivity"],
+                        _ts["crest_factor"], _ts["onset_threshold"])
+        except Exception:
+            pass
+
         # Override attack boost if specified
         if attack_boost_db is not None:
             params = params.copy()

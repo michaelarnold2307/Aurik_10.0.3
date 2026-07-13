@@ -354,6 +354,20 @@ class SurfaceNoiseProfiling(PhaseInterface):
 
         is_stereo = audio.ndim == 2
         config = dict(self.NOISE_CONFIG.get(material, self.NOISE_CONFIG[MaterialType.CD_DIGITAL]))
+
+        # §GEBOT-G55: Adaptive VAD-Threshold via Noise-Floor-Analyse
+        try:
+            from backend.core.adaptive_parameter_infrastructure import derive_noise_floor
+
+            _nf28 = derive_noise_floor(audio, sample_rate)
+            config["vad_threshold_db"] = float(np.clip(
+                _nf28["noise_floor_db"] + 6.0, -60.0, -25.0
+            ))
+            logger.debug("Phase 28 adaptive: vad_threshold=%.0fdB (noise_floor=%.1fdB)",
+                        config["vad_threshold_db"], _nf28["noise_floor_db"])
+        except Exception:
+            pass
+
         config["over_subtraction_alpha"] = float(1.0 + (config["over_subtraction_alpha"] - 1.0) * _safe_strength)
         config["spectral_floor"] = float(
             np.clip(1.0 - (1.0 - config["spectral_floor"]) * _safe_strength, 0.10, 1.0)

@@ -418,6 +418,25 @@ class NoiseGate(PhaseInterface):
         is_stereo = audio.ndim == 2
         config = dict(self.GATE_CONFIG.get(material, self.GATE_CONFIG[MaterialType.CD_DIGITAL]))
         config["reductions_db"] = [float(r * _effective_strength) for r in config["reductions_db"]]  # type: ignore[attr-defined]
+
+        # §GEBOT-G55: Adaptive Gate-Thresholds via Noise-Floor-Analyse
+        # Zwei Kassetten mit unterschiedlichem Rauschboden brauchen verschiedene Schwellen.
+        try:
+            from backend.core.adaptive_parameter_infrastructure import derive_noise_floor
+
+            _nf18 = derive_noise_floor(audio, sample_rate)
+            # Adaptiere Schwellen: +6dB über Noise-Floor, aber innerhalb [-55, -25] dB
+            _base_threshold = float(np.clip(_nf18["noise_floor_db"] + 8.0, -55.0, -25.0))
+            _n_bands = len(config["thresholds_db"])
+            config["thresholds_db"] = [
+                _base_threshold + i * 3.0 for i in range(_n_bands)
+            ]
+            logger.debug("Phase 18 adaptive: noise_floor=%.1fdB → gate_thresholds=%s",
+                        _nf18["noise_floor_db"],
+                        [f"{t:.0f}" for t in config["thresholds_db"]])
+        except Exception:
+            pass
+
         config["masking_gain_floors"] = _compute_band_masking_gain_floors(audio, sample_rate)
 
         if _effective_strength <= 0.0:
