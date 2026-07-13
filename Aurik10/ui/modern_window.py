@@ -14363,7 +14363,7 @@ class ModernMainWindow(QMainWindow):
         self.status_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.status_text.setBaseToolTip(
             "<b>Aktueller Systemstatus</b><br>"
-            "Zeigt an, was Aurik 9 gerade tut — z.\u202fB. Datei laden, "
+            "Zeigt an, was Aurik 10 gerade tut — z.\u202fB. Datei laden, "
             "Schäden analysieren, Restaurierung durchführen oder Ergebnis speichern.<br>"
             "<small>→ Farbe ändert sich: Blau = bereit, Orange = läuft, "
             "Grün = fertig.</small>"

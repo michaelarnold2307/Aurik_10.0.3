@@ -1,5 +1,5 @@
 """
-Aurik10/ui/onboarding.py — Erststart-Assistent für Aurik 9.
+Aurik10/ui/onboarding.py — Erststart-Assistent für Aurik 10.
 
 Zeigt beim ersten Start einen freundlichen 3-Schritt-Wizard der erklärt,
 was Aurik macht und wie man es benutzt. Speichert den Status via QSettings,

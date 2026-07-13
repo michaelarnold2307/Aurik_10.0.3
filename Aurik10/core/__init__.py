@@ -1,1 +1,1 @@
-"""Aurik 9 — Core-Paket für UI-interne Datenmodelle."""
+"""Aurik 10 — Core-Paket für UI-interne Datenmodelle."""

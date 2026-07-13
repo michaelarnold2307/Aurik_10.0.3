@@ -1,5 +1,5 @@
 """
-Musical Goals Bar Chart Widget für Aurik 9
+Musical Goals Bar Chart Widget für Aurik 10
 Zeigt alle 15 musikalischen Qualitätsziele als lesbares Balkendiagramm.
 
 Rein PyQt5-basiert (kein Matplotlib) — CPU-leicht, sofort responsiv.

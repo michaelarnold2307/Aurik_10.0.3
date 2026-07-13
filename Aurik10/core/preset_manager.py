@@ -1,8 +1,8 @@
 """
-Preset-Manager für Aurik 9.
+Preset-Manager für Aurik 10.
 
 Speichert und verwaltet Restaurierungs-Presets lokal in
-~/.aurik/presets/<name>.json (§11.4 der Aurik 9-Spezifikation).
+~/.aurik/presets/<name>.json (§11.4 der Aurik 10-Spezifikation).
 """
 
 from __future__ import annotations

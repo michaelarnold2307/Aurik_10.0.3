@@ -1,5 +1,5 @@
 """
-QueueManager — Aurik 9.x.x
+QueueManager — Aurik 10.x.x
 
 Verwaltet die Warteschlange für Batch-Verarbeitung in der PyQt5-GUI.
 Thread-sicher, NaN/Inf-frei, Singleton-Pattern (§3.2).

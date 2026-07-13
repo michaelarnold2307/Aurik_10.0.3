@@ -1,7 +1,7 @@
 """
-Aurik10/i18n/__init__.py — Internationalisierungs-Framework für Aurik 9 (§3.5).
+Aurik10/i18n/__init__.py — Internationalisierungs-Framework für Aurik 10 (§3.5).
 
-Aurik 9 zeigt alle UI-Texte standardmäßig auf Deutsch.
+Aurik 10 zeigt alle UI-Texte standardmäßig auf Deutsch.
 Umschaltung auf Englisch via Einstellungen → Sprache (zur Laufzeit).
 
 Verwendung:
@@ -82,7 +82,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
     # ── Deutsch (Primärsprache) ──────────────────────────────────────────────
     "de": {
         # Allgemein
-        "app.name": "Aurik 9",
+        "app.name": "Aurik 10",
         "app.tagline": "Intelligentes Musik-Restaurierungssystem",
         "action.open_file": "Datei öffnen",
         "action.export": "Exportieren",
@@ -622,7 +622,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
     # ── English (Sekundärsprache) ────────────────────────────────────────────
     "en": {
         # General
-        "app.name": "Aurik 9",
+        "app.name": "Aurik 10",
         "app.tagline": "Intelligent Music Restoration System",
         "action.open_file": "Open File",
         "action.export": "Export",
@@ -1158,7 +1158,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.language_zh": "Chinese",
     },
     "fr": {
-        "app.name": "Aurik 9",
+        "app.name": "Aurik 10",
         "app.tagline": "Systeme intelligent de restauration musicale",
         "action.open_file": "Ouvrir un fichier",
         "action.export": "Exporter",
@@ -1167,7 +1167,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.title": "Parametres",
     },
     "es": {
-        "app.name": "Aurik 9",
+        "app.name": "Aurik 10",
         "app.tagline": "Sistema inteligente de restauracion musical",
         "action.open_file": "Abrir archivo",
         "action.export": "Exportar",
@@ -1176,7 +1176,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.title": "Configuracion",
     },
     "ja": {
-        "app.name": "Aurik 9",
+        "app.name": "Aurik 10",
         "app.tagline": "Intelligent music restoration system",
         "action.open_file": "File open",
         "action.export": "Export",
@@ -1185,7 +1185,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.title": "Settings",
     },
     "zh": {
-        "app.name": "Aurik 9",
+        "app.name": "Aurik 10",
         "app.tagline": "Intelligent music restoration system",
         "action.open_file": "Open file",
         "action.export": "Export",
