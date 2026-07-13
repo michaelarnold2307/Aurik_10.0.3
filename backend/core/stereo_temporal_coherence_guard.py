@@ -373,15 +373,16 @@ class StereoTemporalCoherenceGuard:
 
         # §Fix: Post-pipeline plausibility guard — chunked phase processors (Phase 12
         # PSOLA, Phase 24 dropout repair) can introduce per-chunk channel delays when
-        # processing stereo independently per chunk.  Corrections > 50 ms for non-stem
-        # phases are almost certainly phase-processor artifacts, not real stereo offsets.
-        # Applying them creates audible echoes and channel-smear (observed: -182 ms on
-        # phase_12, causing "leise zeitversetzte Echos").
-        _POST_PIPELINE_MAX_MS: float = 50.0
+        # processing stereo independently per chunk.  However, REAL stereo misalignments
+        # up to ~200ms have been independently verified by GCC-PHAT (LAG_PROBE_2a).
+        # The 50ms limit was too conservative — real 183ms lags were skipped.
+        # §v10.0.4: 50→200ms — cross-validated with GCC-PHAT; corrections up to 200ms
+        # are now applied. Above 200ms: still skipped (likely phase-processor artifact).
+        _POST_PIPELINE_MAX_MS: float = 200.0
         if not phase_id.startswith("stem_") and abs(delay_ms) > _POST_PIPELINE_MAX_MS:
             logger.warning(
                 "STCG [%s]: delay=%.1f ms exceeds post-pipeline plausibility limit (%.0f ms) "
-                "— likely chunked-phase artifact; skipping correction to avoid echo/distortion",
+                "— likely phase-processor artifact; skipping correction to avoid echo/distortion",
                 phase_id,
                 delay_ms,
                 _POST_PIPELINE_MAX_MS,
