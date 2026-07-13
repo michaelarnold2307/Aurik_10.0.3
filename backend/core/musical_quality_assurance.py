@@ -1048,7 +1048,7 @@ class MusicalQualityAssurance:
         _thd_threshold = (
             60.0
             if (_is_restoration and medium_type in _ANALOG_BW_LIMITED_MEDIA)
-            else (30.0 if medium_type in _ANALOG_BW_LIMITED_MEDIA else 0.5)
+            else (30.0 if medium_type in _ANALOG_BW_LIMITED_MEDIA else 3.0)  # §v10.0.4: 0.5→3.0 — Messung ist HF/LF-Ratio, nicht echte THD
         )
         thd_increase = processed_quality.thd_percent - original_quality.thd_percent
         if thd_increase > _thd_threshold:
