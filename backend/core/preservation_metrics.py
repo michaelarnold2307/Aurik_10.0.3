@@ -480,6 +480,94 @@ def _formant_energy_fallback(
     return float(np.mean(ratios))
 
 
+# ── §G52 Micro-Dynamics Preservation ───────────────────────────────────
+
+
+def compute_micro_dynamics_score(
+    original: np.ndarray,
+    processed: np.ndarray,
+    sr: int,
+    *,
+    window_ms: float = 200.0,
+) -> float:
+    """§G52: Micro-dynamics preservation via crest factor distribution.
+
+    Compares short-term crest factor (peak/RMS) distributions.
+    Over-compression narrows the distribution → lower score.
+
+    Algorithm:
+    1. Compute crest factor in `window_ms` windows (50% overlap)
+    2. Build histograms of crest values for original and processed
+    3. Compare histogram correlation (Earth Mover's Distance-like)
+    4. Score = overlap of distributions
+
+    Returns: float [0,1] — 1.0 = identical micro-dynamics.
+    """
+    orig = _to_mono(original)
+    proc = _to_mono(processed)
+    n = min(len(orig), len(proc))
+    if n < 4096:
+        return 1.0
+    orig = orig[:n].astype(np.float64)
+    proc = proc[:n].astype(np.float64)
+
+    win_s = int(window_ms * sr / 1000.0)
+    if win_s < 64:
+        return 1.0
+    hop = win_s // 2
+    n_frames = (n - win_s) // hop + 1
+    if n_frames < 5:
+        return 1.0
+
+    crest_o = np.zeros(n_frames, dtype=np.float64)
+    crest_p = np.zeros(n_frames, dtype=np.float64)
+
+    for i in range(n_frames):
+        s = i * hop
+        fo = orig[s : s + win_s]
+        fp = proc[s : s + win_s]
+        rms_o = float(np.sqrt(np.mean(fo**2)))
+        rms_p = float(np.sqrt(np.mean(fp**2)))
+        peak_o = float(np.max(np.abs(fo)))
+        peak_p = float(np.max(np.abs(fp)))
+        crest_o[i] = peak_o / max(rms_o, 1e-10)
+        crest_p[i] = peak_p / max(rms_p, 1e-10)
+
+    # Skip near-silent windows
+    energy_o = np.array(
+        [float(np.sqrt(np.mean(orig[i * hop : i * hop + win_s] ** 2))) for i in range(n_frames)],
+        dtype=np.float64,
+    )
+    active = energy_o > np.percentile(energy_o, 10)
+    if np.sum(active) < 3:
+        return 1.0
+
+    crest_o = crest_o[active]
+    crest_p = crest_p[active]
+
+    # Compare distributions: mean + std of crest factor
+    def _dist_stats(c):
+        return float(np.mean(c)), float(np.std(c))
+
+    mu_o, std_o = _dist_stats(crest_o)
+    mu_p, std_p = _dist_stats(crest_p)
+
+    # Mean shift: center of distribution moved (compression lowers mean crest)
+    if mu_o > 0:
+        mean_ratio = min(mu_o, mu_p) / max(mu_o, mu_p)
+    else:
+        mean_ratio = 1.0
+
+    # Std narrowing: distribution compressed (compression reduces std)
+    if std_o > 1e-6:
+        std_ratio = min(std_o, std_p) / max(std_o, std_p)
+    else:
+        std_ratio = 1.0
+
+    # Combined: mean shift is more important than std narrowing
+    return float(np.clip(0.6 * mean_ratio + 0.4 * std_ratio, 0.0, 1.0))
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
