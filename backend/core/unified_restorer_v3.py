@@ -14324,12 +14324,16 @@ class UnifiedRestorerV3:
                     "p1p2_blend_applied": False,
                     "global_blend_applied": False,
                 }
-                logger.warning(
-                    "🎵 Musical Goals Verletzungen (%d/%d): %s — autonome End-Gate-Recovery aktiv",
-                    len(_mg_violations),
-                    len(_goal_vector_keys),
-                    ", ".join(_mg_violations),
-                )
+                # §v10.0.4 Restorability-adaptives Log-Level
+                _mg_rest = float(getattr(self, "_last_restorability_score", 70.0))
+                if _mg_rest >= 70.0:
+                    logger.warning(
+                        "🎵 Musical Goals Verletzungen (%d/%d): %s — autonome End-Gate-Recovery aktiv",
+                        len(_mg_violations), len(_goal_vector_keys), ", ".join(_mg_violations))
+                else:
+                    logger.info(
+                        "🎵 Musical Goals Verletzungen (%d/%d): %s — erwartet für restorability=%.0f",
+                        len(_mg_violations), len(_goal_vector_keys), ", ".join(_mg_violations), _mg_rest)
 
                 # §2.59.6 End-Gate Time-Guard: Maximal 300s für Recovery-Kaskade.
                 # Verhindert Endlos-Oszillation wenn Blends keine Verbesserung bringen.
