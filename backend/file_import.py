@@ -10,6 +10,7 @@ import soundfile as sf
 def _load_with_sf(filepath):
     """Wrapper for sf.read — use load_audio_file() for production pipelines."""
     import soundfile as sf
+
     return sf.read(filepath)
 
 
@@ -67,14 +68,42 @@ def _estimate_interchannel_lag_samples(audio: np.ndarray, sr: int, max_seconds: 
         while n_fft < 2 * n:
             n_fft <<= 1
 
+        # §v10.0.4: High-Band GCC-PHAT — eliminiert Periodenambiguität
+        # Bei rein tonalen Signalen (Sinus, Orgel, Flöte) erzeugt GCC-PHAT auf dem
+        # gesamten Spektrum Ambiguitäten, weil PHAT alle Frequenzen gleich gewichtet
+        # und die Grundfrequenz-Periode mehrere Peaks im Suchfenster erzeugt.
+        # Lösung: GCC-PHAT NUR auf Frequenzen > 2 kHz anwenden.
+        #   – Bei 2 kHz ist 1 Periode = 0.5 ms = 24 samples @ 48 kHz
+        #   – Maximaler erwarteter Lag: ±200 ms = ±9600 samples
+        #   – Kein Vielfaches von 24 passt in [−200, +200] ms → keine Ambiguität.
+        # Das 2-kHz-Hochpassfilter wird direkt im Frequenzbereich angewandt.
+        _freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+        _hp_mask = np.abs(_freqs) >= 2000.0  # Nur Frequenzen ≥ 2 kHz
+        _hp_mask = _hp_mask.astype(np.float64)
+
         X = np.fft.rfft(x, n=n_fft)
         Y = np.fft.rfft(y, n=n_fft)
-        cross = X * np.conj(Y)
+        X_hp = X * _hp_mask
+        Y_hp = Y * _hp_mask
+
+        # Energie-Check: Hat das High-Band genug Signal?
+        _hp_energy = float(np.sum(np.abs(X_hp) ** 2))
+        _total_energy = float(np.sum(np.abs(X) ** 2))
+        _hp_fraction = _hp_energy / max(_total_energy, 1e-10)
+
+        if _hp_fraction < 0.05:
+            # High-Band zu schwach (z.B. stark tiefpassgefiltertes Material).
+            # Fallback: Vollband-GCC-PHAT (akzeptiert Ambiguitätsrisiko).
+            cross = X * np.conj(Y)
+        else:
+            cross = X_hp * np.conj(Y_hp)
+
         gcc = np.fft.irfft(cross / (np.abs(cross) + 1e-10), n=n_fft)
 
         max_delay = min(int(sr * 0.2), n - 1)  # ±200 ms
         if max_delay <= 0:
             return 0
+
         search = np.concatenate([gcc[n_fft - max_delay :], gcc[: max_delay + 1]])
         return int(np.argmax(np.abs(search))) - max_delay
     except Exception:
@@ -141,7 +170,7 @@ def _estimate_interchannel_lag_multi_point(
         max_delay = min(int(sr * 0.2), n - 1)
         if max_delay <= 0:
             continue
-        search = np.concatenate([gcc[n_fft - max_delay:], gcc[:max_delay + 1]])
+        search = np.concatenate([gcc[n_fft - max_delay :], gcc[: max_delay + 1]])
         lag = int(np.argmax(np.abs(search))) - max_delay
         lags.append(lag)
 

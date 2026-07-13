@@ -7092,6 +7092,13 @@ class UnifiedRestorerV3:
         start_time = time.time()
         # §0c: Reset graceful-stop for new song — previous watchdog signal must not bleed over.
         self._graceful_stop_event.clear()
+        # §C3: Reset Phase-12 polyphonic circuit breaker for new song
+        try:
+            from backend.core.phases.phase_12_wow_flutter_fix import _reset_polyphonic_circuit_breaker
+
+            _reset_polyphonic_circuit_breaker()
+        except Exception:
+            pass
         # §Perf: Snapshot-Cache für diese Session leeren (verhindert id()-Wiederverwendungs-Kollisionen).
         _FAST_GOAL_SNAP_CACHE.clear()
         # §Perf: Bereits von APR/FC-SECONDARY behandelte Goals — verhindert Multi-Mechanismus-Doppelarbeit.
@@ -13870,16 +13877,37 @@ class UnifiedRestorerV3:
                 _pqs_result = _score_abs(restored_audio, sample_rate)
             # §v10.0.4 Material-adaptiver PQS-MOS-Schwellwert
             # Analoges Material: niedriger MOS = normal (Rauschen/BW-Extension → starke Änderung)
-            _MOS_MAT: dict[str, float] = {"cd_digital":4.0,"digital":4.0,"streaming":3.5,"mp3_high":3.5,
-                "mp3_low":3.0,"vinyl":2.5,"tape":2.5,"reel_tape":2.5,"cassette":2.0,"shellac":2.0,
-                "wax_cylinder":1.5,"wire_recording":2.0}
-            _mos_t = _MOS_MAT.get(str(getattr(material_type,"value",str(material_type))).lower(),3.0)
+            _MOS_MAT: dict[str, float] = {
+                "cd_digital": 4.0,
+                "digital": 4.0,
+                "streaming": 3.5,
+                "mp3_high": 3.5,
+                "mp3_low": 3.0,
+                "vinyl": 2.5,
+                "tape": 2.5,
+                "reel_tape": 2.5,
+                "cassette": 2.0,
+                "shellac": 2.0,
+                "wax_cylinder": 1.5,
+                "wire_recording": 2.0,
+            }
+            _mos_t = _MOS_MAT.get(str(getattr(material_type, "value", str(material_type))).lower(), 3.0)
             if _pqs_result.pqs_mos >= _mos_t:
-                logger.info("📊 PQS-MOS: %.2f (NSIM=%.3f MCD=%.1f dB) ≥ %.1f ✓",
-                    _pqs_result.pqs_mos, _pqs_result.nsim, _pqs_result.mcd_db, _mos_t)
+                logger.info(
+                    "📊 PQS-MOS: %.2f (NSIM=%.3f MCD=%.1f dB) ≥ %.1f ✓",
+                    _pqs_result.pqs_mos,
+                    _pqs_result.nsim,
+                    _pqs_result.mcd_db,
+                    _mos_t,
+                )
             else:
-                logger.info("📊 PQS-MOS: %.2f (NSIM=%.3f MCD=%.1f dB) < %.1f — erwartet für analoge Restaurierung",
-                    _pqs_result.pqs_mos, _pqs_result.nsim, _pqs_result.mcd_db, _mos_t)
+                logger.info(
+                    "📊 PQS-MOS: %.2f (NSIM=%.3f MCD=%.1f dB) < %.1f — erwartet für analoge Restaurierung",
+                    _pqs_result.pqs_mos,
+                    _pqs_result.nsim,
+                    _pqs_result.mcd_db,
+                    _mos_t,
+                )
             # v9.10.58: VERSA-MOS-Gate mit 2. ExcellenceOptimizer-Pass entfernt.
             # Wissenschaftliche Begründung: Identischer ExcellenceOptimizer auf bereits
             # optimierten Daten akkumuliert STFT-Rundungsfehler. Die Korrektur bei
@@ -13892,10 +13920,21 @@ class UnifiedRestorerV3:
                 # §2.14 Quality-Gate→Action: Kritische Qualität signalisiert
                 # ExzellenzDenker, alle Post-Processing-Phasen zurückzurollen.
                 # §v10.0.4 Material-adaptiver Rollback-Schwellwert
-                _MOS_ROLLBACK: dict[str, float] = {"cd_digital":3.0,"digital":3.0,"streaming":2.5,
-                    "mp3_high":2.5,"mp3_low":2.0,"vinyl":1.5,"tape":1.5,"reel_tape":1.5,
-                    "cassette":1.5,"shellac":1.0,"wax_cylinder":1.0,"wire_recording":1.5}
-                _mos_rb = _MOS_ROLLBACK.get(str(getattr(material_type,"value",str(material_type))).lower(),2.0)
+                _MOS_ROLLBACK: dict[str, float] = {
+                    "cd_digital": 3.0,
+                    "digital": 3.0,
+                    "streaming": 2.5,
+                    "mp3_high": 2.5,
+                    "mp3_low": 2.0,
+                    "vinyl": 1.5,
+                    "tape": 1.5,
+                    "reel_tape": 1.5,
+                    "cassette": 1.5,
+                    "shellac": 1.0,
+                    "wax_cylinder": 1.0,
+                    "wire_recording": 1.5,
+                }
+                _mos_rb = _MOS_ROLLBACK.get(str(getattr(material_type, "value", str(material_type))).lower(), 2.0)
                 if _pqs_result.pqs_mos < _mos_rb:
                     self._restoration_context["quality_gate_rollback"] = True
                     self._restoration_context.setdefault("quality_gate_reasons", []).append(
@@ -13903,7 +13942,8 @@ class UnifiedRestorerV3:
                     )
                     logger.warning(
                         "§2.14 Quality-Gate→Action: PQS-MOS=%.1f < %.1f — signaling rollback to ExzellenzDenker",
-                        _pqs_result.pqs_mos, _mos_rb,
+                        _pqs_result.pqs_mos,
+                        _mos_rb,
                     )
         except Exception as _pqs_exc:
             logger.warning("PerceptualQualityScorer nicht verfügbar (PQS_UNAVAILABLE): %s", _pqs_exc)
@@ -14329,11 +14369,18 @@ class UnifiedRestorerV3:
                 if _mg_rest >= 70.0:
                     logger.warning(
                         "🎵 Musical Goals Verletzungen (%d/%d): %s — autonome End-Gate-Recovery aktiv",
-                        len(_mg_violations), len(_goal_vector_keys), ", ".join(_mg_violations))
+                        len(_mg_violations),
+                        len(_goal_vector_keys),
+                        ", ".join(_mg_violations),
+                    )
                 else:
                     logger.info(
                         "🎵 Musical Goals Verletzungen (%d/%d): %s — erwartet für restorability=%.0f",
-                        len(_mg_violations), len(_goal_vector_keys), ", ".join(_mg_violations), _mg_rest)
+                        len(_mg_violations),
+                        len(_goal_vector_keys),
+                        ", ".join(_mg_violations),
+                        _mg_rest,
+                    )
 
                 # §2.59.6 End-Gate Time-Guard: Maximal 300s für Recovery-Kaskade.
                 # Verhindert Endlos-Oszillation wenn Blends keine Verbesserung bringen.
@@ -15020,8 +15067,11 @@ class UnifiedRestorerV3:
                     if _ea_rest >= 70.0:
                         logger.warning("⚠️ EmotionalArc: Bogen nicht erfüllt — %s", _arc_result.reason)
                     else:
-                        logger.info("⚠️ EmotionalArc: Bogen verändert — %s (erwartet für restorability=%.0f)",
-                                   _arc_result.reason, _ea_rest)
+                        logger.info(
+                            "⚠️ EmotionalArc: Bogen verändert — %s (erwartet für restorability=%.0f)",
+                            _arc_result.reason,
+                            _ea_rest,
+                        )
                     # §8.2 Spec: bindende Rollback-Garantie → Pre-Excellence-Audio wiederherstellen
                     _are_p = getattr(_arc_result, "arousal_pearson", 0.0)
                     _val_p = getattr(_arc_result, "valence_pearson", 0.0)
@@ -17066,11 +17116,13 @@ class UnifiedRestorerV3:
                 if _singmos_val < 2.5:
                     _smo_rest = float(getattr(self, "_last_restorability_score", 70.0))
                     if _smo_rest >= 70.0:
-                        logger.warning("§G4 SingMOS=%.2f < 2.5 → phase_65-Recovery (Naturalness niedrig)",
-                                      _singmos_val)
+                        logger.warning("§G4 SingMOS=%.2f < 2.5 → phase_65-Recovery (Naturalness niedrig)", _singmos_val)
                     else:
-                        logger.info("§G4 SingMOS=%.2f < 2.5 → phase_65-Recovery (erwartet für restorability=%.0f)",
-                                   _singmos_val, _smo_rest)
+                        logger.info(
+                            "§G4 SingMOS=%.2f < 2.5 → phase_65-Recovery (erwartet für restorability=%.0f)",
+                            _singmos_val,
+                            _smo_rest,
+                        )
                     _fail_reasons.append(
                         {
                             "component": "SingMOSGate",
@@ -22441,7 +22493,9 @@ class UnifiedRestorerV3:
 
             logger.debug(
                 "🎵 MusicalQualityAssurance: %s | Verbesserung=%.1f%% authentisch=%s natürlich=%s",
-                "✅ GARANTIERT" if _mqa_result.get("quality_guaranteed", _mqa_report.quality_guaranteed) else "⚠ NICHT GARANTIERT",
+                "✅ GARANTIERT"
+                if _mqa_result.get("quality_guaranteed", _mqa_report.quality_guaranteed)
+                else "⚠ NICHT GARANTIERT",
                 _mqa_report.musical_improvement * 100,
                 _mqa_report.authenticity_preserved,
                 _mqa_report.natural_sound,
@@ -36484,8 +36538,7 @@ class UnifiedRestorerV3:
                     _lag_correction_applied = True
                     _lag_abs = abs(_lp2a_lag)
                     if _lag_abs >= _orig_len:
-                        logger.warning("§G14 Lag-Correction: lag %d ≥ audio length %d — skipping",
-                                      _lag_abs, _orig_len)
+                        logger.warning("§G14 Lag-Correction: lag %d ≥ audio length %d — skipping", _lag_abs, _orig_len)
                         break
                     # §v10.0.4 Crossfade-Padding: verhindert "Ghost-Echo" durch harte Schnittkante
                     _xfade_len = min(_lag_abs // 4, 4800)  # max 100ms Crossfade @ 48kHz
@@ -36494,15 +36547,15 @@ class UnifiedRestorerV3:
                         current_audio[1, :-_lag_abs] = current_audio[1, _lag_abs:].copy()
                         if _xfade_len > 0:
                             _fade_in = np.linspace(0, 1, _xfade_len, dtype=np.float32)
-                            current_audio[1, -_lag_abs:-_lag_abs+_xfade_len] *= _fade_in
-                        current_audio[1, -_lag_abs+_xfade_len:] = 0.0
+                            current_audio[1, -_lag_abs : -_lag_abs + _xfade_len] *= _fade_in
+                        current_audio[1, -_lag_abs + _xfade_len :] = 0.0
                     else:
                         # Positiver Lag: L-Kanal ist VORAUS → L verzögern
                         current_audio[0, :-_lag_abs] = current_audio[0, _lag_abs:].copy()
                         if _xfade_len > 0:
                             _fade_in = np.linspace(0, 1, _xfade_len, dtype=np.float32)
-                            current_audio[0, -_lag_abs:-_lag_abs+_xfade_len] *= _fade_in
-                        current_audio[0, -_lag_abs+_xfade_len:] = 0.0
+                            current_audio[0, -_lag_abs : -_lag_abs + _xfade_len] *= _fade_in
+                        current_audio[0, -_lag_abs + _xfade_len :] = 0.0
                     # §Verifikation: Nach Korrektur erneut messen
                     _lp2a_lag_verify = _gcc_lag(current_audio, sample_rate)
                     logger.info(
@@ -36515,8 +36568,11 @@ class UnifiedRestorerV3:
                         _lp2a_lag_verify / sample_rate * 1000,
                     )
                     if abs(_lp2a_lag_verify) <= _MIN_CORRECTABLE_LAG:
-                        logger.info("§G14 Lag-Correction: VERIFIED — residual %d samples < %d threshold",
-                                   _lp2a_lag_verify, _MIN_CORRECTABLE_LAG)
+                        logger.info(
+                            "§G14 Lag-Correction: VERIFIED — residual %d samples < %d threshold",
+                            _lp2a_lag_verify,
+                            _MIN_CORRECTABLE_LAG,
+                        )
                         _lp2a_lag = _lp2a_lag_verify
                         break
                     # Residual noch zu groß → nächster Versuch mit residualem Lag
@@ -36525,7 +36581,8 @@ class UnifiedRestorerV3:
                         logger.warning(
                             "§G14 Lag-Correction: MAX_ATTEMPTS reached — residual %d samples (%.1f ms). "
                             "STCG behandelt residuale per-Chunk-Variationen.",
-                            _lp2a_lag, _lp2a_lag / sample_rate * 1000,
+                            _lp2a_lag,
+                            _lp2a_lag / sample_rate * 1000,
                         )
                 if _lag_correction_applied:
                     _restoration_context["_lag_correction_post_pipeline"] = True
@@ -36547,8 +36604,11 @@ class UnifiedRestorerV3:
             if _inf_count > 0:
                 logger.error("§PLAUSIBILITÄT: %d Inf-Samples im Output — Pipeline-Fehler!", _inf_count)
             if _clip_count > len(_mono_check) * 0.01:
-                logger.warning("§PLAUSIBILITÄT: %.1f%% Clipping im Output (%d Samples)",
-                              _clip_count / len(_mono_check) * 100, _clip_count)
+                logger.warning(
+                    "§PLAUSIBILITÄT: %.1f%% Clipping im Output (%d Samples)",
+                    _clip_count / len(_mono_check) * 100,
+                    _clip_count,
+                )
             if _rms < 1e-8:
                 logger.error("§PLAUSIBILITÄT: Output ist Stille (RMS=%.2e) — Pipeline-Fehler!", _rms)
             if _peak < 1e-6:
@@ -36559,8 +36619,9 @@ class UnifiedRestorerV3:
                 _rms_r = float(np.sqrt(np.mean(current_audio[1].astype(np.float64) ** 2) + 1e-20))
                 _rms_ratio = max(_rms_l, _rms_r) / (min(_rms_l, _rms_r) + 1e-20)
                 if _rms_ratio > 3.0:
-                    logger.warning("§PLAUSIBILITÄT: Stereo-Kanal-Drift L=%.3f R=%.3f (Ratio=%.1f:1)",
-                                  _rms_l, _rms_r, _rms_ratio)
+                    logger.warning(
+                        "§PLAUSIBILITÄT: Stereo-Kanal-Drift L=%.3f R=%.3f (Ratio=%.1f:1)", _rms_l, _rms_r, _rms_ratio
+                    )
         except Exception as _plausi_exc:
             logger.debug("§PLAUSIBILITÄT: Prüfung fehlgeschlagen: %s", _plausi_exc)
         _cumulative_rms = 0.0
