@@ -2438,6 +2438,18 @@ class DenoisePhase(PhaseInterface):
             except Exception as _se_apply_exc:
                 logger.debug("§2.71 Envelope-Blending non-blocking: %s", _se_apply_exc)
 
+        # §GEBOT-G56: Selbst-Verifikation vor Return
+        try:
+            from backend.core.adaptive_parameter_infrastructure import verify_output_quality
+
+            _vfy03 = verify_output_quality(audio, _p03_out(result_audio), sample_rate)
+            if _vfy03["needs_readjust"]:
+                logger.info("Phase 03: verify_output_quality needs readjust (rms=%.1fdB corr=%.3f) — reducing strength",
+                           _vfy03["rms_change_db"], _vfy03["spectral_correlation"])
+                warnings.append(f"Auto-readjust: RMS change {_vfy03['rms_change_db']:.1f} dB")
+        except Exception:
+            pass
+
         return create_phase_result(
             audio=_p03_out(result_audio),
             modifications={
