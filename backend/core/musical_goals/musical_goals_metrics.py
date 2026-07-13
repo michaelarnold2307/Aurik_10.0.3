@@ -4197,7 +4197,7 @@ class MusicalGoalsChecker:
                     logger.warning("measure_all: goal=%s failed: %s — using 0.0", goal_name, _metric_exc)
                     scores[goal_name] = 0.0
             _dt = time.perf_counter() - _t0
-            if _dt > 5.0:
+            if _dt > 8.0:  # §v10.0.4: 5.0→8.0 — waerme-Spektralanalyse auf 225s dauert 6.1s
                 logger.warning("measure_all: goal=%s took %.1f s", goal_name, _dt)
             else:
                 logger.debug("measure_all: goal=%s %.3f s", goal_name, _dt)
