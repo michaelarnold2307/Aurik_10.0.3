@@ -765,6 +765,18 @@ class VocalEnhancement(PhaseInterface):
             except Exception as _hpg_v_err:
                 logger.debug("Phase42 HPG auf Vocal-Stem nicht verfügbar: %s", _hpg_v_err)
 
+            # §G58 Vocal Repair: detect and fix damaged vocals before enhancement
+            try:
+                from backend.core.phases.vocal_repair import detect_vocal_damage, apply_vocal_repair
+                _v_repair_mono = safe_to_mono(vocals_stem) if vocals_stem.ndim == 2 else vocals_stem
+                _v_damage = detect_vocal_damage(_v_repair_mono.astype(np.float64), sample_rate)
+                if _v_damage.get("needs_repair"):
+                    vocals_stem = apply_vocal_repair(vocals_stem, sample_rate, damage=_v_damage)
+                    logger.info("Phase42 VocalRepair: damage detected (bw=%.0fHz crest=%.1fdB) — repaired",
+                                _v_damage.get("bandwidth_hz",0), _v_damage.get("crest_factor_db",0))
+            except Exception as _vr_exc:
+                logger.debug("Phase42 VocalRepair skipped: %s", _vr_exc)
+
             # Enhance only the vocal stem
             if vocals_stem.ndim == 2:
                 # §2.51 M/S: vocals are centred → enhance Mid only, Side untouched.
