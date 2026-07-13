@@ -15015,10 +15015,13 @@ class UnifiedRestorerV3:
                         _arc_result.valence_pearson,
                     )
                 else:
-                    logger.warning(
-                        "⚠️ EmotionalArc: Bogen nicht erfüllt — %s",
-                        _arc_result.reason,
-                    )
+                    # §v10.0.4 Restorability-adaptives Log-Level
+                    _ea_rest = float(getattr(self, "_last_restorability_score", 70.0))
+                    if _ea_rest >= 70.0:
+                        logger.warning("⚠️ EmotionalArc: Bogen nicht erfüllt — %s", _arc_result.reason)
+                    else:
+                        logger.info("⚠️ EmotionalArc: Bogen verändert — %s (erwartet für restorability=%.0f)",
+                                   _arc_result.reason, _ea_rest)
                     # §8.2 Spec: bindende Rollback-Garantie → Pre-Excellence-Audio wiederherstellen
                     _are_p = getattr(_arc_result, "arousal_pearson", 0.0)
                     _val_p = getattr(_arc_result, "valence_pearson", 0.0)
