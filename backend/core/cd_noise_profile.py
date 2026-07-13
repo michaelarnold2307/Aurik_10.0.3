@@ -24,7 +24,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _CD_NOISE_FLOOR_DBFS_16BIT: float = -96.0
-_CD_NOISE_FLOOR_DBFS_24BIT: float = -120.0
+_CD_NOISE_FLOOR_DBFS_24BIT: float = -114.0  # 24-bit converter ENOB ≈ 19 bits (real-world ADC)
 _CD_NOISE_MAX_DBFS: float = -85.0
 
 # Masking: scientifically grounded thresholds
@@ -312,9 +312,16 @@ def inject_cd_noise_profile(
     active_samples = int(np.sum(envelope > 0.01))
 
     # Step 2: ERB band gain — per-frequency masking (§G15, §G44)
+    # §G43: 24-bit noise (-114 dBFS) is below human hearing threshold.
+    # ERB masking would suppress it entirely. Instead, apply uniform
+    # converter noise floor (authentic 24-bit ADC behavior).
     noise_db = _CD_NOISE_FLOOR_DBFS_16BIT if bit_depth <= 16 else _CD_NOISE_FLOOR_DBFS_24BIT
     try:
-        erb_gain = _compute_erb_band_gain(mono, sr, noise_db)
+        if bit_depth <= 16:
+            erb_gain = _compute_erb_band_gain(mono, sr, noise_db)
+        else:
+            # 24-bit: uniform noise floor — authentic converter behavior
+            erb_gain = np.ones(1025, dtype=np.float64)
     except Exception:
         erb_gain = np.ones(1025, dtype=np.float64)
 
