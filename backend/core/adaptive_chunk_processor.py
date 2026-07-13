@@ -317,6 +317,19 @@ def process_in_adaptive_chunks(
         processed = phase_fn(chunk, **phase_kwargs)
         processed = np.asarray(processed, dtype=np.float32)
 
+        # §GEBOT-G42: Stereo-Lag-Integrität nach jedem Chunk
+        # Chunked-Phase-Prozessoren können L/R-Versatz einführen.
+        if is_stereo and processed.ndim == 2 and processed.shape[0] == 2:
+            try:
+                from backend.core.stereo_temporal_coherence_guard import (
+                    get_stereo_temporal_coherence_guard as _get_stcg_chunk,
+                )
+                processed = _get_stcg_chunk().correct_interchannel_delay(
+                    processed, sr, phase_id="chunk_post"
+                )
+            except Exception:
+                pass
+
         # Build weight envelope for this chunk
         chunk_len = end - pos
         w = np.ones(chunk_len, dtype=np.float32)
