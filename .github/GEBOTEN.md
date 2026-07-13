@@ -103,3 +103,14 @@ Jede G-Regel kann durch einen Linter automatisiert geprüft werden:
 | **G30** | Peak-Blend-Ratio MUSS adaptiv sein: `clip(0.5 + mean(density)*3, 0.5, 0.85)`. KEIN statischer 70/30 | Orchester vs. Solo-Klavier unterschiedlich | `nvsr_plugin.py:_process_channel_sbr()` §GEBOT-G01 |
 | **G31** | Transienten-Schwelle MUSS aus Dynamik abgeleitet werden: `clip(5 - std*2, 2, 5)`. KEIN statischer 3.0× | Leise Passagen vs. perkussive unterschiedlich | `nvsr_plugin.py:_process_channel_sbr()` §GEBOT-G04 |
 | **G32** | Jeder Frequenzband-/Schwellwert-/Blend-Parameter MUSS `_derive_from_signal()` haben. Statisch nur: Nyquist, STFT-COLA, Frequenzband-Grenzen (4/8/16kHz) | Kernversprechen = song-individuell | Architektur-Prüfung aller `phase_*.py` |
+
+## Kategorie J: Phasen-übergreifende Adaption (2026-07-13)
+
+> **Ergänzt Kategorie I**: Adaptive Regeln für alle Restaurierungsphasen.
+
+| ID | Gebot | Begründung | Fundstelle |
+|----|-------|-----------|------------|
+| **G33** | Phase-07 Saturation-Scale MUSS aus harmonischer Dichte des Signals abgeleitet werden: `adaptive_cap = 0.35 − density * 0.25`. KEIN Hard-Cap 20% | Harmonik-reiches Material (Orchester) braucht stärkeren Schutz als harmonik-armes (alter Mono-Mitschnitt) | `phase_07_harmonic_restoration.py` §GEBOT-G07 |
+| **G34** | Phase-07 Drive-Parameter MUSS aus Crest-Faktor (Peak/RMS) abgeleitet werden: `drive = 2.5 − crest * 0.15`. KEIN statischer Default 1.5 | Stark komprimiertes Material (Pop) vs. hochdynamisches (Klassik) brauchen unterschiedliche Sättigungs-Charakteristik | `phase_07_harmonic_restoration.py` §GEBOT-G07 |
+| **G35** | HF-Extender-Strength MUSS aus Bandbreiten-Defizit abgeleitet werden: `strength = base + deficit * factor`. KEINE statischen 0.4/0.25/0.3 | 8kHz-Quelle (Schellack) vs. 32kHz-Quelle (CD) brauchen fundamental unterschiedliche Stärke | `dsp/hf_extender.py` §GEBOT-G08 |
+| **G36** | Jede Restaurierungsphase MUSS einen `_derive_from_signal(audio, sr)`-Einstiegspunkt haben, der adaptive Parameter aus dem Eingangssignal berechnet. Statisch nur: FFT-Größen, COLA-Parameter, Frequenzband-Grenzen | Song-individuelle Optimierung erfordert Signalanalyse VOR Parameterfestlegung | Architektur-Prüfung aller `phase_*.py` |

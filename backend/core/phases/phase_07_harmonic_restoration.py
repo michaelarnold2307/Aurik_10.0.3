@@ -528,23 +528,42 @@ class HarmonicRestorationPhase(PhaseInterface):
         params["strength"] = float(np.clip(float(params["strength"]) * _effective_strength, 0.0, 1.0))
         params["blend"] = float(np.clip(float(params["blend"]) * _effective_strength, 0.0, 1.0))
 
-        # §soft_saturation-Guard: Harmonic-Restoration bei saturiertem Material begrenzen.
-        # Soft_saturation liefert bereits geradzahlige Obertöne (H2/H4); weitere additive
-        # Sättigung kompoundiert die Verzerrung und macht Gesang "übersteuert/kratzig" (§0h).
-        # soft_saturation_preserve=True (z.B. Schlager-Profil) → max. 20 % Stärke.
-        # Analogie Toningenieur: Schallplatten-Sättigungscharakter bewahren, nicht verstärken.
+        # §GEBOT-G07: Adaptive Saturation-Scale — aus harmonischer Dichte ableiten
+        # Statt Hard-Cap 20%, skaliere basierend auf tatsächlichem Obertongehalt
         _p07_soft_sat_preserve = bool(kwargs.get("soft_saturation_preserve", False))
         _p07_soft_sat_sev = float(np.clip(kwargs.get("soft_saturation_severity", 0.0), 0.0, 1.0))
         if _p07_soft_sat_preserve or _p07_soft_sat_sev > 0.35:
+            # Miss harmonische Dichte: wie viele Peaks im Spektrum?
+            try:
+                _mono_p07 = audio if audio.ndim == 1 else audio.mean(axis=0)
+                _spec_p07 = np.abs(np.fft.rfft(_mono_p07[:min(len(_mono_p07), 48000)]))
+                _spec_p07 = _spec_p07 / (np.max(_spec_p07) + 1e-12)
+                # Peaks oberhalb -20dB Schwelle zählen → harmonische Dichte
+                _peaks_p07 = np.sum((_spec_p07[1:-1] > _spec_p07[:-2]) & 
+                                    (_spec_p07[1:-1] > _spec_p07[2:]) & 
+                                    (_spec_p07[1:-1] > 0.1))
+                _harmonic_density_p07 = np.clip(_peaks_p07 / max(len(_spec_p07) * 0.05, 1), 0.0, 1.0)
+            except Exception:
+                _harmonic_density_p07 = 0.3  # konservativer Default
+            
             _p07_sat_scale = 1.0
             if _p07_soft_sat_sev > 0.35:
                 # Lineare Reduzierung: severity 0.35→scale 1.0, severity 1.0→scale 0.12
                 _p07_sat_scale = float(np.clip(1.0 - (_p07_soft_sat_sev - 0.35) * 1.35, 0.12, 1.0))
-            if _p07_soft_sat_preserve and _p07_sat_scale > 0.20:
-                _p07_sat_scale = 0.20  # Hard-Cap: max. 20 % bei preserve=True (Vintage Aesthetics §0)
+            if _p07_soft_sat_preserve:
+                # Adaptiv: harmonik-reiches Material → niedrigerer Cap (mehr Schutz)
+                # harmonik-armes Material → höherer Cap (mehr Spielraum für Restauration)
+                _adaptive_cap = float(np.clip(0.35 - _harmonic_density_p07 * 0.25, 0.12, 0.35))
+                _p07_sat_scale = min(_p07_sat_scale, _adaptive_cap)
             params["strength"] = float(params["strength"] * _p07_sat_scale)
             params["blend"] = float(params["blend"] * _p07_sat_scale)
-            params["drive"] = float(np.clip(params.get("drive", 1.5) * max(_p07_sat_scale, 0.5), 1.0, 2.5))
+            # §GEBOT-G07: Drive adaptiv aus Crest-Faktor (peak/RMS) ableiten
+            try:
+                _crest_p07 = float(np.max(np.abs(_mono_p07)) / max(np.sqrt(np.mean(_mono_p07**2)), 1e-8))
+                _drive_adaptive = float(np.clip(2.5 - _crest_p07 * 0.15, 1.0, 2.5))
+            except Exception:
+                _drive_adaptive = 1.5
+            params["drive"] = float(np.clip(params.get("drive", _drive_adaptive) * max(_p07_sat_scale, 0.5), 1.0, 2.5))
             logger.debug(
                 "Phase 07 soft_saturation guard: severity=%.2f preserve=%s → scale=%.2f "
                 "(strength=%.3f blend=%.3f drive=%.2f)",

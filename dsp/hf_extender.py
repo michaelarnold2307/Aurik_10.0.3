@@ -235,13 +235,15 @@ def select_hf_extension_strategy(context: dict, goal: dict) -> dict | None:
     elif sr_current <= 22050 or sr_current <= 44100:
         sr_target = 48000
 
-    # Determine strength based on goal
+    # §GEBOT-G08: Adaptive Strength — aus tatsächlichem Bandbreiten-Defizit ableiten
+    # Je größer das Defizit, desto höher die Stärke (aber gecapped für Natürlichkeit)
+    _bw_deficit = max(0.0, 1.0 - sr_current / max(sr_target, 1))
     if goal.get("quality_level") == "maximal":
-        strength = 0.4
+        strength = float(np.clip(0.25 + _bw_deficit * 0.50, 0.15, 0.60))
     elif goal.get("priority") == "transparency":
-        strength = 0.25
+        strength = float(np.clip(0.15 + _bw_deficit * 0.35, 0.10, 0.40))
     else:
-        strength = 0.3  # Default
+        strength = float(np.clip(0.20 + _bw_deficit * 0.40, 0.12, 0.50))
 
     params = {
         "sr_target": sr_target,
