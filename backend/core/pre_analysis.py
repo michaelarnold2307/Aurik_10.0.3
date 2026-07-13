@@ -358,6 +358,7 @@ def run_pre_analysis(
         _other_steps = {k: v for k, v in _step_fns.items() if k not in ("era", "genre")}
 
         if _clap_steps:
+
             def _run_era_genre_async() -> None:
                 """Hintergrund-Thread für Era+Genre (hat ROCm-Kontext)."""
                 for _name in ("era", "genre"):
@@ -426,8 +427,7 @@ def run_pre_analysis(
         try:
             _md_val = result.medium
             _genre_label = str(getattr(result.genre, "genre_label", "") or "")
-            _lang_code = str(getattr(result.genre, "language_code", "") or
-                           getattr(result.genre, "lang_code", "") or "")
+            _lang_code = str(getattr(result.genre, "language_code", "") or getattr(result.genre, "lang_code", "") or "")
             _chain = list(getattr(_md_val, "transfer_chain", []) or [])
 
             if _chain and _genre_label:
@@ -456,17 +456,11 @@ def run_pre_analysis(
 
             # 2. Genre + Sprache → Kette: Chain mit erweiterten Parametern neu matchen
             # Sort detected materials chronologically (reel_tape before cassette etc.)
-            _detected = sorted(
-                set(_chain),
-                key=lambda m: _detector._MEDIUM_ORDER.get(m, 99)
-            )
-            _refined_chain = _detector._best_matching_chain(
-                _detected, genre=_genre_label, language=_lang_code or None
-            )
+            _detected = sorted(set(_chain), key=lambda m: _detector._MEDIUM_ORDER.get(m, 99))
+            _refined_chain = _detector._best_matching_chain(_detected, genre=_genre_label, language=_lang_code or None)
             if _refined_chain and _refined_chain != _chain:
                 logger.info(
-                    "Bidirektionale Validierung: Kette verfeinert — %s → %s "
-                    "(Genre=%s, Sprache=%s)",
+                    "Bidirektionale Validierung: Kette verfeinert — %s → %s (Genre=%s, Sprache=%s)",
                     " → ".join(_chain),
                     " → ".join(_refined_chain),
                     _genre_label,
@@ -500,9 +494,7 @@ def run_pre_analysis(
                 _genre_label = str(getattr(result.genre, "genre_label", "") or "")
                 if _genre_label:
                     try:
-                        _detector_cv = _load_symbol(
-                            "forensics.medium_detector", "get_medium_detector"
-                        )()
+                        _detector_cv = _load_symbol("forensics.medium_detector", "get_medium_detector")()
                         _constraints_cv = _detector_cv.get_genre_constraints(_cv_chain)
                         _excluded_cv = set(_constraints_cv.get("excluded", []))
                         _genre_key_cv = _genre_label.lower().replace(" ", "_").replace("-", "_")
@@ -515,8 +507,11 @@ def run_pre_analysis(
 
             # Factor 3: Defect scanner material vs chain
             if result.defects is not None:
-                _def_mat = str(getattr(result.defects, "material_type", "") or
-                              getattr(result.defects, "auto_detected_material", "") or "")
+                _def_mat = str(
+                    getattr(result.defects, "material_type", "")
+                    or getattr(result.defects, "auto_detected_material", "")
+                    or ""
+                )
                 if _def_mat and _def_mat != "unknown":
                     if _def_mat in _cv_chain or any(_def_mat in m for m in _cv_chain):
                         _cv_agreements.append(f"Defect({_def_mat})")
@@ -526,8 +521,7 @@ def run_pre_analysis(
             # Report
             if _cv_conflicts:
                 logger.warning(
-                    "Cross-Validation: %d Konflikt(e) in Tonträgerkette — %s. "
-                    "Übereinstimmungen: %s. Confidence=%.2f",
+                    "Cross-Validation: %d Konflikt(e) in Tonträgerkette — %s. Übereinstimmungen: %s. Confidence=%.2f",
                     len(_cv_conflicts),
                     ", ".join(_cv_conflicts),
                     ", ".join(_cv_agreements) if _cv_agreements else "keine",
@@ -537,8 +531,7 @@ def run_pre_analysis(
                 # Boost confidence when multiple independent factors agree
                 _boost = min(0.15, len(_cv_agreements) * 0.05)
                 logger.info(
-                    "Cross-Validation: %d Faktoren stimmen überein (%s). "
-                    "Confidence %.2f → %.2f",
+                    "Cross-Validation: %d Faktoren stimmen überein (%s). Confidence %.2f → %.2f",
                     len(_cv_agreements),
                     ", ".join(_cv_agreements),
                     _cv_confidence,
@@ -546,7 +539,6 @@ def run_pre_analysis(
                 )
         except Exception as _cv_exc:
             logger.debug("Cross-Validation uebersprungen: %s", _cv_exc)
-
 
     _cb(96, "Kette wird rekonstruiert…")
 
@@ -568,28 +560,55 @@ def run_pre_analysis(
             _defect_material = None
             if result.defects is not None and hasattr(result.defects, "material_type"):
                 _dm = str(getattr(result.defects, "material_type", "")).lower()
-                _defmap = {"cassette": "cassette", "vinyl": "vinyl", "shellac": "shellac",
-                           "tape": "tape", "reel_tape": "reel_tape", "reel": "reel_tape",
-                           "cd_digital": "cd_digital", "dat": "dat"}
+                _defmap = {
+                    "cassette": "cassette",
+                    "vinyl": "vinyl",
+                    "shellac": "shellac",
+                    "tape": "tape",
+                    "reel_tape": "reel_tape",
+                    "reel": "reel_tape",
+                    "cd_digital": "cd_digital",
+                    "dat": "dat",
+                }
                 _defect_material = _defmap.get(_dm)
                 # §2.46a: Wenn der DefectScanner ein anderes Material auto-detektiert
                 # hat als der Hint, das auto-detektierte Material für die Kette verwenden.
                 _auto_dm = getattr(result.defects, "auto_detected_material", None)
                 if _auto_dm is not None:
                     _adm = str(_auto_dm).lower()
-                    for _suffix in [".cassette", ".vinyl", ".reel_tape", ".tape", ".shellac",
-                                    ".lacquer_disc", ".wire_recording", ".wax_cylinder"]:
+                    for _suffix in [
+                        ".cassette",
+                        ".vinyl",
+                        ".reel_tape",
+                        ".tape",
+                        ".shellac",
+                        ".lacquer_disc",
+                        ".wire_recording",
+                        ".wax_cylinder",
+                    ]:
                         if _adm.endswith(_suffix):
                             _adm = _suffix[1:]
                             break
                     _adm_mapped = _defmap.get(_adm)
                     if _adm_mapped and _adm_mapped != _defect_material:
-                        logger.info("pre_analysis: DefectScanner auto-detected %s (overrides hint %s)", _adm_mapped, _defect_material or "none")
+                        logger.info(
+                            "pre_analysis: DefectScanner auto-detected %s (overrides hint %s)",
+                            _adm_mapped,
+                            _defect_material or "none",
+                        )
                         _defect_material = _adm_mapped
 
             _physical = list(getattr(_md, "physical_analog_sources", []) or [])
-            _analog = {"shellac", "wax_cylinder", "vinyl", "tape", "reel_tape",
-                       "cassette", "lacquer_disc", "wire_recording"}
+            _analog = {
+                "shellac",
+                "wax_cylinder",
+                "vinyl",
+                "tape",
+                "reel_tape",
+                "cassette",
+                "lacquer_disc",
+                "wire_recording",
+            }
 
             # Kette bauen: neue Stufen VOR der digitalen Stufe einfügen.
             # §2.46a: _era_material ist das ORIGINAL-Aufnahmemedium und gehört
@@ -657,7 +676,8 @@ def run_pre_analysis(
                     "pre_analysis: Deep-Transfer-Chain: %s (injected=%s, era=%s, defect=%s)",
                     " → ".join(_chain),
                     ",".join(_injected) if _injected else "none",
-                    _era_material or "none", _defect_material or "none",
+                    _era_material or "none",
+                    _defect_material or "none",
                 )
         except Exception as _inj_exc:
             logger.debug("Deep-Transfer-Chain-Injection skipped: %s", _inj_exc)

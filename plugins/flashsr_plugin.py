@@ -184,9 +184,7 @@ def _run_flashsr_onnx(audio: np.ndarray, sr: int) -> np.ndarray | None:
             (n_total / sr) / max(dt, 0.001),
         )
 
-        result = np.clip(
-            np.nan_to_num(out_48k, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0
-        ).astype(np.float32)
+        result = np.clip(np.nan_to_num(out_48k, nan=0.0, posinf=0.0, neginf=0.0), -1.0, 1.0).astype(np.float32)
 
         if audio.ndim == 2 and audio.shape[0] == 2:
             result = np.stack([result, result], axis=0)
@@ -318,14 +316,8 @@ class FlashSRPlugin:
                 if out_sr != target_sr:
                     ml_result = self._resample(ml_result, out_sr, target_sr)
                 if mono_in and ml_result.ndim > 1:
-                    ml_result = (
-                        ml_result.mean(axis=-1)
-                        if ml_result.shape[-1] <= 2
-                        else ml_result[: ml_result.shape[0]]
-                    )
-                return np.clip(
-                    np.nan_to_num(ml_result.astype(np.float32), nan=0.0), -1.0, 1.0
-                )
+                    ml_result = ml_result.mean(axis=-1) if ml_result.shape[-1] <= 2 else ml_result[: ml_result.shape[0]]
+                return np.clip(np.nan_to_num(ml_result.astype(np.float32), nan=0.0), -1.0, 1.0)
             logger.debug("FlashSR: ML fehlgeschlagen – DSP-Kaskade aktiv.")
 
         # ---- DSP-Fallback ---------------------------------------------------
@@ -427,9 +419,7 @@ class FlashSRPlugin:
         up = target_sr // g
         down = orig_sr // g
         resampled = _resample_poly(x.astype(np.float64), up, down)
-        return np.clip(
-            np.nan_to_num(resampled.astype(np.float32), nan=0.0), -1.0, 1.0
-        )
+        return np.clip(np.nan_to_num(resampled.astype(np.float32), nan=0.0), -1.0, 1.0)
 
     # ------------------------------------------------------------------
     def process_files(self, input_dir: str, output_dir: str, target_sr: int = TARGET_SR) -> None:
@@ -443,9 +433,7 @@ class FlashSRPlugin:
             return
 
         _os.makedirs(output_dir, exist_ok=True)
-        wav_files = sorted(
-            f for f in _os.listdir(input_dir) if f.lower().endswith(".wav")
-        )
+        wav_files = sorted(f for f in _os.listdir(input_dir) if f.lower().endswith(".wav"))
         for wav_file in wav_files:
             in_path = _os.path.join(input_dir, wav_file)
             out_path = _os.path.join(output_dir, wav_file)
@@ -476,9 +464,8 @@ def _get_ml_model():
         return _onnx_session
     try:
         import onnxruntime as _ort
-        _onnx_session = _ort.InferenceSession(
-            str(_FLASHSR_ONNX_PATH), providers=["CPUExecutionProvider"]
-        )
+
+        _onnx_session = _ort.InferenceSession(str(_FLASHSR_ONNX_PATH), providers=["CPUExecutionProvider"])
         return _onnx_session
     except Exception as _exc:
         _onnx_failed = True

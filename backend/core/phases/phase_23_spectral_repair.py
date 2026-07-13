@@ -49,6 +49,7 @@ import numpy as np
 
 try:
     import psutil
+
     _PSUTIL_OK = True
 except ImportError:
     psutil = None  # type: ignore[assignment]
@@ -61,6 +62,7 @@ from backend.core.dsp.hallucination_guard import check_hallucination
 from backend.core.dsp.psychoacoustics import apply_psychoacoustic_masking_clamp
 from backend.core.lyrics_guided_enhancement import get_phoneme_mask
 from backend.core.ml_memory_budget import is_system_thrashing
+from backend.core.ml_model_readiness import check_ml_model_ready
 from backend.core.mrsa_zones import (
     ZONE_ORDER,
     ZONES,
@@ -77,7 +79,6 @@ from backend.core.plugin_lifecycle_manager import (
 from backend.core.quality_mode import QualityModeConfig, is_phase_ml_enabled, log_mode_decision
 
 from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
-from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -958,7 +959,9 @@ class SpectralRepair(PhaseInterface):
             # Only abort to inpainting as a last resort when < 1.5 GB free (hard-crash zone).
             _admm_ram_ok = True
             try:
-                _admm_avail_gb = psutil.virtual_memory().available / (1024**3) if _PSUTIL_OK else 4.0 if _PSUTIL_OK else 4.0
+                _admm_avail_gb = (
+                    psutil.virtual_memory().available / (1024**3) if _PSUTIL_OK else 4.0 if _PSUTIL_OK else 4.0
+                )
                 if _admm_avail_gb < 1.5:
                     logger.warning(
                         "phase_23: ADMM-OOM-Guard (Notfall) — nur %.1f GB frei, < 1.5 GB "
@@ -2111,7 +2114,9 @@ class SpectralRepair(PhaseInterface):
             # If RAM is critically low, treat zone as passthrough rather than risk a crash.
             if not _mrsa_budget_exceeded:
                 try:
-                    _mrsa_avail_gb = psutil.virtual_memory().available / (1024**3) if _PSUTIL_OK else 4.0 if _PSUTIL_OK else 4.0
+                    _mrsa_avail_gb = (
+                        psutil.virtual_memory().available / (1024**3) if _PSUTIL_OK else 4.0 if _PSUTIL_OK else 4.0
+                    )
                     if _mrsa_avail_gb < 1.0:
                         logger.warning(
                             "phase_23 MRSA: OOM-Guard — nur %.1f GB frei (< 1.0 GB) — Zone %d/%d als Passthrough",

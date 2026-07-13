@@ -96,7 +96,8 @@ else:
     from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult, create_phase_result
 
 import logging  # pylint: disable=wrong-import-position
-from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
+
+from backend.core.ml_model_readiness import check_ml_model_ready
 
 logger = logging.getLogger(__name__)
 
@@ -1095,9 +1096,11 @@ class FrequencyRestorationPhase(PhaseInterface):
         if _use_nvsr and NVSR_AVAILABLE and _get_nvsr_plugin is not None:
             try:
                 _nvsr = _get_nvsr_plugin()
-                _nvsr_strength = float(np.clip(params.get("restoration_strength", 0.7) * 0.80, 0.0, 0.85))
+                _nvsr_strength = float(np.clip(params.get("restoration_strength", 0.7), 0.0, 1.0))
                 _panns = float(params.get("panns_singing", 0.0))
-                _energy_bias = -6.0 if _panns >= 0.4 else (-9.0 if _panns < 0.1 else 0.0)
+                # NVSR-Plug-in handhabt Energy-Bias jetzt intern (0/−3 dB statt −6/−9 dB).
+                # Keine externe Dämpfung mehr nötig — das Plugin kalibriert selbst.
+                _energy_bias = 0.0
                 _nvsr_result = _nvsr.process(
                     dsp_restored,
                     self.sample_rate,

@@ -17,9 +17,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.core.pre_analysis import (
-    ProgressState,
-    PreAnalysisResult,
     _SUBSTEP_TIMEOUT_S,
+    PreAnalysisResult,
+    ProgressState,
     run_pre_analysis,
 )
 
@@ -81,6 +81,7 @@ class TestRunPreAnalysisFlow:
                 return lambda **kw: MockDefectScanner(**kw)
             if "restorability" in module:
                 return lambda audio, sr, **kw: MagicMock(score=64.0)
+
             # medium_detector
             class MockMedium:
                 primary_material = "vinyl"
@@ -90,15 +91,9 @@ class TestRunPreAnalysisFlow:
 
             return lambda: MagicMock(detect=lambda *a, **kw: MockMedium())
 
-        monkeypatch.setattr(
-            "backend.core.pre_analysis._load_symbol", mock_load_symbol
-        )
-        monkeypatch.setattr(
-            "backend.core.pre_analysis._store_in_cache", lambda *a: None
-        )
-        monkeypatch.setattr(
-            "backend.core.pre_analysis._load_cached_parts", lambda *a: {}
-        )
+        monkeypatch.setattr("backend.core.pre_analysis._load_symbol", mock_load_symbol)
+        monkeypatch.setattr("backend.core.pre_analysis._store_in_cache", lambda *a: None)
+        monkeypatch.setattr("backend.core.pre_analysis._load_cached_parts", lambda *a: {})
 
         import numpy as np
 
@@ -209,11 +204,8 @@ class TestRunPreAnalysisFlow:
         assert len(pcts) >= 3, f"Expected >= 3 progress callbacks, got {len(pcts)}: {pcts}"
         for i in range(1, len(pcts)):
             assert pcts[i] >= pcts[i - 1], (
-                f"Progress not monotonic: {pcts[i]} < {pcts[i-1]} at index {i}. Full: {pcts}"
+                f"Progress not monotonic: {pcts[i]} < {pcts[i - 1]} at index {i}. Full: {pcts}"
             )
-
-
-
 
 
 class TestAsyncEraGenre:
@@ -256,18 +248,20 @@ class TestAsyncEraGenre:
         monkeypatch.setattr("backend.core.pre_analysis._load_cached_parts", lambda *a: {})
 
         import numpy as np
+
         audio = np.zeros((44100, 2), dtype=np.float32)
 
         result = run_pre_analysis(
-            audio_native=audio, sr_native=44100,
-            file_path="/tmp/test.mp3", store_in_bridge_cache=False,
+            audio_native=audio,
+            sr_native=44100,
+            file_path="/tmp/test.mp3",
+            store_in_bridge_cache=False,
         )
 
         _elapsed = time.monotonic() - _start
         # Must complete in <3s (era/genre are async, don't block)
         assert _elapsed < 3.0, (
-            f"Pre-analysis took {_elapsed:.1f}s — should be <3s. "
-            "Era/Genre are ASYNC and must not block."
+            f"Pre-analysis took {_elapsed:.1f}s — should be <3s. Era/Genre are ASYNC and must not block."
         )
         # Defect + restorability must be present
         assert result.defects is not None, "Defects missing"
@@ -275,6 +269,7 @@ class TestAsyncEraGenre:
         # but errors must not contain era/genre failures
         assert "era" not in result.errors, f"Era should not have errors: {result.errors}"
         assert "genre" not in result.errors, f"Genre should not have errors: {result.errors}"
+
 
 class TestAsCompletedSemantics:
     """as_completed vs sequential — die GIL-Falle (§perf-era-genre)."""

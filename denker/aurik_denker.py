@@ -793,19 +793,20 @@ class AurikDenker:
         }
         return opportunities
 
-
     def _wd_phase_start(self, name: str) -> None:
         """Non-blocking watchdog phase start (ignores all errors)."""
         try:
             from backend.core.watchdog_monitor import get_watchdog
+
             get_watchdog().on_phase_start(name)
         except Exception:
             pass
 
-    def _wd_phase_end(self, name: str, audio: "np.ndarray | None" = None, sr: int = 48000) -> None:
+    def _wd_phase_end(self, name: str, audio: np.ndarray | None = None, sr: int = 48000) -> None:
         """Non-blocking watchdog phase end (ignores all errors)."""
         try:
             from backend.core.watchdog_monitor import get_watchdog
+
             if audio is not None:
                 get_watchdog().on_phase_end(name, audio, sr)
         except Exception:
@@ -1482,8 +1483,11 @@ class AurikDenker:
             if _globalplan is None:
                 try:
                     _globalplan = erstelle_globalplan(
-                        aktuelles_audio, sr, material=material,
-                        use_ml_classifiers=False, chain_info=chain_info,
+                        aktuelles_audio,
+                        sr,
+                        material=material,
+                        use_ml_classifiers=False,
+                        chain_info=chain_info,
                     )
                 except Exception:
                     pass  # auch DSP-Fallback fehlgeschlagen — downstream-Code muss None tolerieren
@@ -1492,8 +1496,9 @@ class AurikDenker:
 
         # Wissenschaftliche Signal-Signatur einmal zentral berechnen und in
         # Strategie-, Orchestrierungs- und Rollout-Entscheidungen wiederverwenden.
-        logger.debug("AurikDenker: berechne Signal-Signatur (%.1fs Audio, %d samples) …",
-                     audio_duration_s, aktuelles_audio.size)
+        logger.debug(
+            "AurikDenker: berechne Signal-Signatur (%.1fs Audio, %d samples) …", audio_duration_s, aktuelles_audio.size
+        )
         _t0_sig = time.perf_counter()
         _signal_signature = self._compute_signal_intelligence_signature(aktuelles_audio, sr)
         _dt_sig = time.perf_counter() - _t0_sig

@@ -978,6 +978,7 @@ class TestJazzVetoGuard:
 # §v10 Tests: CLAP-DSP-Konsistenz-Gate
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestClapDspConsistencyGateV10:
     """CLAP wird ignoriert, wenn es DSP-Ensemble systematisch unterdrückt."""
 
@@ -996,9 +997,11 @@ class TestClapDspConsistencyGateV10:
 
         # Mock CLAP: sehr niedriger Score
         original_clap = clf._compute_clap_score
+
         def fake_clap(*args, **kwargs):
             clf._clap_score_is_fallback = False
             return 0.10  # CLAP sagt: kein Schlager
+
         clf._compute_clap_score = fake_clap
 
         try:
@@ -1006,7 +1009,9 @@ class TestClapDspConsistencyGateV10:
             # CLAP 0.10 < 0.35, DSP-Mittel sollte ≥ 0.50 sein → Gate aktiv
             # Das Ergebnis sollte is_schlager=True haben (DSP erkennt Schlager)
             # oder zumindest nicht von CLAP runtergezogen sein
-            assert result.confidence >= 0.30,                 f"Confidence should not be dragged down by CLAP, got {result.confidence:.3f}"
+            assert result.confidence >= 0.30, (
+                f"Confidence should not be dragged down by CLAP, got {result.confidence:.3f}"
+            )
         finally:
             clf._compute_clap_score = original_clap
 
@@ -1019,9 +1024,11 @@ class TestClapDspConsistencyGateV10:
         audio = (np.random.randn(sr * 5) * 0.1).astype(np.float32)
 
         original_clap = clf._compute_clap_score
+
         def fake_clap(*args, **kwargs):
             clf._clap_score_is_fallback = False
             return 0.50  # CLAP moderat
+
         clf._compute_clap_score = fake_clap
 
         try:
@@ -1040,9 +1047,11 @@ class TestClapDspConsistencyGateV10:
         audio = (np.sin(2 * np.pi * 440 * t) * 0.3).astype(np.float32)
 
         original_clap = clf._compute_clap_score
+
         def fake_clap(*args, **kwargs):
             clf._clap_score_is_fallback = True
             return 0.35  # neutraler Fallback
+
         clf._compute_clap_score = fake_clap
 
         try:

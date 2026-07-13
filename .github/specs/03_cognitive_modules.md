@@ -721,6 +721,7 @@ STEREO_SAFE: bool = True            # L/R unabhängig
 
 Koordiniert `phase_19_de_esser` (DSP v4.0) und `phase_43_ml_deesser` (Hybrid v2.2)
 als präzises Team. Nach jeder De-Ess-Operation:
+
 - §AF DynamicsGuard: Envelope-Matching + Stereo-Balance-Check
 - §M VocalFormantGuard: F1-F4-Drift-Prüfung
 - Gender-adaptive Sibilance-Bänder (5-12 kHz)
@@ -740,6 +741,7 @@ VQI_TOLERANCE: float = 0.02          # Max VQI-Verlust
 ```
 
 5-stufige Pipeline nur auf Vocal-Material (PANNS > 0.25):
+
 1. Presence Recovery (2-6 kHz dynamischer EQ)
 2. Formant Enhancement (F1-F4, max 1.5 dB)
 3. Breath Intelligence (Atemgeräusche bewahren)
@@ -761,6 +763,7 @@ BLOCK_MS: int = 200               # Chirurgie-Blockgröße
 ```
 
 Chirurgische Dumpfheit-Entfernung:
+
 1. Block-basierte Muffling-Detektion (200 ms)
 2. Nur dumpfe Blöcke werden behandelt
 3. Graduelle High-Shelf-Anhebung ab 8 kHz
@@ -814,6 +817,7 @@ fließt in den finalen Qualitätsreport ein.
 ## §DENKER Entscheidungs-Intelligenz — Defekt→Phase→Stärke
 
 **Zentrale Denker-Dateien**:
+
 - `denker/phase_interaction_denker.py` — Phasen-Orchestrierung
 - `backend/core/vocal_no_harm_gate.py` — Gesangs-Schutz mit Material-Adaption
 
@@ -834,6 +838,7 @@ _VOCAL_GATE_MATERIAL_FLOOR = {
 ### Denker-Entscheidungskette
 
 Für jeden erkannten Defekt:
+
 1. **DefectScanner** → DefectType + Severity + Confidence
 2. **DefectPhaseMapper** → Primary + Secondary Phases
 3. **PhaseInteractionDenker** → Material-adaptive Selektion
@@ -942,7 +947,6 @@ unterschiedliche Spektral-/Zeit-Behandlung.
 
 ---
 
-
 ### v10-Amendment (2026-07-12)
 
 **LGE.is_loaded() Methode** (v10, 2026-07-12):
@@ -956,6 +960,7 @@ def is_loaded(self) -> bool:
 ```
 
 Diese Methode wird von `phoneme_cross_consistency.py` aufgerufen, um vor der Transkription zu prüfen, ob ein Modell-Backend geladen ist. Zuvor führte der Aufruf zu einem `AttributeError`, der als Fallback abgefangen wurde — die DSP-Segmentierung sprang ein. Mit der neuen Methode entfällt dieser Fallback-Pfad.
+
 ## §11.6 Plugin-Richtlinie (vollständige Liste)
 
 **Pflicht: Erst diese Liste prüfen, DANN neu schreiben.**
@@ -1317,9 +1322,9 @@ if not _tcg_result["temporal_consistent"]:
 
 Der EraClassifier korrigiert CLAP-Fehlklassifikationen an Dekaden-Grenzen
 basierend auf der physikalischen Bandbreite des Signals:
+
 - `rolloff < 8 kHz` → −3 Dekaden (AM-Radio/Schellack-Ära)
 - `rolloff < 12 kHz` → −2 Dekaden (frühes Tape/Vinyl)
 - `rolloff < 16 kHz` → −1 Dekade (pre-digitales Equipment)
 
 Implementiert in `backend/core/era_classifier.py` (§Decade-Boundary-Softener).
-

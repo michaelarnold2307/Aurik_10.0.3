@@ -1,4 +1,5 @@
  | §v10 Pleasantness-First
+
 # Aurik 10 — Spec 04: DSP-Standards & SOTA-Algorithmen
 >
 > Psychoakustische Fundierung, SOTA-Entscheidungsmatrix, Pflicht-Algorithmen.
@@ -7,7 +8,6 @@
 > erlauben die Klanggüte aus §0 — qualitativ hochwertigste automatisierte Restaurierung
 > für Musik mit Gesang weltweit. Algorithmen ab 2018 als Minimum.
 > Legacy-Algorithmen als Primärverarbeitung **VERBOTEN**.
-
 
 ### §4.11 ComfortGuard (v10.0.0-Phantom)
 

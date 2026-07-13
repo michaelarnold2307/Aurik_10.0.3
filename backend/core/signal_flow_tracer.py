@@ -386,9 +386,11 @@ class SignalFlowTracer:
             if flags:
                 # LEVEL_COLLAPSE on phase-correction phases = expected for
                 # heavily misaligned stereo material (cassette, reel_tape).
-                _pc_collapse = ("LEVEL_COLLAPSE" in " | ".join(flags)
-                    and phase_id and any(p in str(phase_id)
-                    for p in ("phase_14", "phase_25", "azimuth", "phase_correction")))
+                _pc_collapse = (
+                    "LEVEL_COLLAPSE" in " | ".join(flags)
+                    and phase_id
+                    and any(p in str(phase_id) for p in ("phase_14", "phase_25", "azimuth", "phase_correction"))
+                )
                 if _pc_collapse:
                     logger.info("§SFT %s FLAGS: %s", phase_id, " | ".join(flags))
                 else:

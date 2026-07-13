@@ -1368,23 +1368,20 @@ class EraClassifier:
             # Material-Floor-Prüfung: CLAP-Jahrzehnt muss ≥ Einführungsjahr
             # des analogen Trägermediums sein. Bsp: vinyl (floor=1950) +
             # CLAP=1930 → physikalisch unmöglich → Tier-2 DSP-Override.
-            _material_floor_violation = (
-                transfer_chain is not None
-                and any(
-                    MEDIUM_DECADE_FLOOR.get(m, 0) > _clap_decade
-                    for m in (str(t).lower().replace(" ", "_").replace("-", "_") for t in transfer_chain)
-                    if m
-                    in (
-                        "vinyl",
-                        "cassette",
-                        "shellac",
-                        "lacquer_disc",
-                        "wax_cylinder",
-                        "tape",
-                        "reel_tape",
-                        "wire_recording",
-                        "8track",
-                    )
+            _material_floor_violation = transfer_chain is not None and any(
+                MEDIUM_DECADE_FLOOR.get(m, 0) > _clap_decade
+                for m in (str(t).lower().replace(" ", "_").replace("-", "_") for t in transfer_chain)
+                if m
+                in (
+                    "vinyl",
+                    "cassette",
+                    "shellac",
+                    "lacquer_disc",
+                    "wax_cylinder",
+                    "tape",
+                    "reel_tape",
+                    "wire_recording",
+                    "8track",
                 )
             )
             if _stereo_violation or _hf_violation or _analog_era_violation or _material_floor_violation:
@@ -1443,11 +1440,19 @@ class EraClassifier:
                     logger.info(
                         "🕰️ Decade-Boundary-Softener: %d→%d (CLAP-conf=%.2f, rolloff=%.0fHz, steps=%d) — "
                         "analog characteristics suggest earlier decade",
-                        _original, _corrected, result.confidence, _rolloff, _steps,
+                        _original,
+                        _corrected,
+                        result.confidence,
+                        _rolloff,
+                        _steps,
                     )
-                    result = dc_replace(result, decade=_corrected, era_label=f"{_corrected}er",
-                                       material_prior=DECADE_MATERIAL_PRIOR.get(_corrected, result.material_prior),
-                                       confidence=result.confidence * 0.85)
+                    result = dc_replace(
+                        result,
+                        decade=_corrected,
+                        era_label=f"{_corrected}er",
+                        material_prior=DECADE_MATERIAL_PRIOR.get(_corrected, result.material_prior),
+                        confidence=result.confidence * 0.85,
+                    )
 
         # Tier-2: DSP-Fingerprint (multi-factor) — immer als Sanity-Check für CLAP Tier-1.
         # CLAP ist ein general-purpose Audio-Modell und kein Ära-Spezialist.
@@ -1467,11 +1472,7 @@ class EraClassifier:
         )
         if result is None or result.confidence < 0.40:
             result = _tier2_result
-        elif (
-            _tier2_result.confidence >= 0.35
-            and _tier2_result.decade != result.decade
-            and result.tier_used == 1
-        ):
+        elif _tier2_result.confidence >= 0.35 and _tier2_result.decade != result.decade and result.tier_used == 1:
             # DSP widerspricht CLAP Tier-1 — DSP ist physikalisch fundiert,
             # CLAP ist general-purpose. Bei Diskrepanz DSP bevorzugen.
             logger.info(
@@ -1566,12 +1567,15 @@ class EraClassifier:
         # Eine MP3-Datei von 1985 wurde ursprünglich auf Vinyl/Band
         # veröffentlicht — Aurik soll das ORIGINAL-Medium restaurieren.
         _digital_materials = {"cd_digital", "mp3_low", "mp3_high", "streaming", "unknown", "dat", "minidisc"}
-        if (result.decade < 1990 and result.material_prior in _digital_materials):
+        if result.decade < 1990 and result.material_prior in _digital_materials:
             _original_medium = DECADE_MATERIAL_PRIOR.get(result.decade, "unknown")
             if _original_medium not in _digital_materials:
                 logger.info(
                     "🕰️ Original-Medium-Inference: decade=%d → %s (override %s → %s)",
-                    result.decade, _original_medium, result.material_prior, _original_medium,
+                    result.decade,
+                    _original_medium,
+                    result.material_prior,
+                    _original_medium,
                 )
                 result = dc_replace(result, material_prior=_original_medium)
 

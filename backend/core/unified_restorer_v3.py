@@ -8989,20 +8989,24 @@ class UnifiedRestorerV3:
                 _lag_spread = _lag_profile["max_spread"]
                 _lag_points = _lag_profile.get("points", [])
 
-                _pts_str = ", ".join(
-                    f"{frac*100:.0f}%→{lag}" for frac, lag in _lag_points
-                ) if _lag_points else "n/a"
+                _pts_str = ", ".join(f"{frac * 100:.0f}%→{lag}" for frac, lag in _lag_points) if _lag_points else "n/a"
 
                 if _lag_consistent:
                     logger.info(
                         "LAG_PROBE 0B: lag=%d samples (%.1f ms) — KONSISTENT (spread=%d, points=[%s])",
-                        _lp0b_lag, _lp0b_lag / sample_rate * 1000, _lag_spread, _pts_str,
+                        _lp0b_lag,
+                        _lp0b_lag / sample_rate * 1000,
+                        _lag_spread,
+                        _pts_str,
                     )
                 else:
                     logger.warning(
                         "LAG_PROBE 0B: lag=%d samples (%.1f ms) — VARIIERT (spread=%d, points=[%s]). "
                         "Median-Korrektur + STCG für Residuale.",
-                        _lp0b_lag, _lp0b_lag / sample_rate * 1000, _lag_spread, _pts_str,
+                        _lp0b_lag,
+                        _lp0b_lag / sample_rate * 1000,
+                        _lag_spread,
+                        _pts_str,
                     )
                 # §G13/F1: Globaler Interchannel-Lag MUSS vor Phase 1 korrigiert werden.
                 # Der Lag wird PRÄZISE via GCC-PHAT gemessen (kein statischer Offset).

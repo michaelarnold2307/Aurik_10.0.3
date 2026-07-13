@@ -287,7 +287,7 @@ class NvsrPlugin:
             _e_out = float(np.mean(np.abs(_Zout[_hf_mask]) ** 2)) + 1e-20
             hf_added_db = float(10.0 * np.log10(_e_out / _e_in))
         except Exception:
-            logger.warning("nvsr_plugin.py::_process_dsp_sbr fallback", exc_info=True)
+            logger.debug("nvsr_plugin.py::_process_dsp_sbr energy calc fallback", exc_info=True)
 
         self._last_route_metadata = self._metadata(
             strategy="dsp_sbr",
@@ -348,31 +348,55 @@ class NvsrPlugin:
 
         # Einhüllende glätten (zeitlich: 3-Frame, spektral: Gliding-Mean)
         src_env = np.maximum(src_mag, 1e-12)
-        kernel = np.ones(3) / 3.0
-        src_env_smooth = np.apply_along_axis(lambda x: np.convolve(x, kernel, mode="same"), axis=1, arr=src_env)
+
+        # Vektorisiertes Temporal-Smoothing (3-Frame Median für Transienten-Erhalt)
+        # Median-Filter erhält Attack-Flanken besser als Mean-Filter
+        from scipy.ndimage import median_filter as _medfilt
+        src_env_smooth = _medfilt(src_env.astype(np.float64), size=(1, 3)).astype(np.float32)
+
+        # Transienten-Erkennung: spektrale Energie-Differenz zwischen benachbarten Frames
+        # Ein Frame ist transient, wenn die Energie > 3× des gleitenden Mittelwerts ist
+        _frame_energy = np.sum(src_env_smooth, axis=0)  # (T,)
+        _frame_energy_smooth = np.convolve(_frame_energy, np.ones(5)/5.0, mode='same')
+        _is_transient = _frame_energy > np.maximum(_frame_energy_smooth * 3.0, 1e-8)
 
         # Zielband-Energie via Harmonik-Ratio (Frequenz-Skalierung ×2)
         n_src_bins = src_high_bin - src_low_bin + 1
         n_tgt_bins = tgt_high_bin - tgt_low_bin + 1
 
         # Resample Quelle → Ziel über lineare Interpolation der Magnitude
+        # Harmonische Struktur: spektrale Peaks im Quellband werden exakt auf
+        # die Zielband-Positionen abgebildet (Frequenzverdopplung)
         src_bins_norm = np.linspace(0.0, 1.0, n_src_bins)
         tgt_bins_norm = np.linspace(0.0, 1.0, n_tgt_bins)
         tgt_mag = np.zeros((n_tgt_bins, Zxx.shape[1]), dtype=np.float32)
         for t_idx in range(Zxx.shape[1]):
-            tgt_mag[:, t_idx] = np.interp(tgt_bins_norm, src_bins_norm, src_env_smooth[:, t_idx]).astype(np.float32)
+            _src_frame = src_env_smooth[:, t_idx]
+            # Harmonische Peak-Erkennung: lokale Maxima im Quellspektrum
+            _peaks = np.zeros(n_src_bins, dtype=bool)
+            _peaks[1:-1] = (_src_frame[1:-1] > _src_frame[:-2]) & (_src_frame[1:-1] > _src_frame[2:])
+            _peaks &= _src_frame > np.mean(_src_frame) * 1.5  # nur signifikante Peaks
+            # Peak-Weighted Interpolation: Peaks werden mit 2× Gewichtung interpoliert
+            _weights = np.ones(n_src_bins, dtype=np.float32)
+            _weights[_peaks] = 2.0  # harmonische Peaks doppelt gewichten
+            _interp_base = np.interp(tgt_bins_norm, src_bins_norm, _src_frame).astype(np.float32)
+            _interp_peak = np.interp(tgt_bins_norm, src_bins_norm, _src_frame * _weights / np.mean(_weights)).astype(np.float32)
+            # Blend: 70% Peak-Weighted + 30% Base für natürliche Textur
+            tgt_mag[:, t_idx] = _interp_peak * 0.7 + _interp_base * 0.3
 
-        # HF-Rolloff: Energie nimmt mit steigender Frequenz ab (−6 dB/Oktave Faustregel)
-        rolloff_slope = np.linspace(1.0, 0.25, n_tgt_bins, dtype=np.float32)
+        # HF-Rolloff: Energie nimmt mit steigender Frequenz moderat ab (−3 dB/Oktave effektiv)
+        # Faustregel: natürliche Instrumente haben ~3–6 dB/Oktave HF-Abfall oberhalb 8 kHz
+        rolloff_slope = np.linspace(1.0, 0.50, n_tgt_bins, dtype=np.float32)
         tgt_mag = tgt_mag * rolloff_slope[:, np.newaxis]
 
-        # Energy bias (§0j): bei Gesang −6 dB, Instrumental −9 dB
+        # Energy bias (§0j): natürliche HF-Energie ohne künstliche Dämpfung
+        # Gesang behält volle Energie, Instrumental −3 dB für natürlichen Abfall
         if panns_singing >= 0.4:
-            _bias = -6.0 + energy_bias_db
+            _bias = 0.0 + energy_bias_db  # Gesang: volle HF-Präsenz
         elif panns_singing >= 0.1:
-            _bias = energy_bias_db
+            _bias = -3.0 + energy_bias_db  # Mix: moderate Dämpfung
         else:
-            _bias = -9.0 + energy_bias_db
+            _bias = -3.0 + energy_bias_db  # Instrumental: natürlicher Abfall
         bias_lin = 10.0 ** (_bias / 20.0)
         tgt_mag = tgt_mag * float(bias_lin)
 
@@ -398,16 +422,19 @@ class NvsrPlugin:
         Zxx_out = Zxx.copy()
         tgt_complex = tgt_mag * np.exp(1j * tgt_phase)
 
-        # Smooth-Blending an der Grenze src→tgt (2 Bins Crossfade)
+        # Smooth-Blending an der Grenze src→tgt (4 Bins Crossfade, final=1.0)
+        # Transienten-Schutz: bei Attack-Frames SBR-Stärke reduzieren
         _crossfade_bins = min(4, n_tgt_bins)
-        _fade_in = np.linspace(0.0, 1.0, _crossfade_bins + 2)[1:-1]  # (crossfade_bins,)
+        _fade_in = np.linspace(0.0, 1.0, _crossfade_bins + 2)[1:]  # [0.2, 0.4, 0.6, 0.8, 1.0]
         for bi, tb in enumerate(range(tgt_low_bin, tgt_high_bin + 1)):
             if tb < n_freq:
-                if bi < _crossfade_bins:
+                if bi < len(_fade_in):
                     fade = _fade_in[bi]
                 else:
                     fade = 1.0
-                Zxx_out[tb, :] = (1.0 - fade * strength) * Zxx[tb, :] + fade * strength * tgt_complex[bi, :]
+                # Transiente Frames: SBR auf 30% reduzieren für pristine Attacks
+                _frame_strength = np.where(_is_transient, strength * 0.3, strength)
+                Zxx_out[tb, :] = (1.0 - fade * _frame_strength) * Zxx[tb, :] + fade * _frame_strength * tgt_complex[bi, :]
 
         # iSTFT
         _, channel_sbr = _sp_signal.istft(Zxx_out, fs=sr, nperseg=N_FFT, noverlap=N_FFT - HOP, boundary="even")
@@ -521,14 +548,16 @@ class NvsrPlugin:
         else:
             out_audio = out
 
-        # Blend with DSP SBR for safety (DSP handles envelope coherence)
-        dsp_ref = self._process_dsp_sbr(audio, sr, target_hz, strength, energy_bias_db, 0.0)["audio"]
-        # FlashSR-Output stärker gewichten (0.7×ONNX + 0.3×DSP) weil neuronale Synthese
-        # präzisere Feinstruktur liefert als deterministische SBR
-        onnx_weight = min(strength * 1.4, 0.85)  # bis zu 85% ONNX-Anteil
+        # Blend mit DSP SBR für envelope-Kohärenz (minimaler DSP-Anteil)
+        dsp_ref = self._process_dsp_sbr(audio, sr, target_hz, min(strength * 0.15, 0.10), energy_bias_db, 0.0)["audio"]
+        # FlashSR-Output dominant (95% ONNX + 5% DSP) — neuronale Synthese liefert
+        # präzisere Feinstruktur als deterministische SBR. DSP-Anteil dient nur
+        # als envelope-guard gegen extreme Ausreißer.
+        onnx_weight = min(strength * 1.2, 0.95)  # bis zu 95% ONNX-Anteil
         blended = np.clip(
             (1.0 - onnx_weight) * np.asarray(dsp_ref, dtype=np.float32) + onnx_weight * out_audio,
-            -1.0, 1.0,
+            -1.0,
+            1.0,
         )
 
         self._last_route_metadata = self._metadata(

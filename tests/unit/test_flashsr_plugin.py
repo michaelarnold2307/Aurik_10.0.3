@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ── SBR-DSP fallback ──────────────────────────────────────────────────
+
 
 def test_flashsr_hf_extend_uses_sbr_fallback(monkeypatch):
     """SBR-DSP fallback works when spectral exciter fails."""
@@ -34,12 +34,16 @@ def test_flashsr_hf_extend_uses_sbr_fallback(monkeypatch):
 
 # ── SBR spectral extension ────────────────────────────────────────────
 
-@pytest.mark.parametrize("label,audio", [
-    ("white noise", lambda: np.random.randn(48000).astype(np.float32) * 0.05),
-    ("sine 1kHz", lambda: (np.sin(2 * np.pi * 1000 * np.arange(48000) / 48000)).astype(np.float32) * 0.3),
-    ("silence", lambda: np.zeros(48000, dtype=np.float32)),
-    ("soft clip", lambda: np.clip(np.random.randn(96000).astype(np.float32) * 0.5, -0.3, 0.3)),
-])
+
+@pytest.mark.parametrize(
+    "label,audio",
+    [
+        ("white noise", lambda: np.random.randn(48000).astype(np.float32) * 0.05),
+        ("sine 1kHz", lambda: (np.sin(2 * np.pi * 1000 * np.arange(48000) / 48000)).astype(np.float32) * 0.3),
+        ("silence", lambda: np.zeros(48000, dtype=np.float32)),
+        ("soft clip", lambda: np.clip(np.random.randn(96000).astype(np.float32) * 0.5, -0.3, 0.3)),
+    ],
+)
 def test_sbr_output_validity(label, audio):
     """SBR-DSP produces valid output for various signal types."""
     from plugins.flashsr_plugin import FlashSRPlugin
@@ -69,6 +73,7 @@ def test_sbr_adds_spectral_energy():
 
 # ── Code quality: no obsolete patches ─────────────────────────────────
 
+
 def test_no_obsolete_patches_in_source():
     """Verify old GPU/mixed-device patches are fully removed."""
     with open("plugins/flashsr_plugin.py", encoding="utf-8") as f:
@@ -76,8 +81,8 @@ def test_no_obsolete_patches_in_source():
 
     obsolete = [
         ("_fsm.cpu()", "old ROCm-Fix v2: first_stage_model CPU move"),
-        ('GPU-DDIM fehlgeschlagen', "old GPU-DDIM recovery message"),
-        ('CPU-Retry fehlgeschlagen', "old CPU-Retry recovery message"),
+        ("GPU-DDIM fehlgeschlagen", "old GPU-DDIM recovery message"),
+        ("CPU-Retry fehlgeschlagen", "old CPU-Retry recovery message"),
         ("_patched_mel2wav", "old mel2wav monkey-patch"),
         ("_patched_decode", "old decode monkey-patch"),
         ('build_model(model_name="basic", device=str(_dev))', "old dynamic device selection"),
@@ -97,10 +102,8 @@ def test_flashsr_onnx_architecture():
         code = f.read()
 
     assert "onnxruntime" in code, "FlashSR must use onnxruntime"
-    assert "FlashSR" in code or "flashsr" in code.lower(), \
-        "Plugin must reference FlashSR"
-    assert "build_model" not in code, \
-        "torch build_model must not exist in FlashSR plugin"
+    assert "FlashSR" in code or "flashsr" in code.lower(), "Plugin must reference FlashSR"
+    assert "build_model" not in code, "torch build_model must not exist in FlashSR plugin"
 
 
 def test_warning_suppression_not_needed():
@@ -108,8 +111,7 @@ def test_warning_suppression_not_needed():
     with open("plugins/flashsr_plugin.py", encoding="utf-8") as f:
         code = f.read()
 
-    assert 'weight_norm' not in code, \
-        "weight_norm warning suppression not needed for ONNX"
+    assert "weight_norm" not in code, "weight_norm warning suppression not needed for ONNX"
 
 
 def test_no_torch_nan_cleanup():
@@ -117,11 +119,11 @@ def test_no_torch_nan_cleanup():
     with open("plugins/flashsr_plugin.py", encoding="utf-8") as f:
         code = f.read()
 
-    assert "for _p in model.parameters()" not in code, \
-        "Old torch parameter NaN cleanup must not exist"
+    assert "for _p in model.parameters()" not in code, "Old torch parameter NaN cleanup must not exist"
 
 
 # ── Plugin structure ──────────────────────────────────────────────────
+
 
 def test_plugin_has_required_methods():
     """Plugin exposes the expected public and private API."""
@@ -138,16 +140,17 @@ def test_plugin_has_required_methods():
 def test_flashsr_memory_budget():
     """FlashSR ONNX model uses < 500 MB (vs 7 GB for old AudioSR)."""
     import os
+
     onnx_path = "models/nvsr/nvsr.onnx"
     if os.path.exists(onnx_path):
         size_mb = os.path.getsize(onnx_path) / (1024 * 1024)
-        assert size_mb < 500, \
-            f"FlashSR ONNX model {size_mb:.0f} MB exceeds 500 MB budget"
+        assert size_mb < 500, f"FlashSR ONNX model {size_mb:.0f} MB exceeds 500 MB budget"
     else:
         pytest.skip("FlashSR ONNX model not found")
 
 
 # ── SBR band-limited extension ────────────────────────────────────────
+
 
 def test_sbr_extends_band_limited_signal():
     """SBR/Exciter produzieren gültiges Output für bandlimitiertes Signal.
@@ -177,6 +180,7 @@ def test_sbr_extends_band_limited_signal():
 
 # ── Backward compatibility ────────────────────────────────────────────
 
+
 def test_flashsr_plugin_alias_exists():
     """AudioSRPlugin is an alias for FlashSRPlugin."""
     from plugins.flashsr_plugin import AudioSRPlugin, FlashSRPlugin
@@ -186,7 +190,7 @@ def test_flashsr_plugin_alias_exists():
 
 def test_get_flashsr_plugin_returns_flashsr():
     """get_flashsr_plugin() returns FlashSRPlugin instance."""
-    from plugins.flashsr_plugin import get_flashsr_plugin, FlashSRPlugin
+    from plugins.flashsr_plugin import FlashSRPlugin, get_flashsr_plugin
 
     p = get_flashsr_plugin()
     assert isinstance(p, FlashSRPlugin)
@@ -195,10 +199,10 @@ def test_get_flashsr_plugin_returns_flashsr():
 def test_backward_compat_functions_exist():
     """Backward-compat functions are available."""
     from plugins.flashsr_plugin import (
+        _get_ml_model,
+        allow_reset_ml_model_failed,
         has_flashsr_ml_failed,
         unload_flashsr,
-        allow_reset_ml_model_failed,
-        _get_ml_model,
     )
 
     assert callable(has_flashsr_ml_failed)

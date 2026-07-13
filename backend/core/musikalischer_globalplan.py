@@ -743,8 +743,11 @@ class MusikalischerGlobalplanDienst:
             reasoning.append("ML-Klassifikatoren deaktiviert (use_ml_classifiers=False) — DSP-only")
 
         if decade is None:
-            logger.debug("MusikalischerGlobalplan: DSP-only Ära-Pfad (use_ml_classifiers=%s, hint_decade=%s)",
-                        use_ml_classifiers, hint_decade)
+            logger.debug(
+                "MusikalischerGlobalplan: DSP-only Ära-Pfad (use_ml_classifiers=%s, hint_decade=%s)",
+                use_ml_classifiers,
+                hint_decade,
+            )
             # Reuse the calibrated DSP era path instead of the old 95 %-energy bandwidth,
             # which overestimates modern bandwidth on bass-heavy music and pushes tape→MP3
             # transfers into the 1990s.

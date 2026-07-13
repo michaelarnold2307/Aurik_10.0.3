@@ -15834,7 +15834,7 @@ class ModernMainWindow(QMainWindow):
             if _preanalysis_pending and _p >= 99.8:
                 # Live preanalysis step from _on_preanalysis_step callback,
                 # otherwise the generic "wird finalisiert" fallback.
-                _step_msg = getattr(self, '_preanalysis_step_msg', None)
+                _step_msg = getattr(self, "_preanalysis_step_msg", None)
                 _finalizing_text = _step_msg if _step_msg else "⏳ Analyse wird finalisiert …"
                 _bar.setRange(0, 10000)
                 _bar.setValue(10000)
@@ -15847,7 +15847,7 @@ class ModernMainWindow(QMainWindow):
                 return
             _bar.setValue(min(10000, int(round(_p * 100.0))))
             # Show live preanalysis step message if available, otherwise scan progress
-            _step_msg = getattr(self, '_preanalysis_step_msg', None)
+            _step_msg = getattr(self, "_preanalysis_step_msg", None)
             if _step_msg and _p >= 75.0:
                 _bar.setFormat(_step_msg)
             else:
@@ -16165,13 +16165,14 @@ class ModernMainWindow(QMainWindow):
                     return  # double-fire guard
                 self._preanalysis_finalized_for = _cfk
                 # §W-POST-ANALYSIS: Watchdog prüft Pre-Analysis-Ergebnis
-                _pa_result = getattr(self, '_latest_pre_analysis_result', None)
+                _pa_result = getattr(self, "_latest_pre_analysis_result", None)
                 if _pa_result is not None:
-                    _pa_errors = getattr(_pa_result, 'errors', {}) or {}
+                    _pa_errors = getattr(_pa_result, "errors", {}) or {}
                     if _pa_errors:
                         logger.warning(
                             "Watchdog: Pre-Analysis degradiert — %d Schritt(e) fehlgeschlagen: %s",
-                            len(_pa_errors), ', '.join(f'{k}={v}' for k, v in _pa_errors.items()),
+                            len(_pa_errors),
+                            ", ".join(f"{k}={v}" for k, v in _pa_errors.items()),
                         )
                     else:
                         logger.info("Watchdog: Pre-Analysis vollständig — alle Schritte OK")
@@ -16226,15 +16227,18 @@ class ModernMainWindow(QMainWindow):
                     self.status_text.setText(_msg)
                     self._apply_status_text_style("success")
                 self._set_magic_buttons_enabled(True)
+
                 # Pre-load AurikDenker singleton so BatchProcessingThread
                 # doesn't hang on first import (denker.aurik_denker is heavy).
                 def _preload_denker() -> None:
                     try:
                         from backend.api.bridge import get_aurik_denker_instance
+
                         get_aurik_denker_instance()
                         logger.info("AurikDenker vorgeladen — bereit")
                     except Exception as _e:
                         logger.warning("AurikDenker-Vorladung fehlgeschlagen: %s", _e)
+
                 threading.Thread(target=_preload_denker, daemon=True, name="denker-preload").start()
 
             def _fail_closed_preanalysis(reason: str) -> None:
@@ -16394,6 +16398,7 @@ class ModernMainWindow(QMainWindow):
                         except RuntimeError:
                             break
                         time.sleep(3.0)
+
                 _ticker_thread = None
 
                 def _on_scan_progress(pct: float) -> None:
@@ -16405,9 +16410,7 @@ class ModernMainWindow(QMainWindow):
                     _scan_ticker_val[0] = _capped
                     # Start ticker when DefectScan nears completion (>60%%)
                     if pct > 90.0 and _ticker_thread is None:
-                        _ticker_thread = threading.Thread(
-                            target=_scan_ticker, daemon=True, name="aurik-scan-ticker"
-                        )
+                        _ticker_thread = threading.Thread(target=_scan_ticker, daemon=True, name="aurik-scan-ticker")
                         _ticker_thread.start()
                     try:
                         self.emit_load_progress(float(_capped))
@@ -16419,11 +16422,13 @@ class ModernMainWindow(QMainWindow):
                     """Forward pre-analysis step progress to GUI status text AND progress bar."""
                     _scan_ticker_active[0] = False  # Stop ticker, real progress incoming
                     try:
-                        self.dispatch_to_gui(lambda _p=pct, _m=msg: (
-                            setattr(self, '_preanalysis_step_msg', _m),
-                            setattr(self, '_preanalysis_step_pct', _p),
-                            self.emit_load_progress(float(_p)),
-                        ))
+                        self.dispatch_to_gui(
+                            lambda _p=pct, _m=msg: (
+                                setattr(self, "_preanalysis_step_msg", _m),
+                                setattr(self, "_preanalysis_step_pct", _p),
+                                self.emit_load_progress(float(_p)),
+                            )
+                        )
                     except RuntimeError:
                         pass  # Window closed
 
@@ -16884,23 +16889,24 @@ class ModernMainWindow(QMainWindow):
 
             def _preanalysis_liveness_check() -> None:
                 nonlocal _last_step_check_time
-                while getattr(self, '_preanalysis_pending', False):
+                while getattr(self, "_preanalysis_pending", False):
                     time.sleep(15.0)
-                    if not getattr(self, '_preanalysis_pending', False):
+                    if not getattr(self, "_preanalysis_pending", False):
                         break
                     _elapsed = time.monotonic() - _last_step_check_time
                     # Check if progress has advanced since last check
-                    _cur_pct = getattr(self, '_preanalysis_step_pct', 0)
+                    _cur_pct = getattr(self, "_preanalysis_step_pct", 0)
                     if _cur_pct > _last_step_pct_val[0]:
                         _last_step_pct_val[0] = _cur_pct
                         _last_step_check_time = time.monotonic()
                         _elapsed = 0.0
                     if _elapsed > 60.0:
-                        _cur_step = getattr(self, '_preanalysis_step_msg', '')
+                        _cur_step = getattr(self, "_preanalysis_step_msg", "")
                         logger.warning(
                             "§W-PREANALYSIS-LIVENESS: Kein Fortschritt seit %.0fs. "
                             "Letzter Schritt: '%s'. Erzwinge Gate-Time-out.",
-                            _elapsed, _cur_step or '(keiner)',
+                            _elapsed,
+                            _cur_step or "(keiner)",
                         )
                         self._preanalysis_timeout_fired = True
                         self._try_signal_preanalysis_done("era_genre")
@@ -18557,16 +18563,18 @@ class ModernMainWindow(QMainWindow):
             _bar_pct = self.progress_bar.value() / 100.0 if self.progress_bar.maximum() > 0 else 0.0
         except RuntimeError:
             _bar_pct = 0.0
-        _step_pct = getattr(self, '_preanalysis_step_pct', 0)
-        _step_msg = getattr(self, '_preanalysis_step_msg', '')
+        _step_pct = getattr(self, "_preanalysis_step_pct", 0)
+        _step_msg = getattr(self, "_preanalysis_step_msg", "")
         # Suppress during valid preanalysis→restoration transition
-        _pre_pending = getattr(self, '_preanalysis_pending', False)
+        _pre_pending = getattr(self, "_preanalysis_pending", False)
         if _step_msg and abs(_bar_pct - _step_pct) > 15.0 and _pre_pending:
-            _last_stale_warn = getattr(self, '_last_progress_stale_warn', 0.0)
+            _last_stale_warn = getattr(self, "_last_progress_stale_warn", 0.0)
             if time.monotonic() - _last_stale_warn > 30.0:
                 logger.warning(
                     "§W-PROGRESS-STALE: Bar=%.1f%% Step=%d%% Msg='%s' — Progress-Streams entkoppelt",
-                    _bar_pct, _step_pct, _step_msg,
+                    _bar_pct,
+                    _step_pct,
+                    _step_msg,
                 )
                 self._last_progress_stale_warn = time.monotonic()
         QTimer.singleShot(0, lambda: setattr(self, "_in_tick_heartbeat", False))

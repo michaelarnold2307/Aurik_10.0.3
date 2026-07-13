@@ -50,11 +50,11 @@ _MEDIUM_ORDER: dict[str, int] = {
     "lacquer_disc": 0,
     "shellac": 0,
     "wire_recording": 0,
-    "reel_tape": 0,   # Original-Aufnahmemedium (kommt VOR Vinyl-Pressung)
-    "tape": 0,         # Original-Aufnahmemedium
+    "reel_tape": 0,  # Original-Aufnahmemedium (kommt VOR Vinyl-Pressung)
+    "tape": 0,  # Original-Aufnahmemedium
     # Analoge Kopien/Vervielfältigungen (Ära 1) — vom Quellmedium abgeleitet
-    "vinyl": 1,        # Schallplatten-Pressung aus Tape-Master
-    "cassette": 1,     # Bandkopie
+    "vinyl": 1,  # Schallplatten-Pressung aus Tape-Master
+    "cassette": 1,  # Bandkopie
     # Verlustfreie Digitalformate (Ära 2)
     "dat": 2,
     "cd_digital": 2,
