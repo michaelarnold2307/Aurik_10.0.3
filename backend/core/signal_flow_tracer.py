@@ -288,6 +288,12 @@ class SignalFlowTracer:
             pre = pre[:n]
             post = post[:n]
 
+            # §v10.0.4: LEVEL_COLLAPSE-Prüfung auf mittleren 80% des Signals
+            # (vermeidet Filter-Ring-in/out False-Positives bei EQ/Loudness-Phasen)
+            _trim_start = n // 10
+            _trim_end = n - n // 10
+            _post_mid = post[_trim_start:_trim_end] if _trim_end > _trim_start else post
+
             # ── Basis-Metriken ────────────────────────────────────────────────
             peak_pre = _to_db_peak(pre)
             peak_post = _to_db_peak(post)
@@ -352,7 +358,14 @@ class SignalFlowTracer:
                 flags.append(f"SILENCE_CONTAMINATION ({silence_energy:.1f} dBFS)")
 
             if rms_post < _LEVEL_COLLAPSE_DBFS:
-                flags.append(f"LEVEL_COLLAPSE (rms={rms_post:.1f} dBFS)")
+                # §v10.0.4: Kreuzvalidierung mit mittlerem Signal-Segment
+                # (vermeidet Filter-Ring-in False-Positives)
+                _rms_mid_db = _to_db_rms(_post_mid)
+                if _rms_mid_db < _LEVEL_COLLAPSE_DBFS:
+                    flags.append(f"LEVEL_COLLAPSE (rms={rms_post:.1f} dBFS, mid={_rms_mid_db:.1f} dBFS)")
+                else:
+                    logger.debug("§SFT %s: LEVEL_COLLAPSE false-positive (full=%.1f mid=%.1f dBFS)",
+                                phase_id, rms_post, _rms_mid_db)
 
             # ── Phase-Record erstellen ────────────────────────────────────────
             elapsed = time.monotonic() - self._session_start
