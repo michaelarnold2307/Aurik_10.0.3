@@ -1372,7 +1372,7 @@ class UnifiedRestorerV3:
         no force-kill. Call this from the UI watchdog instead of terminate().
         """
         self._graceful_stop_event.set()
-        logger.warning("UV3: §0c graceful stop requested — pipeline will export best checkpoint after current phase")
+        logger.info("UV3: §0c graceful stop requested — pipeline will export best checkpoint after current phase")
 
     @staticmethod
     def _musical_gain_envelope(
