@@ -645,13 +645,15 @@ class MusicalQualityAssurance:
         _snr_baseline = baseline.snr_db if baseline is not None else 0.0
         _SNR_RAMP_LOW = 28.0  # below this baseline SNR: only 0.3 dB min improvement
         _SNR_RAMP_HIGH = 38.0  # above this baseline SNR: standard 3.0 dB min improvement
+        # §v10.0.4: Bei sehr niedriger Baseline (≤28dB) ist eine leichte SNR-Verschlechterung
+        # (−0.5 dB) akzeptabel, da NR bei schwachem Signal auch Signalenergie entfernen kann.
         if _snr_baseline <= _SNR_RAMP_LOW:
-            _min_snr_improvement = 0.3
+            _min_snr_improvement = -0.5  # allow slight SNR loss for very noisy sources
         elif _snr_baseline >= _SNR_RAMP_HIGH:
             _min_snr_improvement = 3.0
         else:
             _t = (_snr_baseline - _SNR_RAMP_LOW) / (_SNR_RAMP_HIGH - _SNR_RAMP_LOW)
-            _min_snr_improvement = 0.3 + 2.7 * _t**1.5  # smooth power-ramp
+            _min_snr_improvement = -0.5 + 3.5 * _t**1.5
 
         # Target-floor-Rampe (statt fixer 55%):
         # Bei sehr niedriger Baseline darf das harte Medium-Ziel nicht als implizite
