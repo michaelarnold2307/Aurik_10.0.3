@@ -200,6 +200,10 @@ class StereoWidthEnhancerPhase(PhaseInterface):
                          diffuse (bool, default True)
                          iacc_guard (bool, default True)
         """
+
+        # §v10.16 Normalize stereo orientation to (N,2) for consistent processing
+        if isinstance(audio, np.ndarray) and audio.ndim == 2 and audio.shape[0] == 2 and audio.shape[1] > 2:
+            audio = np.ascontiguousarray(audio.T)
         sample_rate = kwargs.get("sample_rate", 48000)
         assert sample_rate == 48000, f"SR muss 48000 Hz sein, erhalten: {sample_rate}"
         audio, _p48_transposed = to_channels_last(audio)
