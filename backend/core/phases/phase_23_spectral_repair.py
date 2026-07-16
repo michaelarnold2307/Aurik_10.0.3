@@ -468,49 +468,15 @@ class SpectralRepair(PhaseInterface):
     def _has_sufficient_ml_headroom(self, audio: np.ndarray, sample_rate: int) -> bool:
         """Gibt True when enough physical RAM is available for FlashSR stage zurück.
 
-        Guard 1 — material check: FlashSR bandwidth extension is the wrong tool for
-        lossy-codec artifacts (MP3/AAC ringing, pre-echo, masking throughout spectrum).
-        DSP spectral inpainting is more appropriate; never load 5.9 GB for this.
+        Guard 1 — bandwidth-driven (§FSR-GATE v10.13): FlashSR läuft immer, wenn
+        die geschätzte Bandbreite unter dem Zielwert liegt. Kein Material-Gate mehr.
+        FlashSR wurde für maximalen Wohlklang entwickelt.
 
         Guard 2 — channel-aware RAM check (§2.38a): stereo doubles inference working
         memory; empirical per-minute inference buffer overhead is added.
         """
-        # Guard 1: FlashSR nur für bekannte Analog-Quellen erlaubt (Allowlist-Prinzip).
-        # Bug-16b-Fix: Blocklist {"mp3_low", ...} verhindert nicht "unknown" — bei unbekanntem
-        # Material lädt FlashSR trotzdem → OOM. Allowlist verlangt positive Analog-Evidenz.
-        # FlashSR trainiert auf Analog-Bandbreitenverlust (Shellac ≤7 kHz, Tape ≤12 kHz).
-        # Für "unknown", cd_digital, dat, mp3*, aac, streaming: DSP-Inpainting überlegen.
-        _ANALOG_ALLOW_AUDIOSR: frozenset[str] = frozenset(
-            {
-                "vinyl",
-                "shellac",
-                "tape",
-                "reel_tape",
-                "wax_cylinder",
-                "cassette",
-                "lacquer_disc",
-                "wire_recording",
-            }
-        )
-        _mat = getattr(self, "_current_material", None)
-        if _mat not in _ANALOG_ALLOW_AUDIOSR:
-            self._ml_guard_events.append(
-                {
-                    "phase_id": "phase_23_spectral_repair",
-                    "model": "FlashSR",
-                    "reason": "lossy_codec_material_dsp_preferred",
-                    "required_gb": 0.0,
-                    "available_gb": 0.0,
-                    "channels": 0,
-                    "duration_s": 0.0,
-                    "fallback": "dsp_inpainting",
-                }
-            )
-            logger.info(
-                "SpectralRepair: FlashSR skipped — material '%s' not in analog allowlist — DSP inpainting preferred",
-                _mat,
-            )
-            return False
+        # Guard 1 (v10.13): Kein Material-Gate — rein qualitätsgetrieben.
+        # FlashSR läuft wenn Bandbreite unter Zielwert.
 
         # Guard 2: channel-aware physical RAM check (§2.38a)
         # Aurik internal format: (N,) mono or (N, ch) stereo — first axis is always samples.

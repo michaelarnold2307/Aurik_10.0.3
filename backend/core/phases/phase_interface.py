@@ -105,6 +105,8 @@ class PhaseResult:
     ml_used: bool = False
     quality_estimate: float = 1.0  # 0–1
     success: bool = True  # True = Phase erfolgreich abgeschlossen
+    # §v10.15: 2s-Ausschnitt VOR der Phase für A/B-Vergleich im UI
+    audio_before_snippet: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         # Sicherheits-Invarianten: NaN/Inf bereinigen, clipping (§3.1)

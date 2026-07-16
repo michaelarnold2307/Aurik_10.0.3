@@ -179,6 +179,12 @@ class WowFlutterFix(PhaseInterface):
         self.name = "Wow & Flutter Correction v2 Professional"
         self._quality_mode_hint: str = "quality"
         self._quality_first_unleashed: bool = False
+        # §P3 Chunk-Overlap-State: Hält die letzten 1 s Audio des vorherigen
+        # Chunks für Crossfade an Chunk-Grenzen, um Artefakte durch UV3-
+        # Chunking (typisch 5 s) zu eliminieren.
+        self._chunk_overlap_tail: np.ndarray | None = None
+        self._chunk_overlap_sr: int = 48000
+        self._chunk_overlap_dur_s: float = 1.0  # 1 s overlap = 20 % bei 5 s Chunks
 
     @staticmethod
     def _compute_adaptive_threshold_profile(
@@ -413,13 +419,46 @@ class WowFlutterFix(PhaseInterface):
 
         _original_audio = np.asarray(audio, dtype=np.float32).copy()
 
+        # §P3 Chunk-Overlap: Wenn ein vorheriger Chunk existiert, prepend den
+        # 1s-Überlapp mit Crossfade, um Artefakte an Chunk-Grenzen zu eliminieren.
+        _overlap_samples = int(self._chunk_overlap_dur_s * sample_rate)
+        _chunk_has_overlap = False
+        if self._chunk_overlap_tail is not None and self._chunk_overlap_tail.size > 0:
+            _tail = self._chunk_overlap_tail
+            if _tail.shape == audio.shape or (_tail.ndim == audio.ndim):
+                _tail_len = min(_overlap_samples, _tail.shape[0])
+                _crossfade_len = min(_tail_len, _original_audio.shape[0])
+                if _crossfade_len > 0:
+                    _tail_use = _tail[-_tail_len:] if _tail.shape[0] >= _tail_len else _tail
+                    # Hanning-crossfade an der Chunk-Grenze
+                    _fade_in = np.hanning(_crossfade_len * 2)[:_crossfade_len]
+                    _fade_out = 1.0 - _fade_in
+                    if _original_audio.ndim == 2 and _tail_use.ndim == 1:
+                        _tail_use = np.column_stack([_tail_use, _tail_use])
+                    if _original_audio.ndim == 2:
+                        _fade_in = _fade_in[:, np.newaxis]
+                        _fade_out = _fade_out[:, np.newaxis]
+                    _overlap_region = _tail_use[:_crossfade_len] * _fade_out.astype(np.float32) + \
+                                      _original_audio[:_crossfade_len] * _fade_in.astype(np.float32)
+                    _original_audio[:_crossfade_len] = _overlap_region
+                    _chunk_has_overlap = True
+                    logger.debug("Phase 12 chunk-overlap: crossfaded %d samples from previous chunk",
+                                 _crossfade_len)
+            self._chunk_overlap_tail = None  # consumed
+
         # §2.60/§2.51 STCG pre-phase: L/R-Alignment VOR Chunk-Verarbeitung.
         # Phase 12's M/S-domain processing (§2.51) prevents NEW L/R time drift,
         # but it must START with aligned channels. A residual lag from earlier
         # pipeline stages (DC-offset removal, TDP) will cause the M/S matrix to
         # mix temporally offset channels, creating phantom spatial artefacts.
         # Sub-sample correction via GCC-PHAT + scipy.ndimage.shift.
-        if audio.ndim == 2:
+        # §v10.13: STCG NUR auf vollständigem Audio (≥15s), nicht auf Chunks.
+        # MP3-Joint-Stereo-Artefakte auf 5s-Chunks werden von XCorr als
+        # Zeitversatz fehlinterpretiert → unterschiedliche Korrekturen pro
+        # Chunk erzeugen echten L/R-Drift. Der M/S-Gleichlauf-Fix (Side =
+        # selber Algorithmus wie Mid) verhindert Lag-Entstehung ohne STCG.
+        _p12_dur_s = audio.shape[0] / sample_rate if audio.ndim >= 1 else 0.0
+        if audio.ndim == 2 and _p12_dur_s >= 15.0:
             try:
                 from backend.core.stereo_temporal_coherence_guard import (
                     get_stereo_temporal_coherence_guard,
@@ -909,6 +948,25 @@ class WowFlutterFix(PhaseInterface):
             _timing_safe_strength,
             max_stretch_delta=_max_stretch_delta,
         )
+        # §P5 Wow/Flutter getrennt korrigieren: Wow (<4 Hz, langsam) und Flutter
+        # (4-100 Hz, schnell) haben verschiedene physikalische Ursachen und brauchen
+        # unterschiedliche Korrektur-Strategien. Wow (Capstan-Unwucht) → stärkere
+        # und breitere Korrektur. Flutter (mechanische Vibration) → konservativere
+        # Korrektur mit engerem Stretch-Delta.
+        _wow_stretch = self._calculate_stretch_factors(
+            pitch_trajectory,
+            confidence,
+            _timing_safe_strength * 1.10,  # wow: 10 % more aggressive
+            max_stretch_delta=_max_stretch_delta,
+        )
+        _flutter_stretch = self._calculate_stretch_factors(
+            pitch_trajectory,
+            confidence,
+            _timing_safe_strength * 0.70,  # flutter: 30 % more conservative
+            max_stretch_delta=_max_stretch_delta * 0.60,  # narrower delta for fast variations
+        )
+        # Blend: 55 % wow + 45 % flutter (wow is the dominant perceptual component)
+        stretch_factors = _wow_stretch * 0.55 + _flutter_stretch * 0.45
         _locality_coverage = 0.0
         stretch_factors, _locality_coverage = self._apply_defect_locality_to_stretch_factors(
             stretch_factors,
@@ -958,7 +1016,12 @@ class WowFlutterFix(PhaseInterface):
             #   L_out = Mid_out + Side_out = L_in[src_pos[t]]  (mathematisch exakt)
             #   R_out = Mid_out - Side_out = R_in[src_pos[t]]  (mathematisch exakt)
             # Beide Kanäle erhalten dasselbe src_pos-Mapping → ZERO L/R Zeitversatz.
-            # PSOLA läuft ausschließlich im Mono-Pfad (unten) wo es kein L/R gibt.
+            #
+            # §v10.12 PSOLA-Side: Wenn PSOLA für Mid aktiv ist (vocals_conf >= 0.40),
+            # wird PSOLA auch für Side verwendet — mit denselben Pitch-Marken vom Mid-
+            # Kanal (§P4). Das erhält die Formant-Treue im räumlichen Anteil (Hall,
+            # Sibilanten, Stereobreite) und verhindert den Kohärenzverlust zwischen
+            # Direktsignal und Raum.
             _left_ch, _right_ch = stereo_channel_view(audio)
             _mid_ch = (_left_ch.astype(np.float32) + _right_ch.astype(np.float32)) * 0.5
             _side_ch = (_left_ch.astype(np.float32) - _right_ch.astype(np.float32)) * 0.5
@@ -968,14 +1031,22 @@ class WowFlutterFix(PhaseInterface):
             # Zeitauflösungen → L = Mid+Side und R = Mid-Side erhalten zeitlich inkohärente
             # Summanden → sichtbarer L/R Zeitversatz im Wellenformbild.
             # Fix: Phase-Vocoder für Mid UND Side im Stereo-M/S-Pfad.
-            # PSOLA läuft ausschließlich im Mono-Pfad (where it was designed for).
+            # §P4: Bei Vokal-Aktivierung PSOLA für BEIDE M/S-Kanäle (gleiche Pitch-Marken).
             _mid_stretched = (
                 self._harmonic_isolated_timestretch(_mid_ch, stretch_factors, sample_rate)
                 if _use_harm_iso
-                else self._phase_vocoder_timestretch(_mid_ch, stretch_factors, sample_rate)
+                else (_stretch_fn(_mid_ch, stretch_factors, sample_rate))
             )
-            # Side: Phase-Vocoder — exakt dasselbe Algorithmus/Timing wie Mid
-            _side_stretched = self._phase_vocoder_timestretch(_side_ch, stretch_factors, sample_rate)
+            # Side: SELBER Algorithmus wie Mid (§2.51 Timing-Invariante, v10.13 fix).
+            # Unterschiedliche Algorithmen (PSOLA vs Phase-Vocoder) erzeugen
+            # verschiedene effektive Zeitauflösungen → L/R-Zeitversatz beim
+            # M/S-Rekomponieren. Der Algorithmus wird allein durch _use_harm_iso
+            # bzw. _stretch_fn bestimmt, identisch für Mid und Side.
+            _side_stretched = (
+                self._harmonic_isolated_timestretch(_side_ch, stretch_factors, sample_rate)
+                if _use_harm_iso
+                else _stretch_fn(_side_ch, stretch_factors, sample_rate)
+            )
             # §2.51 Amplitudenkorrektur: PSOLA ist NICHT amplitudenerhaltend.
             # OLA-Windowing dämpft das Mid-Signal typisch um 5–8 dB → MDEM/correct_arc
             # messen diesen Drop im Mono-Downmix und triggern Makeup-Gain auf ALLE Frames
@@ -1261,6 +1332,20 @@ class WowFlutterFix(PhaseInterface):
             restored,
             material,
         )
+        # §GGB-1: Global Gain Budget — cap cumulative makeup gain
+        if _makeup_db > 0.0:
+            try:
+                from backend.core.global_gain_budget import get_global_gain_budget
+                _approved = get_global_gain_budget().request(
+                    "phase_12_wow_flutter_fix", _makeup_db, priority="normal"
+                )
+                if _approved < _makeup_db:
+                    _scale = float(10.0 ** ((_approved - _makeup_db) / 20.0))
+                    restored = restored * _scale + _original_audio * (1.0 - _scale)
+                    restored = np.clip(restored, -1.0, 1.0)
+                    _makeup_db = _approved
+            except Exception:
+                pass
         if abs(_makeup_db) > 0.01:
             logger.info(
                 "Phase 12 loudness-preservation: material=%s rms_drop=%+.2f dB via makeup %+.2f dB",
@@ -1423,8 +1508,7 @@ class WowFlutterFix(PhaseInterface):
         if orig.shape != proc.shape:
             return np.clip(np.asarray(processed_audio, dtype=np.float32), -1.0, 1.0), 0.0, 0.0
 
-        # Preventive timing safety: re-align stereo channels before loudness math.
-        # This avoids false loudness-drop detection from L/R anti-phase drift.
+        # §v10.13 SOTA: Normierte XCorr, kein ≥15s-Guard nötig.
         _stcg_applied = False
         if proc.ndim == 2:
             try:
@@ -3144,28 +3228,45 @@ class WowFlutterFix(PhaseInterface):
     def _phase_vocoder_timestretch(
         self, audio: np.ndarray, stretch_factors: np.ndarray, _sample_rate: int
     ) -> np.ndarray:
-        """
-        Wendet an: time-varying WSOLA-style time mapping for wow/flutter correction.
+        """Wendet an: time-varying phase-coherent time-stretching via STFT phase vocoder.
 
-        Uses per-frame stretch factors interpolated to sample-rate, followed by a
-        monotonic source-position mapping and band-limited interpolation. This keeps
-        output length constant while avoiding the coarse average-stretch approximation.
+        §PV1 replaces the old WSOLA-like np.interp resample with a professional
+        STFT-based phase vocoder (Laroche & Dolson 1999; Driedger & Müller 2016).
+        Uses instantaneous frequency estimation, phase propagation across frames,
+        and overlap-add reconstruction — the same class of algorithm as iZotope RX
+        and Capstan.
+
+        Falls back to WSOLA (np.interp) if the phase vocoder module is unavailable.
 
         Args:
             audio: Mono audio samples
             stretch_factors: Time-varying stretch factors (one per pitch window)
-            sample_rate: Sample rate
+            _sample_rate: Sample rate
 
         Returns:
-            Time-stretched audio
+            Time-stretched audio, same length as input
         """
         if len(audio) < 8 or len(stretch_factors) == 0:
             return audio.copy()
 
+        try:
+            from backend.core.dsp.phase_vocoder import phase_vocoder_timestretch
+            return phase_vocoder_timestretch(
+                audio, stretch_factors, _sample_rate,
+                n_fft=self.STFT_WINDOW_SIZE,
+                hop_ratio=self.PITCH_HOP_FACTOR,
+            )
+        except Exception as _pv_exc:
+            logger.debug("§PV1 phase vocoder unavailable (%s) — fallback to WSOLA", _pv_exc)
+            return self._phase_vocoder_wsola_fallback(audio, stretch_factors)
+
+    def _phase_vocoder_wsola_fallback(
+        self, audio: np.ndarray, stretch_factors: np.ndarray
+    ) -> np.ndarray:
+        """WSOLA-style fallback via np.interp — used when STFT phase vocoder is unavailable."""
         audio_f = np.nan_to_num(np.asarray(audio, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         n_samples = len(audio_f)
 
-        # Interpolate frame-wise stretch factors to sample resolution.
         sf = np.asarray(stretch_factors, dtype=np.float32)
         sf = np.clip(sf, 0.90, 1.10)
         if len(sf) == 1:
@@ -3175,10 +3276,8 @@ class WowFlutterFix(PhaseInterface):
             dst_idx = np.arange(n_samples, dtype=np.float32)
             sf_samples = np.interp(dst_idx, src_idx, sf).astype(np.float32)
 
-        # Smooth micro-jitter in factor curve (preserve wow contour, suppress zipper noise).
         try:
             from scipy.signal import savgol_filter
-
             win = max(5, (n_samples // 400) | 1)
             win = min(win, n_samples if n_samples % 2 == 1 else n_samples - 1)
             if win >= 5:
@@ -3190,12 +3289,9 @@ class WowFlutterFix(PhaseInterface):
         if np.max(np.abs(sf_samples - 1.0)) < 0.002:
             return audio.copy()
 
-        # Local source-step: stretch>1 => slower playback => smaller source increment.
         src_step = 1.0 / np.clip(sf_samples, 0.85, 1.15)
         src_pos = np.cumsum(src_step)
         src_pos -= src_pos[0]
-
-        # Normalize mapping to consume exactly the available source range.
         max_pos = float(src_pos[-1]) + 1e-12
         src_pos *= (n_samples - 1) / max_pos
         src_pos = np.clip(src_pos, 0.0, n_samples - 1)

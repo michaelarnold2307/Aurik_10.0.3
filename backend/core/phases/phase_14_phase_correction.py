@@ -455,6 +455,23 @@ class PhaseCorrection(PhaseInterface):
         )
         if _local_coverage14 > 0.0:
             corrected_audio = self._blend_with_locality(audio, corrected_audio, _local_profile14)
+
+        # §PHROT-1 v10.13: MP3-Phasenrotator (20–200 Hz, ≤30°).
+        # Verbessert Mono-Kompatibilität bei MP3-kodiertem Material, ohne
+        # die Ära-Authentizität zu zerstören. Non-blocking.
+        _terminal_codec_p14 = str(kwargs.get("terminal_codec", "")).lower()
+        if "mp3" in _terminal_codec_p14:
+            try:
+                from backend.core.dsp.phase_rotator import apply_phase_rotator
+                corrected_audio = apply_phase_rotator(
+                    corrected_audio, sample_rate,
+                    low_freq=20.0, high_freq=200.0,
+                    max_rotation_deg=30.0, strength=0.15,
+                )
+                logger.debug("§PHROT-1: Phase-Rotator applied (mp3, 20-200Hz, ≤30°)")
+            except Exception as _prot_exc:
+                logger.debug("§PHROT-1: Phase-Rotator skipped (%s)", _prot_exc)
+
         return PhaseResult(
             success=True,
             audio=corrected_audio,

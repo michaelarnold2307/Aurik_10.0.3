@@ -319,14 +319,37 @@ def process_in_adaptive_chunks(
 
         # §GEBOT-G42: Stereo-Lag-Integrität nach jedem Chunk
         # Chunked-Phase-Prozessoren können L/R-Versatz einführen.
+        # §v10.13 SOTA: Normalized time-domain cross-correlation on the
+        # full chunk (reliable even on 5 s segments, unlike GCC-PHAT).
+        # Peak value is Pearson's r [0,1]; threshold 0.1 cleanly
+        # separates correlated L/R from uncorrelated noise.
         if is_stereo and processed.ndim == 2 and processed.shape[0] == 2:
             try:
-                from backend.core.stereo_temporal_coherence_guard import (
-                    get_stereo_temporal_coherence_guard as _get_stcg_chunk,
-                )
-                processed = _get_stcg_chunk().correct_interchannel_delay(
-                    processed, sr, phase_id="chunk_post"
-                )
+                _ch_l = processed[0].astype(np.float64)
+                _ch_r = processed[1].astype(np.float64)
+                _ch_n = len(_ch_l)
+                if _ch_n >= 1024:
+                    # Normalized cross-correlation via scipy (FFT-accelerated)
+                    from scipy.signal import correlate as _sp_corr
+                    _l_ms = _ch_l - float(np.mean(_ch_l))
+                    _r_ms = _ch_r - float(np.mean(_ch_r))
+                    _l_std = float(np.std(_l_ms)) + 1e-12
+                    _r_std = float(np.std(_r_ms)) + 1e-12
+                    _corr = _sp_corr(_l_ms / (_l_std * _ch_n), _r_ms / _r_std, method='fft')
+                    _center = _ch_n - 1
+                    _max_lag = min(int(sr * 0.2), _center)  # ±200 ms search
+                    _lo = max(0, _center - _max_lag)
+                    _hi = min(len(_corr), _center + _max_lag + 1)
+                    _search = _corr[_lo:_hi]
+                    _peak = float(np.max(np.abs(_search)))
+                    if _peak >= 0.1:
+                        _lag = int(np.argmax(np.abs(_search))) - _max_lag
+                        if abs(_lag) > 1:  # ≥1 sample correction threshold
+                            from scipy.ndimage import shift as _nd_shift
+                            _r_corrected = _nd_shift(_ch_r.astype(np.float64),
+                                                      float(_lag), mode='constant', cval=0.0, order=3)
+                            processed = np.vstack([_ch_l[np.newaxis, :],
+                                                   _r_corrected[np.newaxis, :]]).astype(np.float32)
             except Exception:
                 pass
 

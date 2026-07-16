@@ -33378,7 +33378,7 @@ class UnifiedRestorerV3:
                 # v9.15.1: 3000 → 4200 — non-exempt elapsed bis 3103 s bei 225 s-Songs
                 # unter Swap-Druck gemessen; 3000 s Budget ließ phase_25/26/27 überspringen.
                 # phase_29 + phase_64 jetzt EXEMPT → kein non-exempt Budget mehr nötig für diese.
-                "cassette": 4200.0,
+                "cassette": 4800.0,  # v10.15: 4200→4800 — 4365s non-exempt gemessen
                 "lacquer_disc": 2700.0,
                 "minidisc": 1800.0,
                 "mp3_low": 1800.0,

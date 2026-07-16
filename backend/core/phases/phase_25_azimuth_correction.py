@@ -364,8 +364,8 @@ class AzimuthCorrectionPhaseV2(PhaseInterface):
         azimuth_profile = self._compute_azimuth_profile(material_key, quality_mode, restorability_score)
         self._xcorr_window_samples_current = int(azimuth_profile["xcorr_window_samples"])
 
-        # Only applicable to TAPE
-        if material_enum != MaterialType.TAPE:
+        # Only applicable to TAPE, CASSETTE, and REEL_TAPE (all share tape-head azimuth physics)
+        if material_enum not in {MaterialType.TAPE, MaterialType.CASSETTE, MaterialType.REEL_TAPE}:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             audio = np.clip(audio, -1.0, 1.0)
             return PhaseResult(

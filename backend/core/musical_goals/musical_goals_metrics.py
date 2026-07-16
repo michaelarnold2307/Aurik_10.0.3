@@ -4197,7 +4197,12 @@ class MusicalGoalsChecker:
                     logger.warning("measure_all: goal=%s failed: %s — using 0.0", goal_name, _metric_exc)
                     scores[goal_name] = 0.0
             _dt = time.perf_counter() - _t0
-            if _dt > 8.0:  # §v10.0.4: 5.0→8.0 — waerme-Spektralanalyse auf 225s dauert 6.1s
+            # §v10.17: Per-Goal-Timeout (15s). Ein Goal (z.B. authentizitaet mit MERT, 114s)
+            # darf nicht ALLE anderen Goals killen. Bei Timeout → neutral 0.5 statt Gesamtausfall.
+            if _dt > 15.0:
+                logger.error("measure_all: goal=%s TIMEOUT after %.1fs — using neutral 0.5", goal_name, _dt)
+                scores[goal_name] = 0.5
+            elif _dt > 8.0:  # §v10.0.4: 5.0→8.0 — waerme-Spektralanalyse auf 225s dauert 6.1s
                 logger.warning("measure_all: goal=%s took %.1f s", goal_name, _dt)
             else:
                 logger.debug("measure_all: goal=%s %.3f s", goal_name, _dt)

@@ -56,6 +56,7 @@ import scipy.signal as sig
 from scipy.ndimage import median_filter
 
 from backend.core.audio_utils import restore_layout, to_channels_last
+from backend.core.ml_model_readiness import check_ml_model_ready  # noqa: E402
 from backend.core.restoration_policy import get_effective_song_goal_weights
 
 from .phase_interface import (

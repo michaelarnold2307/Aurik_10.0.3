@@ -613,15 +613,20 @@ class ArtifactFreedomGate:
         if _per_phase_mode and not all_artifacts and (noise_penalty < 0.0 or _rs_penalty < 0.0):
             detail["soft_penalty_only"] = True
 
-        # §1.4a FailReason when artifact_freedom < 0.95
+        # §v10.17: Material-abhängiger Veto-Schwellwert.
+        # Kassette/Vinyl/Schellack DÜRFEN Transport-Bumps und Knistern haben.
+        _MATERIAL_VETO = {"cd_digital":0.95,"digital":0.95,"mp3_high":0.90,"aac":0.90,
+                          "mp3_low":0.85,"vinyl":0.80,"cassette":0.75,"tape":0.80,
+                          "reel_tape":0.80,"shellac":0.65,"wax_cylinder":0.60}
+        _veto = float(_MATERIAL_VETO.get(mat_key, 0.90))
         _afg_fr = None
-        if artifact_freedom < 0.95:
+        if artifact_freedom < _veto:
             _afg_fr = make_fail_reason(
                 "ArtifactFreedomGate",
                 "ARTIFACT_VETO",
                 severity="failed",
                 action="rollback",
-                details=f"artifact_freedom={artifact_freedom:.4f} < 0.95, {len(all_artifacts)} artifacts detected",
+                details=f"artifact_freedom={artifact_freedom:.4f} < {_veto} (material={mat_key}), {len(all_artifacts)} artifacts detected",
             )
 
         return ArtifactFreedomResult(

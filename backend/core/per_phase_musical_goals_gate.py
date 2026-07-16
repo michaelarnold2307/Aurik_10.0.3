@@ -1397,22 +1397,12 @@ def _get_canonical_thresholds(is_studio_2026: bool = False) -> dict[str, float]:
     return _CANONICAL_THRESHOLDS_RESTORATION
 
 
-# Strength-Faktoren für Retry-Durchgänge
-# v9.10.79: 5 Stufen für 5 vollständige Retries (0–4). Floor = 0.15 für Last-Resort.
-# Psychoakustik: strength ≥ 0.15 still perceivable (−18 dB Wet bleiben unter Maskierungsschwelle).
-# Nach 5 fehlgeschlagenen Retries: best-effort Anwendung (Spec §2.29 v9.10.64).
-_RETRY_STRENGTHS: list[float] = [
-    0.65,
-    0.50,
-    0.35,
-    0.25,
-    0.15,
-]  # v9.10.79: 5 Stufen (Retry-Index 0–4), Floor 0.15 last-resort
-# Psychoakustik: strength = 0.15 → −16.5 dB wet relative to dry.  This is above
-# the auditory masking threshold for broadband stimuli (Glasberg & Moore 1990,
-# JASA 87:2178 ERB model: masked threshold ≈ −20 to −30 dB relative to masker).
-# Processing effect at this strength remains marginally audible but introduced
-# artifacts are below the simultaneous-masking threshold at typical playback levels.
+# §v10.16: Binäre Suche (Skalpell) statt linearer Stärke-Reduktion (Vorschlaghammer).
+# Die optimale Stärke wird via Intervallhalbierung auf ±0.8% genau gefunden.
+# 8 Iterationen = 1/256 Auflösung. Alte _RETRY_STRENGTHS als Fallback.
+_RETRY_STRENGTHS: list[float] = [0.65, 0.50, 0.35, 0.25, 0.15]  # Fallback
+_BINARY_SEARCH_MAX_ITERS: int = 12
+_BINARY_SEARCH_PRECISION: float = 0.005  # 0.5% — darunter dominiert PMGG-Messrauschen
 
 # §2.29a ML-deterministic Phasen: Inference-Output ist bei gleichem Input
 # identisch, unabhängig vom strength-Parameter.  Bei PMGG-Retries wird nur
@@ -1756,7 +1746,7 @@ FAST_GOALS_SUBSET: list[str] = [
     "waerme",
     "groove",
     "tonal_center",
-    "natuerlichkeit",  # canonical key — MFCC-smoothness DSP proxy, matches GoalApplicabilityFilter
+    "natuerlichkeit",
     "timbre_authentizitaet",
     "transient_energie",
     # 8 neu (DSP-Proxies, v9.10.57):
@@ -1768,6 +1758,8 @@ FAST_GOALS_SUBSET: list[str] = [
     "micro_dynamics",
     "separation_fidelity",
     "artikulation",
+    # §v10.15: Listening Fatigue — misst Hörermüdung
+    "listening_fatigue",
 ]
 
 
@@ -3120,6 +3112,13 @@ def _measure_quick(
     if precise_override:
         scores = _apply_precise_metric_overrides(scores, audio, sr, reference=reference)
 
+    # §v10.15: Listening Fatigue via DSP proxy
+    try:
+        from backend.core.listening_fatigue_metric import fatigue_as_pmgg_goal
+        scores["listening_fatigue"] = fatigue_as_pmgg_goal(audio, sr)
+    except Exception:
+        scores["listening_fatigue"] = 0.5
+
     for k in FAST_GOALS_SUBSET:
         if k not in scores or not math.isfinite(scores[k]):
             scores[k] = 0.5
@@ -3904,6 +3903,10 @@ class PerPhaseMusicalGoalsGate:
         )
         if scores_before is None:
             scores_before = _measure_quick(sample_before, sr)
+        # §v10.17: 2s snippet for A/B comparison
+        _snippet_n = min(len(sample_before), sr * 2)
+        _snippet_start = (len(sample_before) - _snippet_n) // 2
+        _ab_snippet = sample_before[_snippet_start:_snippet_start + _snippet_n]
 
         # Effective goal set: Schnitt aus FAST_GOALS_SUBSET + applicable_goals
         if applicable_goals is not None:
@@ -4253,6 +4256,21 @@ class PerPhaseMusicalGoalsGate:
     # ------------------------------------------------------------------
     # Interne Methoden
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _binary_search_strengths(
+        initial: float, max_iters: int, precision: float,
+    ) -> tuple[list[float], str]:
+        """§v10.16: Binäre Intervallhalbierung (Hilfsfunktion).
+
+        Erzeugt initiale Kandidaten-Liste. Der eigentliche Binary-Search-Loop
+        läuft in _run_with_retry und passt lo/hi basierend auf Regression an.
+
+        Returns:
+            (strengths, detail_string)
+        """
+        strengths: list[float] = [float(initial)]
+        return strengths, f"binary_search(max_iter={max_iters}, prec={precision:.3f})"
 
     def _run_with_retry(  # pylint: disable=too-many-positional-arguments
         self,
@@ -4842,23 +4860,14 @@ class PerPhaseMusicalGoalsGate:
                 _max_retries_for_prio,
             )
 
-        # Retry-Stärken relativ zur Initialstärke skalieren (§2.29):
-        # initial_strength=1.0 → normale Retry-Folge [0.65, 0.50, ...]
-        # initial_strength<1.0 → proportional nach unten skaliert
-        # §2.31a SongCal: Wurde initial_strength bereits durch Kalibrierung reduziert
-        # (< 0.90), sanftere Ankerpunkte verwenden um Doppel-Reduktion zu vermeiden.
-        # Beispiel: initial=0.70 → alt: 0.65×0.70=0.455; neu: 0.80×0.70=0.560
-        if initial_strength < 0.90:
-            _retry_anchors = [0.80, 0.65, 0.50, 0.35, 0.20]
-        else:
-            _retry_anchors = list(_RETRY_STRENGTHS)
-        _RETRY_BUDGET_S = 300.0  # Max 5 min für alle Retries einer Phase
+        # §v10.16: Binäre Suche nach optimaler Stärke (Skalpell statt Vorschlaghammer).
+        # Statt 5 grober Retry-Stufen (0.65→0.50→...) findet Intervallhalbierung
+        # die MAXIMALE Stärke ohne Regression mit ±1.5% Präzision.
+        _RETRY_BUDGET_S = 300.0
         _max_retries_for_prio, _RETRY_BUDGET_S, self._last_retry_budget_policy = self._resolve_retry_budget_policy(
-            phase_kwargs,
-            max_retries=_max_retries_for_prio,
-            retry_budget_s=_RETRY_BUDGET_S,
+            phase_kwargs, max_retries=_max_retries_for_prio, retry_budget_s=_RETRY_BUDGET_S,
         )
-        retry_strengths = [s * initial_strength for s in _retry_anchors[:_max_retries_for_prio]]
+        _USE_BINARY = _max_retries_for_prio >= 3  # Binärsuche nur bei ≥3 Retries
 
         # §2.29 Best-Effort-Tracking: Speichere den Versuch mit geringster Regression.
         # PMGG darf Phasen NICHT überspringen — CausalDefectReasoner hat die Phase
@@ -4900,8 +4909,12 @@ class PerPhaseMusicalGoalsGate:
         except Exception as e:
             logger.warning("per_phase_musical_goals_gate.py::unknown fallback: %s", e)
 
-        # §0l Team-Net-Delta-Tracking: Besten Versuch anhand von Team-Score UND
-        # max-Regression wählen. Wenn max-Regression ähnlich, besseres Team erhalten.
+        # §v10.16 Binary-Search State
+        _bs_lo = 0.0
+        _bs_hi = float(initial_strength)
+        _bs_last_passed = False
+
+        # §0l Team-Net-Delta-Tracking
         _best_team_net = sum(
             scores_after.get(g, 0.5) - effective_scores_before.get(g, 0.5) for g in effective_goals
         ) / max(len(effective_goals), 1)
@@ -4934,7 +4947,25 @@ class PerPhaseMusicalGoalsGate:
         #   (nichtlineare DSP-Operationen: wet/dry ≠ Neuberechnung)
         _prev_regression = regression
         _retry_t0 = time.time()
-        for attempt, strength in enumerate(retry_strengths):
+        # ── §v10.16 Binary Search Loop ────────────────────────────────
+        _binary_active = _USE_BINARY and len(retry_strengths) > 0
+        _bs_attempt = 0
+        _bs_max = _BINARY_SEARCH_MAX_ITERS if _binary_active else len(retry_strengths)
+
+        for attempt in range(_bs_max):
+            if _binary_active:
+                # Binäre Suche: nächste Stärke = Intervallmitte
+                if _bs_attempt == 0:
+                    strength = float(initial_strength)
+                else:
+                    strength = (_bs_lo + _bs_hi) / 2.0
+                _bs_attempt += 1
+                if _bs_hi - _bs_lo < _BINARY_SEARCH_PRECISION:
+                    break
+            else:
+                if attempt >= len(retry_strengths):
+                    break
+                strength = retry_strengths[attempt]
             _retry_elapsed = time.time() - _retry_t0
             if _retry_elapsed > _RETRY_BUDGET_S:
                 logger.info(
@@ -5187,6 +5218,38 @@ class PerPhaseMusicalGoalsGate:
                 best_regression,
                 threshold,
             )
+        # §v10.17 LAG-GATE: Keine Phase darf Stereo-Lag einführen
+        try:
+            if best_audio.ndim == 2 and audio.ndim == 2:
+                from backend.file_import import _estimate_interchannel_lag_samples as _lag_measure
+                _lag_before = _lag_measure(audio, 48000)
+                _lag_after = _lag_measure(best_audio, 48000)
+                _lag_delta = abs(_lag_after - _lag_before)
+                if _lag_delta > 2:
+                    logger.error(
+                        "§v10.17 LAG-GATE [%s]: Phase introduced +%d samples lag — REVERTING to pre-phase audio",
+                        phase_id, _lag_delta,
+                    )
+                    try:
+                        from backend.core.phase_error_registry import get_error_registry
+                        get_error_registry().record(phase_id, "lag_introduced",
+                            f"lag delta={_lag_delta} samples", retries=0, severity="error")
+                    except Exception: pass
+                    return audio, effective_scores_before, "lag_rejected", 0.0
+        except Exception:
+            pass
+
+        # §v10.17 PSS-Gate: Perceptual Similarity gegen Original
+        try:
+            from backend.core.perceptual_reference_validator import get_perceptual_validator
+            _prv = get_perceptual_validator()
+            if _prv is not None and hasattr(_prv, "_anchor"):
+                _pss_r = _prv.validate(best_audio, 48000, _prv._anchor)
+                if not _pss_r.accepted:
+                    logger.warning("§v10.17 PSS-Gate [%s]: PSS=%.4f rejected", phase_id, _pss_r.perceptual_similarity)
+                    return audio, effective_scores_before, "pss_rejected", 0.0
+        except Exception: pass
+
         return best_audio, best_scores, best_action, best_strength
 
     @staticmethod

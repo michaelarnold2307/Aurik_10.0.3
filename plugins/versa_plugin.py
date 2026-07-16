@@ -220,6 +220,8 @@ class VersaPlugin:
                 _versa_use_gpu = _get_dev("VersaSingMOS") != "cpu"
             except Exception:
                 _versa_use_gpu = False
+            # §v10.17: SingMOS always CPU — ROCm device mismatch fix
+            _versa_use_gpu = False
             with _suppress_s3prl_timm_deprecation():
                 predictor_dict, predictor_fs = pseudo_mos_setup(
                     predictor_types=["singmos_pro"],

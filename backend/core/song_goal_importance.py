@@ -791,8 +791,10 @@ def estimate_goal_importance(
         weights["authentizitaet"] *= 1.0 + 0.15 * _degradation_factor
         reasons.append(f"degraded(rest={restorability_score:.0f})")
 
-    # --- Step 6: Studio 2026 mode adjustment ---
-    # Studio 2026 aims for modern studio quality → boost enhancement goals
+    # --- Step 6: Mode-specific adjustment (§v10.15) ---
+    # Studio 2026 aims for modern studio quality → boost enhancement goals.
+    # Restoration Mode aims for naturalness/clarity/original character →
+    # boost preservation goals, de-emphasize enhancement.
     if is_studio_2026:
         weights["brillanz"] *= 1.2
         weights["transparenz"] *= 1.15
@@ -800,6 +802,25 @@ def estimate_goal_importance(
         weights["spatial_depth"] *= 1.15
         weights["separation_fidelity"] *= 1.1
         reasons.append("studio_2026")
+    else:
+        # §v10.15 Restoration Mode: „Natürlichkeit, Klarheit und der
+        # ursprüngliche Charakter am Tag der Aufnahme im Studio".
+        # Preservation-Ziele werden STRENGER gewichtet → PMGG
+        # toleriert weniger Regression in diesen Dimensionen.
+        # Enhancement-Ziele werden GELOCKERT → leichte Brillanz-
+        # oder Bass-Änderungen werden toleriert.
+        weights["natuerlichkeit"] *= 1.25
+        weights["authentizitaet"] *= 1.20
+        weights["tonal_center"] *= 1.15
+        weights["timbre_authentizitaet"] *= 1.15
+        weights["transparenz"] *= 1.10
+        weights["artikulation"] *= 1.10
+        weights["emotionalitaet"] *= 1.05
+        # Enhancement-Goals sanft zurücknehmen
+        weights["brillanz"] *= 0.85
+        weights["bass_kraft"] *= 0.90
+        weights["spatial_depth"] *= 0.90
+        reasons.append("restoration_mode")
 
     # ===================================================================
     # STAGE 2: Audio-derived per-song fine-tuning

@@ -524,20 +524,129 @@ class HumanizationPass:
     Ermüdung nach 15 min Hören. Der Humanization-Pass fügt Mikro-Variation
     (< 0.3 dB, < 0.5 ms) hinzu, die das Gehirn als „lebendig" registriert,
     ohne messbare Klangveränderung.
+
+    §v10.15: Adaptive Stärke statt hartcodiertem 0.15.
     """
 
+    # §v10.15: Kalibrierungs-Konstanten
+    _STRENGTH_MIN: float = 0.05   # Sehr lebendiges Material
+    _STRENGTH_MAX: float = 0.25   # Sehr steriles Material
+    _STRENGTH_DEFAULT: float = 0.15  # Fallback wenn Kalibrierung fehlschlägt
+
     @staticmethod
-    def apply(audio: np.ndarray, sr: int, strength: float = 0.15) -> np.ndarray:
+    def calibrate_strength(audio: np.ndarray, sr: int) -> float:
+        """Kalibriert die Humanization-Stärke basierend auf den akustischen
+        Eigenschaften des Materials.
+
+        Analysiert:
+          - Mikrodynamik (Perzentil-Spread der RMS-Hüllkurve)
+          - Spektrale Varianz (wie „flach" oder „belebt" das Spektrum ist)
+
+        Returns:
+            Stärke ∈ [_STRENGTH_MIN, _STRENGTH_MAX].
+            Niedrig = Material bereits lebendig.
+            Hoch = Material klingt steril, braucht mehr Humanization.
+        """
+        try:
+            import numpy as np
+
+            arr = np.asarray(audio, dtype=np.float64)
+            if arr.ndim > 1:
+                arr = arr.mean(axis=0) if arr.shape[0] <= arr.shape[1] else arr.mean(axis=1)
+
+            # ── 1. Mikrodynamik: RMS-Hüllkurve ───────────────────────
+            # Block-RMS über 50 ms Fenster → Perzentil-Spread (p95−p5)
+            block_s = max(1, int(sr * 0.05))  # 50 ms
+            n_blocks = max(1, len(arr) // block_s)
+            rms_env = np.array([
+                float(np.sqrt(np.mean(arr[i * block_s:(i + 1) * block_s] ** 2) + 1e-12))
+                for i in range(min(n_blocks, 200))  # max 10 s
+            ])
+            if len(rms_env) < 4:
+                return HumanizationPass._STRENGTH_DEFAULT
+            p5 = float(np.percentile(rms_env, 5))
+            p95 = float(np.percentile(rms_env, 95))
+            p50 = float(np.percentile(rms_env, 50))
+            # Normalisierter Spread: hoher Spread = lebendig
+            micro_dyn = (p95 - p5) / (p50 + 1e-12) if p50 > 1e-10 else 0.5
+            micro_dyn = float(np.clip(micro_dyn, 0.0, 5.0))
+
+            # ── 2. Spektrale Varianz ──────────────────────────────────
+            # Wie stark variiert das Spektrum über die Zeit?
+            # Berechne Kurzzeit-Spektren und deren Frame-zu-Frame-Varianz
+            fft_n = 2048
+            hop = fft_n // 4
+            n_frames = min(40, max(4, (len(arr) - fft_n) // hop))
+            if n_frames >= 4:
+                frames = np.array([
+                    np.abs(np.fft.rfft(arr[i * hop:i * hop + fft_n] * np.hamming(fft_n)))
+                    for i in range(n_frames)
+                ])
+                # Frame-zu-Frame Kosinus-Distanz der Spektral-Hüllkurve
+                spectral_var = 0.0
+                for i in range(1, n_frames):
+                    a, b = frames[i - 1], frames[i]
+                    denom = np.sqrt(np.sum(a ** 2) * np.sum(b ** 2)) + 1e-12
+                    cos_sim = float(np.dot(a, b) / denom)
+                    spectral_var += 1.0 - cos_sim
+                spectral_var /= max(1, n_frames - 1)
+                spectral_var = float(np.clip(spectral_var, 0.0, 1.0))
+            else:
+                spectral_var = 0.5
+
+            # ── 3. Stärke berechnen ───────────────────────────────────
+            # Hohe Mikrodynamik + hohe spektrale Varianz → Material ist
+            # bereits lebendig → NIEDRIGE Stärke.
+            # Niedrige Werte → Material ist „steril" → HÖHERE Stärke.
+
+            # Normalisiere Mikrodynamik: 0.0 (flach) … 1.0 (sehr lebendig)
+            dyn_norm = float(np.clip(1.0 - micro_dyn / 3.0, 0.0, 1.0))
+            # Spektrale Varianz: 0.0 (statisch) … 1.0 (variabel)
+            spec_norm = float(np.clip(1.0 - spectral_var / 0.3, 0.0, 1.0))
+
+            # Sterilitäts-Index: 0 = lebendig, 1 = steril
+            sterility = 0.55 * dyn_norm + 0.45 * spec_norm
+            sterility = float(np.clip(sterility, 0.0, 1.0))
+
+            # Mapping auf Stärke-Bereich
+            strength = HumanizationPass._STRENGTH_MIN + sterility * (
+                HumanizationPass._STRENGTH_MAX - HumanizationPass._STRENGTH_MIN
+            )
+            strength = float(np.clip(strength, HumanizationPass._STRENGTH_MIN, HumanizationPass._STRENGTH_MAX))
+
+            logger.debug(
+                "HumanizationPass.calibrate_strength: dyn=%.3f spec=%.3f sterility=%.3f → strength=%.3f",
+                micro_dyn, spectral_var, sterility, strength,
+            )
+            return strength
+
+        except Exception:
+            return HumanizationPass._STRENGTH_DEFAULT
+
+    @staticmethod
+    def apply(audio: np.ndarray, sr: int, strength: float | None = None, *, is_studio_2026: bool = False) -> np.ndarray:
         """Wendet Humanization auf das restaurierte Audio an.
 
         Args:
             audio: float32, shape=(channels, samples) oder (samples,)
             sr: sample rate
-            strength: 0.0–1.0, Intensität (0.15 = kaum hörbar, empfohlen)
+            strength: 0.0–1.0, Intensität.
+                None → automatische Kalibrierung via calibrate_strength().
+                0.15 → bisheriger Default (manuell).
+            is_studio_2026: Wenn True → mutigere Stärke. False = Restoration → konservativ.
 
         Returns:
             Humanisiertes Audio, selbe Shape.
         """
+        if strength is None:
+            strength = HumanizationPass.calibrate_strength(audio, sr)
+            # §v10.15: Restoration-Mode → konservativer (×0.7)
+            # Studio-Mode → mutiger (×1.15)
+            if not is_studio_2026:
+                strength *= 0.70
+            else:
+                strength *= 1.15
+            strength = float(np.clip(strength, 0.03, 0.30))
         try:
             audio_f = np.asarray(audio, dtype=np.float32)
             if audio_f.ndim == 2:
@@ -554,7 +663,9 @@ class HumanizationPass:
     def _process_channel(channel: np.ndarray, sr: int, strength: float) -> np.ndarray:
         """Pro-Kanal Humanization."""
         n = len(channel)
-        rng = np.random.default_rng()
+        # §v10.17: Deterministischer Seed aus Audio-Hash — gleicher Input = gleiches Output
+        _seed = int(sum(channel.view(np.uint8).reshape(-1, 4).mean(axis=1)) * 1e6) % (2**31)
+        rng = np.random.default_rng(_seed)
         # 1. Mikro-Amplituden-Modulation (0–0.3 dB, langsam, ~0.5 Hz)
         t = np.linspace(0, n / sr, n, endpoint=False)
         amp_mod = 1.0 + strength * 0.02 * np.sin(2.0 * np.pi * 0.47 * t + rng.random() * np.pi)

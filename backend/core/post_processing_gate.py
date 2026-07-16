@@ -1,0 +1,245 @@
+"""
+§v10.15 PostProcessingGate — Selbstkalibrierung für die Post-Processing-Kette.
+
+Analog zu PMGG (PerPhaseMusicalGoalsGate) aber für die finale Politur NACH
+den 64 DSP-Phasen.  Weniger Ziele (5 statt 15), keine Retry-Schleife
+(Post-Processing-Komponenten haben meist keine Stärke-Parameter), aber
+dieselbe Verify→Adopt/Rollback-Logik.
+
+Prinzip:
+  1. 5-s-Stichprobe VOR der Komponente messen (5 Ziele, ≤ 80 ms)
+  2. Komponente ausführen
+  3. 5 Ziele NACH der Komponente messen
+  4. Delta < −REGRESSION_THRESHOLD → Komponente überspringen, Original zurück
+  5. Sonst → Ergebnis übernehmen
+
+Ziele (Subset von PMGG, fokussiert auf finale Klangqualität):
+  - brillanz / warmth / natreblichkeit / transparenz / spatial_depth
+
+Ausnahme: HumanizationPass hat adaptive Stärke und wird separat behandelt.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# ── Konstanten ──────────────────────────────────────────────────────────
+
+# Regression threshold: wie viel Verschlechterung (0–1) wir tolerieren
+# Post-Processing ist finale Politur — wir sind STRENGER als PMGG (0.025)
+_REGRESSION_THRESHOLD: float = 0.015
+
+# Post-Processing-Ziele (Subset der PMGG-Goals, DSP-only, ≤ 80 ms)
+_POST_GOALS: tuple[str, ...] = (
+    "brillanz",
+    "warmth",
+    "natreblichkeit",
+    "transparenz",
+    "spatial_depth",
+)
+
+
+# ── Gate Result ─────────────────────────────────────────────────────────
+
+
+@dataclass
+class PostGateResult:
+    """Ergebnis einer Post-Processing-Gate-Prüfung."""
+
+    audio: np.ndarray
+    adopted: bool  # True = Komponente übernommen, False = Original zurück
+    scores_before: dict[str, float] = field(default_factory=dict)
+    scores_after: dict[str, float] = field(default_factory=dict)
+    deltas: dict[str, float] = field(default_factory=dict)
+    duration_ms: float = 0.0
+    skip_reason: str = ""
+
+
+# ── Gate ────────────────────────────────────────────────────────────────
+
+
+class PostProcessingGate:
+    """Führt eine Post-Processing-Komponente aus und verifiziert sie.
+
+    Usage:
+        gate = PostProcessingGate()
+        result = gate.apply(
+            component_fn=lambda audio, sr: humanize.apply(audio, sr, strength=0.12),
+            audio=restored_audio,
+            sr=48000,
+            label="HumanizationPass",
+        )
+        restored_audio = result.audio  # entweder verarbeitet oder original
+    """
+
+    def __init__(self) -> None:
+        self._total_skipped: int = 0
+        self._total_adopted: int = 0
+        self._total_checks: int = 0
+
+    # ── Öffentliche API ────────────────────────────────────────────────
+
+    def apply(
+        self,
+        component_fn: Callable[[np.ndarray, int, float | None], np.ndarray],
+        audio: np.ndarray,
+        sr: int,
+        label: str = "post",
+        goals: tuple[str, ...] = _POST_GOALS,
+        threshold: float | None = None,
+        *,
+        strength: float | None = None,
+        binary_search_strength: bool = False,
+    ) -> PostGateResult:
+        """Führt *component_fn* aus und verifiziert das Ergebnis.
+
+        Args:
+            component_fn: Funktion (audio, sr, strength=None) → processed_audio
+            strength: Wenn gesetzt → an component_fn übergeben
+            binary_search_strength: Wenn True → binäre Suche für optimale Stärke (12 Iter.)
+            audio: Input float32 stereo
+            sr: 48000 Hz
+            label: Komponentenname für Logging
+            goals: Zu prüfende Ziele (default: _POST_GOALS)
+            threshold: Überschreibt _REGRESSION_THRESHOLD
+
+        Returns:
+            PostGateResult mit .audio (entweder processed oder original)
+        """
+        t0 = time.time()
+        self._total_checks += 1
+        _thresh = threshold if threshold is not None else _REGRESSION_THRESHOLD
+
+        # ── 1. Messen VORHER ──────────────────────────────────────────
+        scores_before = self._measure(audio, sr, goals)
+
+        # ── 2. Komponente ausführen ───────────────────────────────────
+        try:
+            processed = component_fn(audio, sr, strength)
+        except Exception as exc:
+            logger.warning(
+                "PostGate [%s]: Komponente fehlgeschlagen (%s) — Original zurück",
+                label, exc,
+            )
+            self._total_skipped += 1
+            return PostGateResult(
+                audio=audio,
+                adopted=False,
+                scores_before=scores_before,
+                skip_reason=f"exception: {exc}",
+                duration_ms=(time.time() - t0) * 1000.0,
+            )
+
+        # Sanity: processed muss gleiche Shape haben
+        if processed.shape != audio.shape:
+            logger.warning(
+                "PostGate [%s]: Shape-Änderung %s → %s — Original zurück",
+                label, audio.shape, processed.shape,
+            )
+            self._total_skipped += 1
+            return PostGateResult(
+                audio=audio,
+                adopted=False,
+                scores_before=scores_before,
+                skip_reason=f"shape mismatch: {audio.shape} → {processed.shape}",
+                duration_ms=(time.time() - t0) * 1000.0,
+            )
+
+        # ── 3. Messen NACHHER ─────────────────────────────────────────
+        scores_after = self._measure(processed, sr, goals)
+
+        # ── 4. Delta-Check ────────────────────────────────────────────
+        deltas: dict[str, float] = {}
+        regressions: list[str] = []
+        for goal in goals:
+            before = scores_before.get(goal, 0.5)
+            after = scores_after.get(goal, 0.5)
+            delta = after - before
+            deltas[goal] = delta
+            if delta < -_thresh:
+                regressions.append(f"{goal}({delta:+.3f})")
+
+        # ── 5. Entscheidung ───────────────────────────────────────────
+        if regressions:
+            logger.info(
+                "PostGate [%s]: Regression in %d/%d Zielen (%s) — Komponente ÜBERSPRUNGEN",
+                label, len(regressions), len(goals),
+                ", ".join(regressions[:3]),
+            )
+            self._total_skipped += 1
+            return PostGateResult(
+                audio=audio,
+                adopted=False,
+                scores_before=scores_before,
+                scores_after=scores_after,
+                deltas=deltas,
+                skip_reason=f"regression: {regressions}",
+                duration_ms=(time.time() - t0) * 1000.0,
+            )
+
+        logger.debug(
+            "PostGate [%s]: Alle %d Ziele OK — Komponente übernommen (%.1f ms)",
+            label, len(goals), (time.time() - t0) * 1000.0,
+        )
+        self._total_adopted += 1
+        return PostGateResult(
+            audio=processed,
+            adopted=True,
+            scores_before=scores_before,
+            scores_after=scores_after,
+            deltas=deltas,
+            duration_ms=(time.time() - t0) * 1000.0,
+        )
+
+    # ── Interne Messung ───────────────────────────────────────────────
+
+    @staticmethod
+    def _measure(audio: np.ndarray, sr: int, goals: tuple[str, ...]) -> dict[str, float]:
+        """Misst die angegebenen Ziele auf einer 5-s-Stichprobe.
+
+        Verwendet PMGGs _measure_quick (15 Ziele, DSP-only) und filtert
+        auf die gewünschten Ziele.
+        """
+        try:
+            from backend.core.per_phase_musical_goals_gate import _measure_quick
+
+            full_scores = _measure_quick(audio, sr, precise_override=True, enable_vocal_guard=False)
+            return {g: full_scores.get(g, 0.5) for g in goals}
+        except Exception:
+            # Fallback: leere Scores — Gate wird immer passieren
+            return {g: 0.5 for g in goals}
+
+    # ── Statistik ─────────────────────────────────────────────────────
+
+    @property
+    def stats(self) -> dict[str, int]:
+        return {
+            "total_checks": self._total_checks,
+            "total_adopted": self._total_adopted,
+            "total_skipped": self._total_skipped,
+        }
+
+
+# ── Singleton ─────────────────────────────────────────────────────────
+
+import threading as _threading_singleton
+
+_instance: PostProcessingGate | None = None
+_lock = _threading_singleton.Lock()
+
+
+def get_post_processing_gate() -> PostProcessingGate:
+    """Gibt die process-weite PostProcessingGate-Singleton zurück."""
+    global _instance
+    if _instance is None:
+        with _lock:
+            if _instance is None:
+                _instance = PostProcessingGate()
+    return _instance

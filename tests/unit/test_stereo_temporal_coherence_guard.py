@@ -278,17 +278,19 @@ class TestSingleton:
 
 
 # ---------------------------------------------------------------------------
-# 5. Pre-pipeline plausibility guard (> 20 ms → skip correction)
+# 5. Universal plausibility guard (> 20 ms → skip correction, ANY phase_id)
 # ---------------------------------------------------------------------------
 
 
-class TestPrePipelinePlausibilityGuard:
-    """§0 Plausibility guard: pre-pipeline corrections > 20 ms must be rejected.
+class TestUniversalPlausibilityGuard:
+    """§v10.14 Universal guard: ALL corrections > 20 ms must be rejected.
 
     Commercial recordings cannot have L-R offsets > 20 ms.  Any reading above
-    that threshold is a GCC-PHAT false positive caused by stereo panning or
-    mid-song decorrelation in the analysis window (observed: 79.4 ms false
-    correction on a Schlager MP3).
+    that threshold is a cross-correlation false positive caused by MP3 joint-
+    stereo encoding phase artifacts (observed: 79.4 ms false correction on a
+    Schlager MP3, 183 ms on other material).  The guard applies regardless of
+    phase_id — pipeline-introduced delays > 20 ms indicate a phase bug that
+    should be fixed at the source, not silently "corrected" by STCG.
     """
 
     def setup_method(self):
@@ -308,56 +310,81 @@ class TestPrePipelinePlausibilityGuard:
             r[: n + lag_samples] = mono[-lag_samples:]
         return np.vstack([l[np.newaxis, :], r[np.newaxis, :]])  # (2, N)
 
-    def test_pre_pipeline_large_lag_is_not_corrected(self):
-        """phase_id='pre_pipeline' with apparent 79.4 ms lag must leave audio unchanged.
-
-        Root cause: STCG was falsely detecting 3813 samples (79.4 ms) via
-        mid-window GCC-PHAT on a commercial stereo MP3, then corrupting the entire
-        R channel.  Guard: delays > 20 ms are skipped for phase_id='pre_pipeline'.
-        """
-        # Build a stereo signal that looks correlated but where GCC-PHAT on the
-        # middle window would return a large lag.  We inject a real 79.4 ms lag
-        # to guarantee the detection fires, then verify the guard blocks correction.
+    def test_pre_pipeline_large_lag_is_blocked(self):
+        """phase_id='pre_pipeline' with 79.4 ms lag → blocked."""
         lag = 3813  # samples (~79.4 ms @ 48 kHz)
         audio_in = self._make_stereo_with_real_large_lag(lag)
         audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id="pre_pipeline")
+        np.testing.assert_array_equal(audio_out, audio_in,
+            err_msg="STCG pre_pipeline must NOT correct delays > 20 ms")
 
-        # The output must be identical to the input — no correction applied.
-        np.testing.assert_array_equal(
-            audio_out,
-            audio_in,
-            err_msg=(
-                "STCG pre_pipeline must NOT correct delays > 20 ms "
-                "(commercial recordings never have such offsets — false positive guard)"
-            ),
-        )
+    def test_post_pipeline_large_lag_is_blocked(self):
+        """phase_id='post_pipeline' with 79.4 ms lag → BLOCKED (§v10.14 universal guard).
 
-    def test_post_pipeline_large_lag_is_corrected(self):
-        """phase_id='post_pipeline' with a 79.4 ms lag MUST be corrected.
-
-        Post-pipeline corrections can legitimately reach 150+ ms (ML-plugin latency)
-        and must not be limited by the pre-pipeline plausibility guard.
+        The 200 ms post-pipeline limit was removed — any delay > 20 ms is a
+        cross-correlation false positive, not a real ML-plugin latency. Real
+        pipeline latency is measured via align_stem_to_reference (stem vs. original),
+        not inter-channel correlation.
         """
         lag = 3813  # samples (~79.4 ms @ 48 kHz)
         audio_in = self._make_stereo_with_real_large_lag(lag)
         audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id="post_pipeline")
+        np.testing.assert_array_equal(audio_out, audio_in,
+            err_msg="STCG post_pipeline must NOT correct delays > 20 ms (§v10.14 universal guard)")
 
-        # After correction the L-R lag must be reduced (R was shifted by ≥1 sample).
-        audio_out[0]
-        r_in = audio_in[1]
-        r_out = audio_out[1]
-        # R channel must have changed (correction was applied)
-        assert not np.array_equal(r_out, r_in), (
-            "STCG post_pipeline must correct large delays (no plausibility limit applies)"
-        )
-
-    def test_pre_pipeline_small_lag_within_20ms_is_corrected(self):
-        """Small delays (≤ 20 ms) must still be corrected in pre_pipeline mode."""
-        lag = int(0.015 * SR)  # 15 ms = 720 samples — within plausibility limit
+    def test_intra_phase_large_lag_is_blocked(self):
+        """Intra-phase callers (phase_12, phase_24, etc.) with large lag → blocked."""
+        lag = 8784  # 183 ms — typical MP3 joint-stereo false positive
         audio_in = self._make_stereo_with_real_large_lag(lag)
-        audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id="pre_pipeline")
+        for phase_id in ["phase_12_pre_chunking", "phase_12_wow_flutter_fix", "phase_24"]:
+            audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id=phase_id)
+            np.testing.assert_array_equal(audio_out, audio_in,
+                err_msg=f"STCG [{phase_id}] must NOT correct delays > 20 ms")
 
-        r_in = audio_in[1]
-        r_out = audio_out[1]
-        # R channel must have changed (small lag correction applied)
-        assert not np.array_equal(r_out, r_in), "STCG pre_pipeline must still correct small delays ≤ 20 ms"
+    def test_small_lag_within_20ms_is_still_corrected(self):
+        """Small delays (≤ 20 ms) must still be corrected, regardless of phase_id."""
+        lag = int(0.015 * SR)  # 15 ms = 720 samples
+        audio_in = self._make_stereo_with_real_large_lag(lag)
+        for phase_id in ["pre_pipeline", "post_pipeline", "phase_12_pre_chunking"]:
+            audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id=phase_id)
+            r_in = audio_in[1]
+            r_out = audio_out[1]
+            assert not np.array_equal(r_out, r_in), (
+                f"STCG [{phase_id}] must still correct small delays ≤ 20 ms"
+            )
+
+    def test_multi_point_consistent_large_lag_is_blocked(self):
+        """Even when multi-point spread is tight (≤ 20 samples), large magnitude
+        (150 ms) must be blocked — consistent MP3 joint-stereo artifacts fool
+        both single-window and multi-point measurements."""
+        # 60 seconds to allow multi-point (needs ≥ 10s for 2 windows of 5s)
+        lag = 7200  # 150 ms — consistent throughout the file
+        audio_in = self._make_stereo_with_real_large_lag(lag, n=SR * 60)
+        audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id="post_pipeline")
+        np.testing.assert_array_equal(audio_out, audio_in,
+            err_msg="Consistent 150ms lag must be blocked despite tight multi-point spread")
+
+    def test_zero_lag_passes_through_all_phase_ids(self):
+        """Clean stereo with no lag must pass through unchanged for ALL callers.
+
+        This is the critical test: the import file has NO lag, so STCG must
+        never introduce one by falsely "correcting" a measured delay that
+        doesn't exist in reality.
+        """
+        rng = np.random.default_rng(42)
+        n = SR * 30  # 30 seconds
+        mono = rng.standard_normal(n).astype(np.float32) * 0.3
+        # Perfectly aligned stereo — NO inter-channel delay
+        audio_in = np.vstack([mono[np.newaxis, :], mono[np.newaxis, :]])
+        for phase_id in [
+            "pre_pipeline", "post_pipeline",
+            "phase_12_pre_chunking", "phase_12_wow_flutter_fix",
+            "phase_24", "phase_31",
+        ]:
+            audio_out = self.guard.correct_interchannel_delay(audio_in, SR, phase_id=phase_id)
+            np.testing.assert_array_equal(audio_out, audio_in,
+                err_msg=(
+                    f"STCG [{phase_id}] corrupted clean zero-lag stereo — "
+                    f"false positive correction on lag-free input"
+                ))
+

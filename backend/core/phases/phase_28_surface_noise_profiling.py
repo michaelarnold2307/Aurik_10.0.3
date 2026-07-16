@@ -621,6 +621,17 @@ class SurfaceNoiseProfiling(PhaseInterface):
             target_rms_drop_db = -max_rms_drop_db
             required_gain_db = target_rms_drop_db - rms_drop_db
             makeup_gain_db = float(np.clip(required_gain_db, 0.0, 6.0))
+            # §GGB-1: Global Gain Budget — per-Chunk capping
+            if makeup_gain_db > 0.0:
+                try:
+                    from backend.core.global_gain_budget import get_global_gain_budget
+                    _approved = get_global_gain_budget().request(
+                        "phase_28_surface_noise_profiling", makeup_gain_db,
+                        priority="normal"
+                    )
+                    makeup_gain_db = _approved
+                except Exception:
+                    pass
             if makeup_gain_db > 0.0:
                 _gain_lin = float(10.0 ** (makeup_gain_db / 20.0))
                 # §2.45a-II: gain applied ONLY to musical frames via envelope.

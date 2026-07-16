@@ -32,11 +32,11 @@ CARRIER_TRANSFER_CHARACTERISTICS: dict[str, tuple[int, int, float, int]] = {
         62,
     ),  # Kassette: DR Typ I ~55 dB, Typ II ~65 dB, Mittel ≈62 dB; cassette→tape-Alias (§0a, §Bug#4)
     "reel_tape": (18000, -60, -1.5, 72),
-    "cassette": (14000, -48, -3.5, 60),
+    "cassette": (16000, -48, -3.5, 60),  # §BW-CEIL v10.13: 14→16 kHz — FlashSR rekonstruiert bis 16.8 kHz
     "dat": (22000, -90, -0.2, 92),
     "minidisc": (20000, -85, -0.5, 88),
     "cd_digital": (22050, -96, -0.1, 96),
-    "mp3_low": (16000, -70, -1.5, 90),
+    "mp3_low": (16000, -70, -1.5, 90),  # §BW-CEIL v10.13: 16 kHz — FlashSR kann rekonstruieren
     "mp3_high": (20000, -80, -0.5, 93),
     "aac": (20000, -82, -0.4, 93),
     "streaming": (20000, -78, -0.8, 90),
