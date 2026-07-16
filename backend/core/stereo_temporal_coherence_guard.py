@@ -367,6 +367,24 @@ class StereoTemporalCoherenceGuard:
         # creates phase artefacts that cross-correlation misinterprets as time
         # delay — these are often consistent (spread ≤ 20 samples) but the
         # magnitude is physically implausible. Skip correction unconditionally.
+        # §v10.16 Stereo-Coherence-Guard: Inter-channel correlation must be
+        # sufficient (> 0.4) for the delay measurement to be meaningful.
+        # Uncorrelated channels (mean_corr < 0.3) contain different program
+        # material (e.g. stereo-panned vocals, wide instrument placement).
+        # Applying a time-shift to uncorrelated channels creates COMB FILTERING
+        # that destroys bass frequencies and introduces distortion — this is
+        # the root cause of "verschluckte Bässe" and "verzerrter Klang" in
+        # previous runs.
+        _mean_corr = float(np.corrcoef(ch_l[:min(len(ch_l), sr*10)], ch_r[:min(len(ch_r), sr*10)]).flat[1]) if len(ch_l) > 10 else 1.0
+        _mean_corr = abs(_mean_corr) if np.isfinite(_mean_corr) else 1.0
+        if _mean_corr < 0.40:
+            logger.info(
+                "STCG [%s]: inter-channel correlation=%.3f < 0.40 — "
+                "channels contain different material (stereo panning), NOT a timing error — skipping",
+                phase_id, _mean_corr,
+            )
+            return audio
+
         if abs(delay_ms) > _GLOBAL_MAX_MS:
             logger.info(
                 "STCG [%s]: delay=%.1f ms > global limit %.0f ms (spread=%d) — "
@@ -379,6 +397,22 @@ class StereoTemporalCoherenceGuard:
             "STCG [%s]: delay=%.4f samples (%.3f ms, spread=%d) — correcting R channel",
             phase_id, delay, delay_ms, int(_mp_spread),
         )
+
+        # §v10.16 Cumulative correction: track total applied shift.
+        # If we've already shifted > 5 ms cumulatively for this audio, skip.
+        self._cumulative_correction_samples += abs(delay)
+        _audio_id = hash(ch_l[:1024].tobytes()) if len(ch_l) >= 1024 else 0
+        if _audio_id != self._last_audio_id:
+            self._cumulative_correction_samples = abs(delay)
+            self._last_audio_id = _audio_id
+        if self._cumulative_correction_samples > 240:  # > 5 ms total
+            logger.info(
+                "STCG [%s]: cumulative correction %.1f ms exceeds 5 ms limit — "
+                "skipping to prevent comb filtering from accumulated shifts",
+                phase_id, self._cumulative_correction_samples / sr * 1000,
+            )
+            self._cumulative_correction_samples = 0.0
+            return audio
 
         # Positive delay means R is AHEAD of L → shift R to the right (delay R) to align
         ch_r_corrected = _apply_correction_shift(ch_r, shift_samples=delay)

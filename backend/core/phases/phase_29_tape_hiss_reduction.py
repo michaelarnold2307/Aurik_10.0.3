@@ -432,6 +432,11 @@ class TapeHissReductionPhase(PhaseInterface):
         check_ml_model_ready("DeepFilterNetV3", phase_name="29")
         check_ml_model_ready("PANNs", phase_name="29")
         check_ml_model_ready("DeepFilterNetV3", phase_name="29")
+        # §v10.15 Type-Guard
+        if not isinstance(audio, np.ndarray):
+            if isinstance(audio, (tuple, list)):
+                audio = audio[0] if len(audio) > 0 else np.zeros(1, dtype=np.float32)
+            audio = np.asarray(audio, dtype=np.float32)
         """
         # §v10.15 Type-Guard: ensure audio is ndarray, not a tuple
         if not isinstance(audio, np.ndarray):
