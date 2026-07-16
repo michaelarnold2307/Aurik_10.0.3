@@ -252,25 +252,17 @@ class TestPostGateLambdaContract:
     """PostGate lambdas must accept 3 positional args (audio, sr, strength)."""
 
     def test_antimuffling_lambda_signature(self):
-        """AntiMufflingPass lambda must accept (a, sr, strength=None)."""
-        # Verify the lambda in UV3 accepts all 3 args
-        try:
-            from backend.core.phases.phase_19_de_esser import AntiMufflingPass
-            amp = AntiMufflingPass()
-            # Simulate what PostGate does: call with (a, sr, strength=None)
-            audio = _make_mono_audio()
-            result = amp.process(audio, 48000)
-            assert isinstance(result, np.ndarray), "AntiMufflingPass must return ndarray"
-        except ImportError:
-            pytest.skip("AntiMufflingPass not available in this context")
+        """AntiMufflingPass: PostGate-kompatible Signatur (a, sr, strength=None)."""
+        from backend.core.anti_muffling_pass import AntiMufflingPass
+        amp = AntiMufflingPass()
+        audio = _make_mono_audio()
+        result = amp.process(audio, 48000)
+        assert isinstance(result, np.ndarray)
 
     def test_vocal_clarity_lambda_signature(self):
-        """VocalClarityMax lambda must accept (a, sr, strength=None)."""
-        try:
-            from backend.core.phases.phase_19_de_esser import VocalClarityMax
-            vcm = VocalClarityMax()
-            audio = _make_mono_audio()
-            result = vcm.process(audio, 48000)
-            assert isinstance(result, np.ndarray), "VocalClarityMax must return ndarray"
-        except ImportError:
-            pytest.skip("VocalClarityMax not available in this context")
+        """VocalClarityMax: PostGate-kompatible Signatur (a, sr, strength=None)."""
+        from backend.core.vocal_clarity_max import VocalClarityMax
+        vcm = VocalClarityMax()
+        audio = _make_mono_audio()
+        result = vcm.process(audio, 48000)
+        assert isinstance(result, np.ndarray)
