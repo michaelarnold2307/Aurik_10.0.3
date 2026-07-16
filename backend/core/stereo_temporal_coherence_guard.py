@@ -349,9 +349,15 @@ class StereoTemporalCoherenceGuard:
             delay = float(_mp_verified["median_lag"])
             _mp_spread = _mp_verified.get("max_spread", 0)
         else:
-            # Fallback: single mid-window measurement
-            delay = _estimate_delay_subsample(ch_l, ch_r, sr)
+            # §v10.16 Single-point: without multi-point consensus, the
+            # measurement could be stereo panning artifact. Skip correction
+            # to prevent comb filtering from false channel shifts.
+            delay = 0.0
             _mp_spread = -1
+            logger.info(
+                "STCG [%s]: only 1 measurement point — unreliable for stereo-panned material, skipping"
+            )
+            return audio
 
         delay_ms = delay / sr * 1000.0
 
