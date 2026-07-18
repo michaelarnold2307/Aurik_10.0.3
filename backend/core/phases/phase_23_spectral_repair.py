@@ -2388,7 +2388,7 @@ class SpectralRepair(PhaseInterface):
             return result_asr23
 
         except Exception as e:
-            logger.error("FlashSR processing failed: %s, falling back to DSP", e)
+            logger.warning("FlashSR processing failed (DSP fallback aktiv): %s", e)
             # Fallback to DSP (will be handled by caller)
             return audio
         finally:

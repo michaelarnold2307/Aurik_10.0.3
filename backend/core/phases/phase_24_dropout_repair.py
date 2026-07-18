@@ -1299,6 +1299,9 @@ class DropoutRepairPhase(PhaseInterface):
                 "pre_repaired_gaps_skipped": _pre_repaired_skipped,
                 "rms_drop_db": float(_rms_in_db - _rms_dbfs_gated_p24(repaired_audio)),
             },
+            resolved_defects={
+                "DROPOUTS": 0.0,  # Dropout-Reparatur = vollständig behoben
+            },
             warnings=warnings,
             metadata={
                 "algorithm": "length_based_routing" if use_ml else "context_aware_inpainting_v2",

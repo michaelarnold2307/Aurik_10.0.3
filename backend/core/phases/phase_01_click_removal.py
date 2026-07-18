@@ -572,6 +572,7 @@ class ClickRemovalPhase(PhaseInterface):
                     "phase_locality_factor": phase_locality_factor,
                     "effective_strength": 0.0,
                 },
+                resolved_defects={},
                 warnings=["Click removal skipped due to zero effective strength"],
                 metadata={
                     "algorithm": "skipped_zero_strength",
@@ -622,6 +623,9 @@ class ClickRemovalPhase(PhaseInterface):
                 "stereo_strategy": "linked_sparse_patch_transfer" if is_stereo else "mono_direct_repair",
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
+            },
+            resolved_defects={
+                "CLICKS": float(np.clip(1.0 - min(total_clicks / max(audio.shape[-1] * 0.001, 1), 1.0), 0.0, 0.3)),
             },
         )
 

@@ -90,6 +90,11 @@ class PhaseResult:
     §2.59: time_range ermöglicht chirurgische Verarbeitung.
     Wenn gesetzt, wurde die Phase NUR auf diesen Zeitbereich angewendet.
     None = Phase hat gesamtes Audio verarbeitet (global).
+
+    §v10.18: resolved_defects erlaubt Phasen, dem Pipeline-Kontext zu melden,
+    dass ein Defekt behoben wurde. Nachfolgende Phasen können dadurch ihre
+    Strategie anpassen (z.B. Phase 23 drosselt Stärke, wenn Phase 07 bereits
+    Clipping entfernt hat).
     """
 
     audio: np.ndarray  # Verarbeitetes Audio (float32, [-1,1])
@@ -107,6 +112,9 @@ class PhaseResult:
     success: bool = True  # True = Phase erfolgreich abgeschlossen
     # §v10.15: 2s-Ausschnitt VOR der Phase für A/B-Vergleich im UI
     audio_before_snippet: np.ndarray | None = None
+    # §v10.18: Defekte, die diese Phase behoben hat (DefectType → neue Severity)
+    # Wird vom UV3/Denker konsumiert, um den Defect-Context für Folgephasen zu aktualisieren
+    resolved_defects: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Sicherheits-Invarianten: NaN/Inf bereinigen, clipping (§3.1)
@@ -148,6 +156,7 @@ def create_phase_result(
     quality_estimate: float = 1.0,
     phase_id: str = "",
     phase_name: str = "",
+    resolved_defects: dict[str, float] | None = None,
 ) -> PhaseResult:
     """Erzeugt ein NaN/Inf-bereinigtes PhaseResult mit Fazit-Log.
 
@@ -161,6 +170,7 @@ def create_phase_result(
         quality_estimate:       Qualitätsschätzung 0–1
         phase_id:               Phasen-Nummer (z.B. "03", "09")
         phase_name:             Menschlicher Name (z.B. "Entrauschen")
+        resolved_defects:       §v10.18: {DefectType: residual_severity} nach Reparatur
 
     Returns:
         PhaseResult mit bereinigtem Audio und Fazit-Log
@@ -212,6 +222,7 @@ def create_phase_result(
         execution_time_seconds=execution_time_seconds,
         ml_used=ml_used,
         quality_estimate=float(np.clip(quality_estimate, 0.0, 1.0)),
+        resolved_defects=resolved_defects or {},
     )
 
 

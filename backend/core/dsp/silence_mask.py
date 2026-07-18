@@ -293,7 +293,20 @@ def apply_silence_preservation(
         _proc = np.asarray(processed, dtype=np.float32)
         _mask = np.asarray(silence_mask, dtype=np.float32)
 
-        # Längenabgleich
+        # §v10.30: Normalisiere auf gleiches Channel-Layout bevor shape[-1]
+        # verwendet wird. shape[-1] ist die Kanal-Anzahl bei channels-last (N,2)
+        # aber die Sample-Anzahl bei channels-first (2,N). Ohne Normalisierung
+        # wird _n = min(orig.shape[-1], proc.shape[-1]) = min(2, 10815948) = 2,
+        # was zu broadcasting-Fehlern und Datenkorruption führt.
+        def _to_channels_first(arr: np.ndarray) -> np.ndarray:
+            if arr.ndim == 2 and arr.shape[-1] == 2 and arr.shape[0] > 2:
+                return arr.T.copy()  # (N, 2) → (2, N)
+            return arr
+
+        _orig = _to_channels_first(_orig)
+        _proc = _to_channels_first(_proc)
+
+        # Längenabgleich (jetzt sicher: shape[1] = Sample-Anzahl bei Stereo)
         _n = min(_orig.shape[-1], _proc.shape[-1], _mask.shape[0])
         if _n <= 0:
             return _proc  # type: ignore[no-any-return]

@@ -443,7 +443,7 @@ def main():
             app.processEvents()
             time.sleep(0.018)
 
-        _process_events_ms(app, 120)  # hold visible for a moment
+        _process_events_ms(app, 400)  # hold visible for a moment (was 120 ms)
 
     except Exception as _exc:
         # Splash must never block the application from starting
@@ -494,7 +494,7 @@ def main():
     if splash:
         splash.set_status("Bereit.")
         app.processEvents()
-        _process_events_ms(app, 280)  # show "Bereit." briefly
+        _process_events_ms(app, 600)  # show "Bereit." briefly (was 280 ms)
 
     # Show main window beneath splash, then fade out splash
     window.show()

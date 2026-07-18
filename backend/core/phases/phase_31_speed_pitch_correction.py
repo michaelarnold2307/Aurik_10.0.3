@@ -1647,7 +1647,7 @@ class SpeedPitchCorrectionPhase(PhaseInterface):
             return result.detected_pitch, result.confidence, metadata
 
         except Exception as e:
-            logger.error("ML-Hybrid pitch detection failed: %s, falling back to pYIN", e)
+            logger.warning("ML-Hybrid pitch detection failed (pYIN fallback aktiv): %s", e)
             # Fallback zu pYIN (Mauch & Dixon 2014)
             params = self.MATERIAL_PARAMS.get("vinyl", self.MATERIAL_PARAMS["unknown"])
             pitch, conf = self._detect_pitch_pyin(audio, params)

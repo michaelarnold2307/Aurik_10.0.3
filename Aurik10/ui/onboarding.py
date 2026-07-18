@@ -11,6 +11,16 @@ from __future__ import annotations
 import logging
 
 from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtGui import (
+    QBrush,
+    QColor,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
 
 from Aurik10.i18n import t
 
@@ -34,6 +44,59 @@ class OnboardingWizard(QtWidgets.QDialog):
         self._current_page = 0
         self._setup_ui()
         self._apply_theme()
+
+
+    def paintEvent(self, event):
+        """Zeichnet den Splashscreen-Hintergrund ins Onboarding."""
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        self._draw_onboarding_background(p, self.width(), self.height())
+        p.end()
+        super().paintEvent(event)
+
+    def _draw_onboarding_background(self, p: QPainter, w: int, h: int) -> None:
+        """Hintergrund-Glows im Stil des Aurik-Splashscreens."""
+        corners = 10.0
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(0, 0, w, h), corners, corners)
+        p.setClipPath(clip)
+
+        # Deep dark base — match splash: QColor(7, 9, 22)
+        p.fillRect(0, 0, w, h, QColor(7, 9, 22))
+
+        # Left warm gold glow ("before / damaged")
+        g1 = QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+        g1.setColorAt(0.0, QColor(188, 128, 28, 52))
+        g1.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QBrush(g1))
+
+        # Right cool blue glow ("after / restored")
+        g2 = QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+        g2.setColorAt(0.0, QColor(18, 95, 218, 55))
+        g2.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QBrush(g2))
+
+        # Top purple accent
+        g3 = QRadialGradient(w * 0.50, 0.0, w * 0.45)
+        g3.setColorAt(0.0, QColor(102, 78, 205, 42))
+        g3.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QBrush(g3))
+
+        # Bottom teal glow
+        g4 = QRadialGradient(w * 0.50, float(h), w * 0.48)
+        g4.setColorAt(0.0, QColor(0, 188, 212, 28))
+        g4.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QBrush(g4))
+
+        # Gradient border: gold TL → purple mid → blue BR
+        bg = QLinearGradient(0, 0, w, h)
+        bg.setColorAt(0.0, QColor(212, 162, 50, 155))
+        bg.setColorAt(0.4, QColor(102, 126, 234, 110))
+        bg.setColorAt(1.0, QColor(18, 145, 255, 135))
+        p.setPen(QPen(QBrush(bg), 1.5))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+        p.setClipping(False)
 
     def _setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -246,11 +309,9 @@ class OnboardingWizard(QtWidgets.QDialog):
     def _apply_theme(self):
         self.setStyleSheet("""
             QDialog {
-                background: #0d0d1f;
+                background: transparent;
                 color: #d0d8ff;
                 font-family: 'Segoe UI', sans-serif;
-                border: 1px solid rgba(102,126,234,0.5);
-                border-radius: 10px;
             }
             QPushButton {
                 background: rgba(102,126,234,0.25);

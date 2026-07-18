@@ -19,10 +19,20 @@ XFADE_SAMPLES_48K = 576  # 12 ms — kurz genug um unhörbar zu sein
 
 
 class _SegResult:
-    """Dummy-Resultat mit .audio Attribut für Kompatibilität mit UV3-Nachverarbeitung."""
+    """Phasen-Resultat mit .audio, .success, .resolved_defects für UV3-Kompatibilität.
+
+    §v10.29a: .success und .resolved_defects wurden hinzugefügt, weil
+    per_segment_executor._SegResult ohne diese Felder durch UV3's
+    _normalize_phase_result() fiel und "invalid_phase_result_type:_SegResult"
+    auslöste. Der Wrapper in _profiled_phase_call (isinstance(result, np.ndarray))
+    konnte per_segment_executor._SegResult nicht wrappen, weil es kein ndarray ist.
+    """
 
     def __init__(self, audio: np.ndarray):
         self.audio = audio
+        self.success: bool = True
+        self.resolved_defects: dict = {}
+        self.warnings: list[str] = []
 
 
 def run_phase_per_segment(
@@ -106,6 +116,15 @@ def run_phase_per_segment(
             result_audio = seg_audio
 
         result_audio = np.asarray(result_audio)
+        # §v10.31: Normalize channel layout to match input format (channels-first).
+        # Some phases return channels-last (N, 2) while the pipeline uses
+        # channels-first (2, N). Without normalization, the crossfade access
+        # [ch, :xf_len] on (N, 2) gives shape (2,) instead of (xf_len,),
+        # causing "operands could not be broadcast together with shapes (2,) (576,)".
+        if not is_1d and result_audio.ndim == 2:
+            _exp_channels = audio_work.shape[0]
+            if result_audio.shape[0] != _exp_channels and result_audio.shape[1] == _exp_channels:
+                result_audio = result_audio.T
         segment_results.append(result_audio)
 
     # ── 3. Crossfade und zusammensetzen ──────────────────────────

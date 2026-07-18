@@ -480,9 +480,11 @@ class HybridWowFlutter:
             mean_confidence = float(np.mean(valid_pyin)) if len(valid_pyin) > 0 else 0.0
             logger.info("pYIN abgeschlossen: mean confidence=%.3f", mean_confidence)
 
-            if mean_confidence >= self.config.confidence_threshold and strategy == PitchDetectionStrategy.HYBRID:
-                logger.info("pYIN-Konfidenz ausreichend (%.3f), CREPE überspringen", mean_confidence)
-                strategy = PitchDetectionStrategy.PYIN_ONLY
+            # §v10.18: CREPE-Skip entfernt. pYIN confidence (voicing probability) ist
+            # kein verlässlicher Indikator für Pitch-Genauigkeit — bei voiced frames
+            # meldet pYIN fast immer ~1.0, auch wenn die F0-Schätzung ungenau ist.
+            # CREPE muss in HYBRID immer laufen, die Blend-Logik entscheidet.
+            # (Mauch & Dixon 2014: pYIN confidence = voicing probability ≠ pitch accuracy)
 
         # Stufe 2: ML-Verfeinerung (RMVPE/PESTO/CREPE; falls nötig)
         if strategy in [PitchDetectionStrategy.CREPE_ONLY, PitchDetectionStrategy.HYBRID]:

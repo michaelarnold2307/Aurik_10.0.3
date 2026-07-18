@@ -52,7 +52,8 @@ import logging
 from typing import Any
 
 import numpy as np
-from backend.core.phase_interface import PhaseInterface, PhaseResult
+
+from .phase_interface import PhaseCategory, PhaseInterface, PhaseMetadata, PhaseResult
 
 logger = logging.getLogger(__name__)
 
@@ -241,14 +242,19 @@ class DeclipperPhase(PhaseInterface):
         self._n_clips: int = 0
         self._crossfade_n: int = 0
 
-    def get_metadata(self) -> dict[str, Any]:
-        return {
-            "phase_id": "phase_07_declip",
-            "clip_threshold": self._clip_threshold,
-            "clip_fraction": self._clip_fraction,
-            "n_clips": self._n_clips,
-            "crossfade_samples": self._crossfade_n,
-        }
+    def get_metadata(self) -> PhaseMetadata:
+        return PhaseMetadata(
+            phase_id="phase_07_declipper",
+            name="Declipper",
+            category=PhaseCategory.DEFECT_REMOVAL,
+            priority=8,
+            version="2.0.0",
+            description="Selbstkalibrierendes Declipping — restauriert abgeschnittene Peaks per Sinus-Modell-Interpolation (Godsill & Rayner 1998)",
+            estimated_time_factor=0.08,
+            quality_impact=0.90,
+            defect_types=["CLIPPING"],
+            musical_goals=["transparenz", "natuerlichkeit"],
+        )
 
     def process(
         self,
@@ -344,6 +350,12 @@ class DeclipperPhase(PhaseInterface):
             reduction_db,
         )
 
+        # §v10.18: Melde CLIPPING als behoben → Folgephasen (phase_23) können
+        # ihre Strategie anpassen. Die residuale Severity wird aus dem
+        # verbleibenden Clip-Anteil im reparierten Signal berechnet.
+        _residual_clip_fraction = float(np.sum(np.abs(audio_out) >= self._clip_threshold)) / max(audio_out.size, 1)
+        _residual_severity = float(np.clip(_residual_clip_fraction / max(self._clip_fraction, 1e-10), 0.0, 0.3))
+
         return PhaseResult(
             success=True,
             audio=audio_out.astype(audio.dtype, copy=False),
@@ -355,5 +367,8 @@ class DeclipperPhase(PhaseInterface):
                 "crossfade_samples": self._crossfade_n,
                 "reduction_db": float(reduction_db),
                 "material": material,
+            },
+            resolved_defects={
+                "CLIPPING": _residual_severity,  # 0.0 = vollständig behoben
             },
         )

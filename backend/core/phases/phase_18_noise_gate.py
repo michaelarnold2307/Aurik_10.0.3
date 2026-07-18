@@ -313,7 +313,7 @@ class NoiseGate(PhaseInterface):
             vad_probabilities = np.nan_to_num(vad_probabilities, nan=1.0, posinf=1.0, neginf=0.0)
             return np.asarray(np.clip(vad_probabilities, 0.0, 1.0), dtype=np.float32)  # type: ignore[no-any-return]
         except Exception as e:
-            logger.error("Voice activity detection failed: %s", e)
+            logger.warning("Voice activity detection failed (DSP-only Modus): %s", e)
             # Fallback: Gate komplett offen (kein Signalverlust)
             return np.ones(len(audio), dtype=np.float32)  # type: ignore[no-any-return]
 

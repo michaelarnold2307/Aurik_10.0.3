@@ -511,6 +511,9 @@ class HumRemovalPhase(PhaseInterface):
                 "rms_drop_db": round(float(min(0.0, _rms_drop_02)), 3),
                 "loudness_makeup_db": round(float(_makeup_02), 3),
             },
+            resolved_defects={
+                "HUM": float(np.clip(1.0 - min(total_reduction / 40.0, 0.99), 0.0, 0.3)),
+            },
         )
 
     def _detect_multi_fundamental(self, audio: np.ndarray, params: dict[str, Any]) -> list[int]:
@@ -754,11 +757,36 @@ class HumRemovalPhase(PhaseInterface):
         b, a = signal.iirnotch(w0, q_factor, fs=self.sample_rate)
 
         # Zero-phase filtering (preserve transients)
+        # §v10.18: scipy.signal.filtfilt operiert auf axis=-1 (letzte Achse).
+        # Bei (samples, channels)-Audio würde es die Kanäle als Signale behandeln
+        # (2-Sample-"Signale") → broadcasting-Fehler. Jeder Kanal wird einzeln gefiltert.
         try:
-            filtered = signal.filtfilt(b, a, audio)
+            if audio.ndim == 2:
+                # §v10.30: channels-aware per-channel filtering.
+                # Pipeline audio is channels-first (2,N). audio[:,ch] would
+                # extract shape (2,) instead of (N,). Detect format and use
+                # correct axis: axis=0 for channels-first, axis=1 for channels-last.
+                if audio.shape[0] == 2 and audio.shape[1] > 2:
+                    # channels-first (2, N): filter along axis 0 (samples)
+                    filtered = np.row_stack([signal.filtfilt(b, a, audio[ch, :]) for ch in range(audio.shape[0])])
+                elif audio.shape[1] == 2 and audio.shape[0] > 2:
+                    # channels-last (N, 2): filter each column
+                    filtered = np.column_stack([signal.filtfilt(b, a, audio[:, ch]) for ch in range(audio.shape[1])])
+                else:
+                    filtered = signal.filtfilt(b, a, audio)
+            else:
+                filtered = signal.filtfilt(b, a, audio)
         except Exception:
             # Fallback to forward filter if filtfilt fails
-            filtered = signal.lfilter(b, a, audio)
+            if audio.ndim == 2:
+                if audio.shape[0] == 2 and audio.shape[1] > 2:
+                    filtered = np.row_stack([signal.lfilter(b, a, audio[ch, :]) for ch in range(audio.shape[0])])
+                elif audio.shape[1] == 2 and audio.shape[0] > 2:
+                    filtered = np.column_stack([signal.lfilter(b, a, audio[:, ch]) for ch in range(audio.shape[1])])
+                else:
+                    filtered = signal.lfilter(b, a, audio)
+            else:
+                filtered = signal.lfilter(b, a, audio)
 
         return filtered  # type: ignore[no-any-return]
 
@@ -779,14 +807,46 @@ class HumRemovalPhase(PhaseInterface):
             4, [max(20, freq - 5), min(self.sample_rate / 2 - 10, freq + 5)], "band", fs=self.sample_rate, output="sos"
         )
         try:
-            band_signal = signal.sosfiltfilt(sos, audio)
+            # §v10.30: Per-Channel-Filtering für Stereo-Audio.
+            # sosfiltfilt operiert auf axis=-1; bei (N,2) würde es 2-Sample-"Signale"
+            # filtern → broadcasting-Fehler. Daher jeden Kanal einzeln filtern.
+            if audio.ndim == 2:
+                # §v10.30: channels-aware per-channel filtering.
+                if audio.shape[0] == 2 and audio.shape[1] > 2:
+                    band_signal = np.row_stack([
+                        signal.sosfiltfilt(sos, audio[ch, :])
+                        for ch in range(audio.shape[0])
+                    ])
+                elif audio.shape[1] == 2 and audio.shape[0] > 2:
+                    band_signal = np.column_stack([
+                        signal.sosfiltfilt(sos, audio[:, ch])
+                        for ch in range(audio.shape[1])
+                    ])
+                else:
+                    band_signal = signal.sosfiltfilt(sos, audio)
+            else:
+                band_signal = signal.sosfiltfilt(sos, audio)
         except Exception as e:
             logger.warning("phase_02_hum_removal.py::_detect_musical_content fallback: %s", e)
-            return False  # Assume no musical content if filter fails
+            return False
 
-        # Compute envelope
-        analytic = signal.hilbert(band_signal)
-        envelope = np.abs(np.asarray(analytic))
+        # Compute envelope — per-channel für Stereo
+        if band_signal.ndim == 2:
+            # §v10.30: channels-aware per-channel hilbert.
+            if band_signal.shape[0] == 2 and band_signal.shape[1] > 2:
+                envelope = np.row_stack([
+                    np.abs(signal.hilbert(band_signal[ch, :]))
+                    for ch in range(band_signal.shape[0])
+                ])
+            elif band_signal.shape[1] == 2 and band_signal.shape[0] > 2:
+                envelope = np.column_stack([
+                    np.abs(signal.hilbert(band_signal[:, ch]))
+                    for ch in range(band_signal.shape[1])
+                ])
+            else:
+                envelope = np.abs(signal.hilbert(band_signal))
+        else:
+            envelope = np.abs(signal.hilbert(band_signal))
 
         # Musical content has time-varying envelope (std/mean ratio)
         if len(envelope) > 1000:
@@ -809,6 +869,10 @@ class HumRemovalPhase(PhaseInterface):
 
     def _measure_hum_at_freq(self, audio: np.ndarray, freq: float) -> float:
         """Misst hum energy at specific frequency (±2 Hz)."""
+        # §v10.18: Bei Stereo zu Mono konvertieren — np.fft.rfft operiert
+        # auf axis=-1, was bei (samples, channels) die Kanal-Achse ist.
+        if audio.ndim == 2 and audio.shape[1] < audio.shape[0]:
+            audio = np.mean(audio, axis=1)
         # Short FFT
         fft_size = min(len(audio), int(2 * self.sample_rate))
         freqs = np.fft.rfftfreq(fft_size, 1 / self.sample_rate)

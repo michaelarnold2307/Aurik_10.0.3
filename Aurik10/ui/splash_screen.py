@@ -279,7 +279,7 @@ class AurikSplashScreen(QWidget):
         p.setPen(QPen(QColor(162, 182, 228, 192)))
         p.drawText(tx, ty, text)
 
-        # Developer credit — below tagline
+        # Developer credit — below tagline, above separator
         dev_text = "von Michael Arnold"
         font_dev = QFont("Arial", 8)
         font_dev.setItalic(True)
@@ -290,7 +290,7 @@ class AurikSplashScreen(QWidget):
         p.drawText((w - dw) // 2, ty + 16, dev_text)
 
         # Gradient separator line
-        line_y = ty + 13
+        line_y = ty + 22
         lg = QLinearGradient(w * 0.22, 0.0, w * 0.78, 0.0)
         lg.setColorAt(0.00, QColor(218, 162, 50, 0))
         lg.setColorAt(0.18, QColor(218, 162, 50, 118))
@@ -405,6 +405,6 @@ class AurikSplashScreen(QWidget):
         font_v = QFont("Arial", 8)
         p.setFont(font_v)
         fm_v = QFontMetrics(font_v)
-        vt = "v10.0.0 — Weltspitze"
+        vt = f"v{_VERSION}"
         p.setPen(QPen(QColor(82, 108, 158, 138)))
         p.drawText(w - fm_v.horizontalAdvance(vt) - 14, h - 18, vt)

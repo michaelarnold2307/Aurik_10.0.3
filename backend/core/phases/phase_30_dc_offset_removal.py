@@ -278,6 +278,9 @@ class DCOffsetRemoval(PhaseInterface):
             success=True,
             audio=audio_processed,
             execution_time_seconds=execution_time,
+            resolved_defects={
+                "DC_OFFSET": 0.0,  # DC-Offset = vollständig entfernt
+            },
             metadata={
                 "material": material.name,
                 "hp_cutoff_hz": float(config["cutoff_hz"]),  # type: ignore[arg-type]

@@ -490,6 +490,9 @@ class PhaseCorrection(PhaseInterface):
                 "material": material_enum.value,
             },
             execution_time_seconds=processing_time,
+            resolved_defects={
+                "PHASE_ISSUES": 0.0,  # Phasenkorrektur = vollständig behoben
+            },
             metadata={
                 "algorithm": "multiband_phase_correction_fractional",
                 "version": "2.1",

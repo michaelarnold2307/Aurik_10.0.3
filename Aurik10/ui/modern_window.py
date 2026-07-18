@@ -37,6 +37,12 @@ from PyQt5 import QtCore, QtGui, QtSvg, QtWidgets
 
 from Aurik10.i18n import get_language, set_language, t
 
+# IPC: Shared-Audio-Ring für echte Live-Preview (eigener Prozess/Thread → UI)
+try:
+    from Aurik10.ipc import SharedAudioRing as _SharedAudioRing
+except Exception:
+    _SharedAudioRing = None  # type: ignore[assignment]
+
 # scipy.signal and numba must be imported at module level — lazy imports inside threads
 # cause circular import errors in the ROCm venv (partially initialized modules).
 try:
@@ -2108,7 +2114,7 @@ class BatchProcessingThread(QThread):
                     while True:
                         try:
                             time.sleep(_SP_INTERVAL)
-                            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 5)
+                            QApplication.processEvents(QEventLoop.AllEvents, 10)
                             with _sp_lock:
                                 if not _sp["alive"]:
                                     return
@@ -3258,13 +3264,20 @@ class BatchProcessingThread(QThread):
                 # Era/Genre-Cache: UI-Vorabanalyse wiederverwenden (kein Doppellauf in UV3)
 
                 # §Live-Waveform: Callback für Audio-Updates nach jeder UV3-Phase
+                # Schreibt direkt in SharedAudioRing (lock-free, kein Qt-Signal-Overhead).
+                # Der GUI-Thread pollt den Ring via _preview_timer mit 30 Hz.
                 def _audio_update_cb(phase_audio, phase_sr, phase_id_str):
-                    """Emittiert updated audio to waveform widget after each phase."""
+                    """Schreibt Audio-Snapshot in SharedAudioRing für Live-Preview."""
                     try:
-                        _phase_norm = _normalize_audio(phase_audio)
-                        self.waveform_phase_update.emit(_phase_norm, int(phase_sr), str(phase_id_str))
+                        _ring = getattr(self, "_audio_ring", None)
+                        if _ring is not None:
+                            _ring.write(phase_audio, int(phase_sr), str(phase_id_str))
+                        # Fallback: Qt-Signal falls SharedMemory nicht verfügbar
+                        else:
+                            _phase_norm = _normalize_audio(phase_audio)
+                            self.waveform_phase_update.emit(_phase_norm, int(phase_sr), str(phase_id_str))
                     except Exception as _e:
-                        logger.debug("waveform_phase_update failed for %s: %s", phase_id_str, _e)
+                        logger.debug("audio_update_cb failed for %s: %s", phase_id_str, _e)
 
                 _denke_kwargs: dict = {
                     "mode": _aurik_mode,
@@ -10948,6 +10961,44 @@ class ExportConfigDialog(QDialog):
         ("44,1 kHz", 44_100),
     ]
 
+
+    def paintEvent(self, event):
+        """Splashscreen-Hintergrund für diesen Dialog."""
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        corners = 10.0
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+        p.setClipPath(clip)
+        p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+        g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+        g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+        g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+        g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+        g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+        g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+        g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+        g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+        g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+        g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+        g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+        g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+        bg = QtGui.QLinearGradient(0, 0, w, h)
+        bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+        bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+        bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+        p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+        p.setClipping(False)
+        p.end()
+        super().paintEvent(event)
+
     def __init__(self, source_path: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(t("ui.export_cfg_title"))
@@ -10957,7 +11008,7 @@ class ExportConfigDialog(QDialog):
         self._sr_combo: QComboBox | None = None
         self._build_ui(source_path)
         self.setStyleSheet("""
-            QDialog { background: #1E1E2E; }
+            QDialog { background: transparent; }
             QLabel  { color: #CCCCCC; font-size: 10pt; }
             QLineEdit {
                 background: #2A2A3E; color: #FFFFFF;
@@ -11570,6 +11621,43 @@ class _AurikFileDialog(QDialog):
         }
     """
 
+    def paintEvent(self, event):
+        """Splashscreen-Hintergrund fur diesen Dialog."""
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        corners = 10.0
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+        p.setClipPath(clip)
+        p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+        g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+        g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+        g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+        g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+        g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+        g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+        g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+        g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+        g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+        g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+        g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+        g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+        bg = QtGui.QLinearGradient(0, 0, w, h)
+        bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+        bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+        bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+        p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+        p.setClipping(False)
+        p.end()
+        super().paintEvent(event)
+
     def __init__(  # pylint: disable=too-many-positional-arguments
         self,
         title: str,
@@ -11606,7 +11694,7 @@ class _AurikFileDialog(QDialog):
         # Outer border + layout — matches ExportConfigDialog border style
         self.setStyleSheet(f"""
             QDialog {{
-                background: #1E1E2E;
+                background: transparent;
                 border: 1px solid {border};
             }}
         """)
@@ -11728,6 +11816,44 @@ class _ToastNotification(QWidget):
         "error": ("#7A2E2E", "#EF5350", "✕"),
         "info": ("#1E3A5A", "#4FC3F7", "ℹ"),
     }
+
+
+    def paintEvent(self, event):
+        """Splashscreen-Hintergrund für diesen Dialog."""
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        corners = 10.0
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+        p.setClipPath(clip)
+        p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+        g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+        g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+        g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+        g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+        g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+        g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+        g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+        g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+        g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+        g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+        g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+        g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+        p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+        bg = QtGui.QLinearGradient(0, 0, w, h)
+        bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+        bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+        bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+        p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+        p.setClipping(False)
+        p.end()
+        super().paintEvent(event)
 
     def __init__(self, parent, message: str, severity: str = "info", duration_ms: int = 4000):
         super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -15019,15 +15145,52 @@ class ModernMainWindow(QMainWindow):
 
     def _show_about_dialog(self) -> None:
         """Zeigt reichhaltigen Über-Aurik-Dialog mit strukturierten Informationen."""
-        dlg = QDialog(self)
+        class _AboutDialog(QtWidgets.QDialog):
+            """About-Dialog mit Splashscreen-Hintergrund."""
+            def paintEvent(self, event):
+                p = QtGui.QPainter(self)
+                p.setRenderHint(QtGui.QPainter.Antialiasing)
+                w, h = self.width(), self.height()
+                corners = 10.0
+                clip = QtGui.QPainterPath()
+                clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+                p.setClipPath(clip)
+                p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+                g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+                g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+                g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+                g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+                g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+                g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+                g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+                g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+                g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+                g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+                g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+                g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+                bg = QtGui.QLinearGradient(0, 0, w, h)
+                bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+                bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+                bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+                p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+                p.setBrush(QtCore.Qt.NoBrush)
+                p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+                p.setClipping(False)
+                p.end()
+                super().paintEvent(event)
+
+        dlg = _AboutDialog(self)
         dlg.setWindowTitle("Über AURIK Professional")
         dlg.setMinimumWidth(580)
         dlg.setMaximumWidth(640)
         dlg.setMinimumHeight(520)
         dlg.setMaximumHeight(720)
         dlg.setStyleSheet(
-            "QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5);"
-            " border-radius: 10px; }"
+            "QDialog { background: transparent; }"
             " QLabel { color: #d0d8ff; font-family: 'Segoe UI', sans-serif; }"
             " QScrollArea { background: transparent; border: none; }"
             " QScrollBar:vertical { background: rgba(102,126,234,0.08); width: 6px; border-radius: 3px; }"
@@ -15387,6 +15550,16 @@ class ModernMainWindow(QMainWindow):
         copyright_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(copyright_lbl)
 
+                # ── Entwickler ─────────────────────────────────────────────
+        dev_lbl = QLabel(
+            "<span style='font-size:10pt; color:#d0b860;'>"
+            "Entwickelt von Michael Arnold | michael.arnold2307@gmail.com</span>"
+        )
+        dev_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        inner.addWidget(dev_lbl)
+
+        inner.addSpacing(2)
+
         # ── Widmung ─────────────────────────────────────────────────
         widmung_lbl = QLabel(
             "<span style='font-size:10pt; color:#9988cc; font-style:italic;'>"
@@ -15471,15 +15644,51 @@ class ModernMainWindow(QMainWindow):
 
     def _show_system_check_dialog(self) -> None:
         """Zeigt einen Systemcheck-Dialog konsistent zur Aurik-Designlinie."""
-        dlg = QtWidgets.QDialog(self)
+        class _SystemCheckDialog(QtWidgets.QDialog):
+            """Dialog mit Splashscreen-Hintergrund."""
+            def paintEvent(self, event):
+                p = QtGui.QPainter(self)
+                p.setRenderHint(QtGui.QPainter.Antialiasing)
+                w, h = self.width(), self.height()
+                corners = 10.0
+                clip = QtGui.QPainterPath()
+                clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+                p.setClipPath(clip)
+                p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+                g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+                g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+                g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+                g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+                g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+                g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+                g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+                g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+                g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+                g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+                g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+                g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+                bg = QtGui.QLinearGradient(0, 0, w, h)
+                bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+                bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+                bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+                p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+                p.setBrush(QtCore.Qt.NoBrush)
+                p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+                p.setClipping(False)
+                p.end()
+                super().paintEvent(event)
+        dlg = _SystemCheckDialog(self)
         dlg.setWindowTitle("Aurik Systemcheck")
         dlg.setMinimumWidth(500)
         dlg.setMaximumWidth(600)
         dlg.setMinimumHeight(400)
         dlg.setMaximumHeight(600)
         dlg.setStyleSheet(
-            "QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5);"
-            " border-radius: 10px; }"
+            "QDialog { background: transparent; }"
             " QLabel { color: #d0d8ff; font-family: 'Segoe UI', sans-serif; }"
             " QScrollArea { background: transparent; border: none; }"
             " QScrollBar:vertical { background: rgba(102,126,234,0.08); width: 6px; border-radius: 3px; }"
@@ -15625,12 +15834,48 @@ class ModernMainWindow(QMainWindow):
 
     def _show_shortcut_help(self) -> None:
         """F1 / ?: Zeigt Tastenkürzel-Übersicht als modalen Dialog."""
-        dlg = QDialog(self)
+        class _ShortcutHelpDialog(QtWidgets.QDialog):
+            """Dialog mit Splashscreen-Hintergrund."""
+            def paintEvent(self, event):
+                p = QtGui.QPainter(self)
+                p.setRenderHint(QtGui.QPainter.Antialiasing)
+                w, h = self.width(), self.height()
+                corners = 10.0
+                clip = QtGui.QPainterPath()
+                clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+                p.setClipPath(clip)
+                p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+                g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+                g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+                g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+                g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+                g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+                g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+                g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+                g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+                g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+                g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+                g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+                g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+                bg = QtGui.QLinearGradient(0, 0, w, h)
+                bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+                bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+                bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+                p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+                p.setBrush(QtCore.Qt.NoBrush)
+                p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+                p.setClipping(False)
+                p.end()
+                super().paintEvent(event)
+        dlg = _ShortcutHelpDialog(self)
         dlg.setWindowTitle("Aurik — Tastenkürzel")
         dlg.setFixedWidth(420)
         dlg.setStyleSheet(
-            "QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5);"
-            " border-radius: 10px; }"
+            "QDialog { background: transparent; }"
             " QLabel { color: #d0d8ff; font-family: 'Segoe UI', sans-serif; }"
             " QPushButton { background: rgba(102,126,234,0.25); color: #fff;"
             " border: 1px solid rgba(102,126,234,0.6); border-radius: 6px;"
@@ -15743,6 +15988,18 @@ class ModernMainWindow(QMainWindow):
                 self.refinement_progress_bar.setVisible(False)
             if self._heartbeat_timer is not None and self._heartbeat_timer.isActive():
                 self._heartbeat_timer.stop()
+            # Live-Preview-Timer und SharedAudioRing aufräumen
+            if hasattr(self, "_preview_timer") and self._preview_timer is not None:
+                self._preview_timer.stop()
+                self._preview_timer = None
+            _ring = getattr(self, "_audio_ring", None)
+            if _ring is not None:
+                try:
+                    _ring.close()
+                    _ring.unlink()
+                except Exception:
+                    pass
+                self._audio_ring = None
             self._uv3 = {"active": False, "count": 0, "idx": 0, "started_at": 0.0, "pct": 0.0}  # §K
             # GIL-Switch-Intervall auf Normalwert zurücksetzen
             _prev = getattr(self, "_prev_switchinterval", 0.005)
@@ -17199,6 +17456,13 @@ class ModernMainWindow(QMainWindow):
                             pass
                         self.prognose_widget.update_era_genre(_dec_int, _era_genre or None)  # type: ignore[union-attr]
 
+                    # -- Era/Genre Chips in der Audio-Info-Bar aktualisieren --
+                    # Pro Importsong Ära und Genre als farbige Chips anzeigen.
+                    if _era_decade and hasattr(self, "chip_era"):
+                        self._show_chip(self.chip_era, _era_decade)
+                    if _era_genre and hasattr(self, "chip_genre"):
+                        self._show_chip(self.chip_genre, _era_genre)
+
                     # -- Restorability banner --
                     self._restorability_score = _rest_score
                     if hasattr(self, "restorability_banner"):
@@ -18311,6 +18575,7 @@ class ModernMainWindow(QMainWindow):
 
         # Modus abfragen
         mode_dialog = QDialog(self)
+        mode_dialog.setStyleSheet("QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5); border-radius: 10px; }")
         mode_dialog.setWindowTitle(t("ui.album_mode_title"))
         mode_dialog.setMinimumWidth(380)
         d_layout = QVBoxLayout(mode_dialog)
@@ -18540,6 +18805,25 @@ class ModernMainWindow(QMainWindow):
         # wird rechtzeitig beantwortet → kein "Nicht reagierend"-Dialog.
         self._prev_switchinterval = sys.getswitchinterval()
         sys.setswitchinterval(0.001)
+
+        # ── Shared-Audio-Ring für Live-Preview ──────────────────────────
+        # Entkoppelt Audio-Updates vom Qt-Signal-Overhead.
+        # Pipeline-Thread schreibt nach jeder Phase direkt in Shared Memory,
+        # Polling-Timer liest mit 30 Hz und updated Waveform/Preview.
+        self._audio_ring = None
+        self._audio_ring_name = f"aurik_ring_{os.getpid()}"
+        if _SharedAudioRing is not None:
+            try:
+                self._audio_ring = _SharedAudioRing(name=self._audio_ring_name, create=True)
+                logger.info("SharedAudioRing erstellt: %s", self._audio_ring_name)
+            except Exception as e:
+                logger.warning("SharedAudioRing konnte nicht erstellt werden: %s", e)
+
+        # Polling-Timer für Live-Audio-Update (30 Hz, unabhängig vom Heartbeat)
+        self._preview_timer = QTimer(self)
+        self._preview_timer.timeout.connect(self._poll_audio_ring)
+        self._preview_timer.setTimerType(QtCore.Qt.PreciseTimer)
+        self._preview_timer.start(33)  # ~30 fps
 
         # Start batch processing
         self.batch_thread = BatchProcessingThread(self.batch_queue)
@@ -19012,7 +19296,7 @@ class ModernMainWindow(QMainWindow):
         # X11 Keep-Alive: System-Events sofort verarbeiten (keine User-Input-Events,
         # max 5 ms Zeitbudget → kein Reentrancy-Risiko).
         try:
-            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents, 5)
+            QApplication.processEvents(QEventLoop.AllEvents, 10)
         except Exception:
             logger.debug("Heartbeat: processEvents keep-alive fehlgeschlagen", exc_info=True)
         self._heartbeat_dots = (self._heartbeat_dots + 1) % 4
@@ -19836,6 +20120,18 @@ class ModernMainWindow(QMainWindow):
             self._watchdog_timer.stop()
         if self._heartbeat_timer is not None and self._heartbeat_timer.isActive():
             self._heartbeat_timer.stop()
+        # Live-Preview-Timer und SharedAudioRing aufräumen
+        if hasattr(self, "_preview_timer") and self._preview_timer is not None:
+            self._preview_timer.stop()
+            self._preview_timer = None
+        _ring = getattr(self, "_audio_ring", None)
+        if _ring is not None:
+            try:
+                _ring.close()
+                _ring.unlink()
+            except Exception as _re:
+                logger.debug("SharedAudioRing cleanup: %s", _re)
+            self._audio_ring = None
         # GIL-Switch-Intervall auf Normalwert zurücksetzen
         _prev = getattr(self, "_prev_switchinterval", 0.005)
         sys.setswitchinterval(_prev)
@@ -22062,6 +22358,51 @@ class ModernMainWindow(QMainWindow):
         except Exception as _exc:
             logger.debug("Waveform-Update fehlgeschlagen: %s", _exc)
 
+    def _poll_audio_ring(self) -> None:
+        """Pollt den SharedAudioRing mit 30 Hz für Live-Audio-Preview.
+
+        Liest neue Frames aus dem Shared-Memory-Ringpuffer und aktualisiert:
+        - Waveform-Darstellung (via _update_waveform_live)
+        - Live-Preview-Snapshot (_live_preview_audio) für Zwischenstand-Hören
+        - btn_play_restored Aktivierung
+        """
+        _ring = getattr(self, "_audio_ring", None)
+        if _ring is None:
+            return
+        try:
+            frames = _ring.poll()
+            if not frames:
+                return
+            latest = frames[-1]
+            _audio = latest.audio
+            _sr = latest.sample_rate
+            _pid = latest.phase_id
+            try:
+                self._update_waveform_live(_audio, _sr, _pid)
+            except Exception:
+                pass
+            try:
+                _audio_live = _normalize_audio(_audio)
+                if (isinstance(_audio_live, np.ndarray) and _audio_live.size > 0):
+                    _preview = _guard_preview_short_term_loudness(
+                        _audio_live, self._orig_audio, int(_sr))
+                    self._live_preview_audio = _preview.copy()
+                    self._live_preview_sr = int(_sr)
+                    if (hasattr(self, "btn_play_restored")
+                            and self._rest_audio is None):
+                        if not self.btn_play_restored.isEnabled():
+                            self.btn_play_restored.setEnabled(True)
+                            self.btn_play_restored.setText(
+                                "🎧  Zwischenstand hören")
+                            self.btn_play_restored.setToolTip(
+                                "Zwischenstand der Restaurierung anh\u00f6ren "
+                                "(Snapshot der letzten Phase).\n"
+                                "Die Restaurierung l\u00e4uft im Hintergrund weiter.")
+            except Exception:
+                pass
+        except Exception as _e:
+            logger.debug("_poll_audio_ring Fehler: %s", _e)
+
     def _update_waveform_live(self, audio, sr, phase_id):
         """Live-Waveform-Update nach jeder UV3-Phase — KEIN Zoom-Reset, KEIN Spektrogramm.
 
@@ -23517,63 +23858,98 @@ class ModernMainWindow(QMainWindow):
         _bt = getattr(self, "batch_thread", None)
         _rft = getattr(self, "_ml_refinement_thread", None)
         _workers_running = bool((_bt is not None and _bt.isRunning()) or (_rft is not None and _rft.isRunning()))
-        if _workers_running:
-            _dlg = QDialog(self)
-            _dlg.setWindowTitle(t("dialog.close_while_processing_title"))
-            _dlg.setModal(True)
-            _dlg.setStyleSheet(
-                "QDialog { background-color: #101828; color: #EAF2FF; }"
-                "QLabel { color: #EAF2FF; font-size: 10pt; }"
-                "QLabel#closeTitle { color: #EAF2FF; font-size: 13pt; font-weight: bold; }"
-                "QLabel#closeIcon { color: #F2D16B; font-size: 22pt; }"
-                "QPushButton {"
-                " background-color: #1F3557; color: #EAF2FF; border: 1px solid #3B5B89;"
-                " border-radius: 6px; padding: 8px 16px; min-width: 150px; font-weight: bold;"
-                "}"
-                "QPushButton:hover { background-color: #274673; }"
-                "QPushButton#closeNow { background-color: #5A2732; border-color: #A85B68; }"
-                "QPushButton#closeNow:hover { background-color: #753441; }"
-                "QPushButton#keepRunning { background-color: #24513F; border-color: #5FAE82; }"
-                "QPushButton#keepRunning:hover { background-color: #2D684F; }"
-            )
-            _outer = QVBoxLayout(_dlg)
-            _outer.setContentsMargins(22, 20, 22, 18)
-            _outer.setSpacing(14)
-            _header = QHBoxLayout()
-            _icon = QLabel("⚠")
-            _icon.setObjectName("closeIcon")
-            _title = QLabel(t("dialog.close_while_processing_title"))
-            _title.setObjectName("closeTitle")
-            _header.addWidget(_icon)
-            _header.addWidget(_title, 1)
-            _outer.addLayout(_header)
-            _body = QLabel(t("dialog.close_while_processing_body"))
-            _body.setWordWrap(True)
-            _body.setMinimumWidth(520)
-            _outer.addWidget(_body)
-            _buttons = QHBoxLayout()
-            _buttons.addStretch(1)
-            _btn_keep = QPushButton(t("dialog.close_while_processing_btn_keep"))
-            _btn_keep.setObjectName("keepRunning")
-            _btn_close = QPushButton(t("dialog.close_while_processing_btn_close"))
-            _btn_close.setObjectName("closeNow")
-            _buttons.addWidget(_btn_keep)
-            _buttons.addWidget(_btn_close)
-            _outer.addLayout(_buttons)
-            _dlg._close_requested = False  # type: ignore[attr-defined]
-            _btn_keep.clicked.connect(_dlg.reject)
-            _btn_close.clicked.connect(lambda: (setattr(_dlg, "_close_requested", True), _dlg.accept()))
-            _btn_keep.setDefault(True)
-            _dlg.exec()
-            if not bool(getattr(_dlg, "_close_requested", False)):
-                # Sofortige positive Rückmeldung: Dialog wurde bewusst verworfen,
-                # Restaurierung läuft unverändert weiter.
-                self.title_bar.set_status(t("status.processing_continues"), "#82B89A")
-                self._apply_status_text_style("active", pill=True)
-                self.status_text.setText(t("status.processing_continues_detail"))
-                self._show_toast(t("status.processing_continues_toast"), severity="info", duration_ms=2200)
-                event.ignore()
-                return
+        class _CloseWhileProcessingDialog(QtWidgets.QDialog):
+            """Dialog mit Splashscreen-Hintergrund."""
+            def paintEvent(self, event):
+                p = QtGui.QPainter(self)
+                p.setRenderHint(QtGui.QPainter.Antialiasing)
+                w, h = self.width(), self.height()
+                corners = 10.0
+                clip = QtGui.QPainterPath()
+                clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+                p.setClipPath(clip)
+                p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+                g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+                g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+                g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+                g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+                g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+                g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+                g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+                g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+                g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+                g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+                g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+                g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+                bg = QtGui.QLinearGradient(0, 0, w, h)
+                bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+                bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+                bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+                p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+                p.setBrush(QtCore.Qt.NoBrush)
+                p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+                p.setClipping(False)
+                p.end()
+                super().paintEvent(event)
+
+        _dlg = _CloseWhileProcessingDialog(self)
+        _dlg.setWindowTitle(t("dialog.close_while_processing_title"))
+        _dlg.setMinimumWidth(400)
+        _dlg.setStyleSheet(
+            "QDialog { background: transparent; color: #EAF2FF; }"                "QLabel#closeTitle { color: #EAF2FF; font-size: 13pt; font-weight: bold; }"
+            "QLabel#closeIcon { color: #F2D16B; font-size: 22pt; }"
+            "QPushButton {"
+            " background-color: #1F3557; color: #EAF2FF; border: 1px solid #3B5B89;"
+            " border-radius: 6px; padding: 8px 16px; min-width: 150px; font-weight: bold;"
+            "}"
+            "QPushButton:hover { background-color: #274673; }"
+            "QPushButton#closeNow { background-color: #5A2732; border-color: #A85B68; }"
+            "QPushButton#closeNow:hover { background-color: #753441; }"
+            "QPushButton#keepRunning { background-color: #24513F; border-color: #5FAE82; }"
+            "QPushButton#keepRunning:hover { background-color: #2D684F; }"
+        )
+        _outer = QVBoxLayout(_dlg)
+        _outer.setContentsMargins(22, 20, 22, 18)
+        _outer.setSpacing(14)
+        _header = QHBoxLayout()
+        _icon = QLabel("⚠")
+        _icon.setObjectName("closeIcon")
+        _title = QLabel(t("dialog.close_while_processing_title"))
+        _title.setObjectName("closeTitle")
+        _header.addWidget(_icon)
+        _header.addWidget(_title, 1)
+        _outer.addLayout(_header)
+        _body = QLabel(t("dialog.close_while_processing_body"))
+        _body.setWordWrap(True)
+        _body.setMinimumWidth(520)
+        _outer.addWidget(_body)
+        _buttons = QHBoxLayout()
+        _buttons.addStretch(1)
+        _btn_keep = QPushButton(t("dialog.close_while_processing_btn_keep"))
+        _btn_keep.setObjectName("keepRunning")
+        _btn_close = QPushButton(t("dialog.close_while_processing_btn_close"))
+        _btn_close.setObjectName("closeNow")
+        _buttons.addWidget(_btn_keep)
+        _buttons.addWidget(_btn_close)
+        _outer.addLayout(_buttons)
+        _dlg._close_requested = False  # type: ignore[attr-defined]
+        _btn_keep.clicked.connect(_dlg.reject)
+        _btn_close.clicked.connect(lambda: (setattr(_dlg, "_close_requested", True), _dlg.accept()))
+        _btn_keep.setDefault(True)
+        _dlg.exec()
+        if not bool(getattr(_dlg, "_close_requested", False)):
+            # Sofortige positive Rückmeldung: Dialog wurde bewusst verworfen,
+            # Restaurierung läuft unverändert weiter.
+            self.title_bar.set_status(t("status.processing_continues"), "#82B89A")
+            self._apply_status_text_style("active", pill=True)
+            self.status_text.setText(t("status.processing_continues_detail"))
+            self._show_toast(t("status.processing_continues_toast"), severity="info", duration_ms=2200)
+            event.ignore()
+            return
             # Sofort sichtbare Reaktion auf den Klick: Fenster deaktivieren und
             # ausblenden, während der Worker im Hintergrund sauber beendet wird.
             self._window_tearing_down = True
@@ -23728,6 +24104,7 @@ class ModernMainWindow(QMainWindow):
 
         # ── Export-Dialog ────────────────────────────────────────────────
         dlg = QDialog(self)
+        dlg.setStyleSheet("QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5); border-radius: 10px; }")
         dlg.setWindowTitle(t("ui.export_dialog_title"))
         dlg.setMinimumWidth(420)
         dlg_layout = QVBoxLayout(dlg)
@@ -23974,8 +24351,47 @@ class ModernMainWindow(QMainWindow):
 
     def _show_settings(self):
         """Einstellungs-Dialog mit Output-Format-Voreinstellung."""
-        dlg = QDialog(self)
+        class _SettingsDialog(QtWidgets.QDialog):
+            """Settings-Dialog mit Splashscreen-Hintergrund."""
+            def paintEvent(self, event):
+                p = QtGui.QPainter(self)
+                p.setRenderHint(QtGui.QPainter.Antialiasing)
+                w, h = self.width(), self.height()
+                corners = 10.0
+                clip = QtGui.QPainterPath()
+                clip.addRoundedRect(QtCore.QRectF(0, 0, w, h), corners, corners)
+                p.setClipPath(clip)
+                p.fillRect(0, 0, w, h, QtGui.QColor(7, 9, 22))
+                g1 = QtGui.QRadialGradient(w * 0.15, h * 0.42, w * 0.40)
+                g1.setColorAt(0.0, QtGui.QColor(188, 128, 28, 52))
+                g1.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g1))
+                g2 = QtGui.QRadialGradient(w * 0.85, h * 0.42, w * 0.40)
+                g2.setColorAt(0.0, QtGui.QColor(18, 95, 218, 55))
+                g2.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g2))
+                g3 = QtGui.QRadialGradient(w * 0.50, 0.0, w * 0.45)
+                g3.setColorAt(0.0, QtGui.QColor(102, 78, 205, 42))
+                g3.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g3))
+                g4 = QtGui.QRadialGradient(w * 0.50, float(h), w * 0.48)
+                g4.setColorAt(0.0, QtGui.QColor(0, 188, 212, 28))
+                g4.setColorAt(1.0, QtGui.QColor(0, 0, 0, 0))
+                p.fillRect(0, 0, w, h, QtGui.QBrush(g4))
+                bg = QtGui.QLinearGradient(0, 0, w, h)
+                bg.setColorAt(0.0, QtGui.QColor(212, 162, 50, 155))
+                bg.setColorAt(0.4, QtGui.QColor(102, 126, 234, 110))
+                bg.setColorAt(1.0, QtGui.QColor(18, 145, 255, 135))
+                p.setPen(QtGui.QPen(QtGui.QBrush(bg), 1.5))
+                p.setBrush(QtCore.Qt.NoBrush)
+                p.drawRoundedRect(QtCore.QRectF(0.75, 0.75, w - 1.5, h - 1.5), corners, corners)
+                p.setClipping(False)
+                p.end()
+                super().paintEvent(event)
+
+        dlg = _SettingsDialog(self)
         dlg.setWindowTitle(t("settings.title"))
+        dlg.setStyleSheet("QDialog { background: transparent; }")
         dlg.setMinimumWidth(420)
         layout = QVBoxLayout(dlg)
         layout.setSpacing(14)

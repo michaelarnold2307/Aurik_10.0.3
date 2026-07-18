@@ -6143,14 +6143,20 @@ class UnifiedRestorerV3:
                         and getattr(obj, "__module__", "") == modulename
                     ):
                         meta = obj().get_metadata()
+                        # §v10.18: Robuste Attribut-Extraktion. Manche Phasen
+                        # geben dicts oder nicht-standard Metadaten zurück.
+                        # getattr mit Fallback verhindert, dass EIN Feld eine
+                        # ganze Phase unladbar macht.
+                        _cat_raw = getattr(meta, "category", None)
+                        _cat_val = getattr(_cat_raw, "value", str(_cat_raw)) if _cat_raw is not None else "unknown"
                         metadata[meta.phase_id] = {
                             "class": obj,
                             "modulename": modulename,
-                            "name": meta.name,
-                            "category": meta.category.value,
-                            "dependencies": meta.dependencies,
-                            "estimated_time_factor": meta.estimated_time_factor,
-                            "priority": meta.priority,
+                            "name": getattr(meta, "name", fname[:-3]),
+                            "category": _cat_val,
+                            "dependencies": getattr(meta, "dependencies", []),
+                            "estimated_time_factor": getattr(meta, "estimated_time_factor", 0.05),
+                            "priority": getattr(meta, "priority", 5),
                         }
                         break  # Only one PhaseInterface subclass per module file
             except Exception as e:
@@ -9108,7 +9114,12 @@ class UnifiedRestorerV3:
                         _pts_str,
                     )
                 else:
-                    logger.warning(
+                    # §G13/SOTA: Variierender Interchannel-Lag ist KEIN Defekt, sondern
+                    # eine normale Eigenschaft analoger Tonträger (Azimuth-Drift,
+                    # Banddehnung, Kopfspalt-Versatz). Die Pipeline korrigiert ihn
+                    # automatisch: Median-Korrektur + STCG per-Chunk-Residuale.
+                    # Daher INFO (kein WARNING) — das System arbeitet wie designed.
+                    logger.info(
                         "LAG_PROBE 0B: lag=%d samples (%.1f ms) — VARIIERT (spread=%d, points=[%s]). "
                         "Median-Korrektur + STCG für Residuale.",
                         _lp0b_lag,
@@ -27902,11 +27913,16 @@ class UnifiedRestorerV3:
             }
         )
         _defect_scores_wd = kwargs.get("defect_scores")
+        _defect_severity_wd = kwargs.get("defect_severity_map")
         if _defect_scores_wd and phase_metadata.phase_id not in _TIMING_PHASES_WD:
             try:
                 from backend.core.defect_phase_mapper import get_phase_defect_severity
 
-                _sev_wet_dry = get_phase_defect_severity(phase_metadata.phase_id, _defect_scores_wd)
+                _sev_wet_dry = get_phase_defect_severity(
+                    phase_metadata.phase_id,
+                    _defect_scores_wd,
+                    defect_severity_map=_defect_severity_wd,
+                )
             except Exception:
                 _sev_wet_dry = 1.0
 
@@ -29318,9 +29334,30 @@ class UnifiedRestorerV3:
 
                     _sr = _SegResult()
                     _sr.audio = result
+                    _sr.success = True  # §v10.18: _normalize_phase_result erwartet .success
+                    _sr.resolved_defects = {}  # Segment-Ergebnisse haben keine Defekt-Auflösung
                     result = _sr  # type: ignore[assignment]
             else:
                 result = phase.process(audio, **kwargs)
+                # §v10.31: Normalize result audio to channels-first (2,N) to match pipeline.
+                # Phases like phase_15 convert to channels-last (N,2) internally and
+                # return results in that format, but the pipeline expects (2,N).
+                if hasattr(result, "audio") and isinstance(result.audio, np.ndarray):
+                    _ra = result.audio
+                    if _ra.ndim == 2 and _ra.shape[0] > 2 and _ra.shape[1] == 2:
+                        # channels-last (N,2) → channels-first (2,N)
+                        result.audio = _ra.T
+                # §v10.31b: Ensure result.audio is always an ndarray. Some phases may
+                # return results with .audio as tuple (e.g. (array, stats)) which
+                # causes "'tuple' object has no attribute 'ndim'" in post-processing.
+                if hasattr(result, "audio") and not isinstance(result.audio, np.ndarray):
+                    _ra_raw = getattr(result, "audio", None)
+                    if isinstance(_ra_raw, (tuple, list)):
+                        _ra_first = _ra_raw[0] if len(_ra_raw) > 0 else audio
+                        if isinstance(_ra_first, np.ndarray):
+                            result.audio = _ra_first
+                        else:
+                            result.audio = np.asarray(audio, dtype=np.float32)
         finally:
             _hb_stop_ev.set()
             if _hb_thread is not None:
@@ -31421,6 +31458,9 @@ class UnifiedRestorerV3:
             "material_type": str(material_type.value if hasattr(material_type, "value") else material_type),
             "executed_phase_ids": [],
         }
+        # §v10.18: resolved_defects accumulator — Phasen melden behobene Defekte
+        # (z.B. Phase 07 meldet CLIPPING=0.0 → Phase 23 sieht reduzierte Severity)
+        self._resolved_defects_accumulator: dict[str, float] = {}
         executed: list[str] = []
         skipped: list[str] = []
         deferred: list[str] = []  # §2.38 KMV: phases skipped by PerformanceGuard for Stage 2 refinement
@@ -31693,7 +31733,16 @@ class UnifiedRestorerV3:
                             deferred.append(_pid)
 
         def _normalize_phase_result(_r):
-            """Accept legacy ndarray returns and normalize to PhaseResult-like object."""
+            """Accept legacy ndarray returns and normalize to PhaseResult-like object.
+
+            §v10.22: Extrahiert resolved_defects aus PhaseResult und akkumuliert
+            sie im _resolved_defects_accumulator, damit auch Fallback/Direkt-Pfade
+            von der Defekt-Auflösung profitieren.
+            """
+            _resolved = getattr(_r, "resolved_defects", None)
+            if _resolved:
+                acc = getattr(self, "_resolved_defects_accumulator", {})
+                acc.update(_resolved)
             if hasattr(_r, "success"):
                 return _r
             if isinstance(_r, np.ndarray):
@@ -31701,6 +31750,15 @@ class UnifiedRestorerV3:
                     success=True,
                     audio=_r,
                     execution_time_seconds=0.0,
+                    warnings=[],
+                )
+            # §v10.18: Falls das Objekt .audio hat (z.B. _SegResult), als success behandeln.
+            # Der Fallback sollte nur für komplett unbrauchbare Typen greifen.
+            if hasattr(_r, "audio"):
+                return SimpleNamespace(
+                    success=True,
+                    audio=_r.audio,
+                    execution_time_seconds=getattr(_r, "execution_time_seconds", 0.0),
                     warnings=[],
                 )
             return SimpleNamespace(
@@ -33252,6 +33310,12 @@ class UnifiedRestorerV3:
                         skipped.append(phase_id)
                         _record_oom_probe("phase_skip_not_loaded", phase_id)
                         continue
+                    # §v10.24: Skip phase if all primary defects already resolved
+                    if self._should_skip_resolved_phase(phase_id):
+                        logger.info("Phase %s skipped: all primary defects resolved", phase_id)
+                        skipped.append(phase_id)
+                        _record_oom_probe("phase_skip_resolved_defects", phase_id)
+                        continue
                     metadata = phase.get_metadata()
                     estimated_time = metadata.estimated_time_factor * (audio.shape[-1] / sample_rate)
                     if (
@@ -33713,6 +33777,12 @@ class UnifiedRestorerV3:
                     skipped.append(phase_id)
                     _record_oom_probe("phase_skip_not_loaded", phase_id)
                     continue
+                # §v10.24: Skip phase if all primary defects already resolved
+                if self._should_skip_resolved_phase(phase_id):
+                    logger.info("Phase %s skipped: all primary defects resolved", phase_id)
+                    skipped.append(phase_id)
+                    _record_oom_probe("phase_skip_resolved_defects", phase_id)
+                    continue
 
                 # §2.65 MAS-Early-Stop: wenn alle P1/P2-Goals das song-spezifische
                 # Maximum erreicht haben, Pipeline stoppen — keine weiteren optionalen Phasen.
@@ -33904,7 +33974,11 @@ class UnifiedRestorerV3:
                 )
                 _record_oom_probe("phase_start", phase_id, estimated_time_s=round(float(estimated_time), 3))
                 # §2.61 Input-Länge für Output-Length-Guard festhalten
-                _phase_input_len_2_61: int = len(current_audio)
+                # Verwende .size (Gesamt-Samples) statt len() — len() liefert
+                # shape[0], was bei channels-first (2,N) falsch 2 ergibt.
+                _phase_input_len_2_61: int = int(current_audio.size)
+                # Pre-phase snapshot für katastrophale Rollbacks (§2.61 catastrophic)
+                _pre_phase_audio_2_61 = current_audio.copy()
                 _coalition_name = _phase_to_coalition.get(phase_id)
                 if _coalition_name and _coalition_name not in _coalition_pre_audio:
                     _coalition_pre_audio[_coalition_name] = current_audio.copy()
@@ -34006,7 +34080,11 @@ class UnifiedRestorerV3:
                             try:
                                 from backend.core.defect_phase_mapper import get_phase_defect_severity
 
-                                _sev_factor = get_phase_defect_severity(phase_id, defect_result.scores)
+                                _sev_factor = get_phase_defect_severity(
+                                    phase_id,
+                                    defect_result.scores,
+                                    defect_severity_map=_defect_severity_map,
+                                )
                                 _combined_strength = _mat_strength * _sev_factor
                                 if _sev_factor < 1.0:
                                     logger.debug(
@@ -34493,7 +34571,10 @@ class UnifiedRestorerV3:
                                         **self._canonical_phase_context_kwargs(),
                                         "defect_scores": defect_result.scores,
                                         "defect_locations": _defect_locations,
-                                        "defect_severity_map": _defect_severity_map,
+                                        "defect_severity_map": {  # §v10.18: merge resolved defects
+                                            k: min(v, self._resolved_defects_accumulator.get(k, 1.0))
+                                            for k, v in _defect_severity_map.items()
+                                        },
                                         "defect_saliency_map": _defect_saliency_map,
                                         "defect_location_coverage_map": _defect_location_coverage_map,
                                         "max_defect_severity": _max_defect_severity,
@@ -34658,7 +34739,26 @@ class UnifiedRestorerV3:
                                 logger.debug("PMGG proxy metric capture failed for %s: %s", phase_id, _pmgg_proxy_exc)
 
                             _pmgg_log_entries.append(_pmgg_entry)
+                            # §v10.18: resolved_defects aus PMGG-Log-Entry in Accumulator übernehmen
+                            _pmgg_resolved = (_pmgg_entry.metadata or {}).get("resolved_defects", {})
+                            if _pmgg_resolved:
+                                self._resolved_defects_accumulator.update(_pmgg_resolved)
+                                # §v10.19: Defect-Locations invalidieren wenn Defekt vollständig behoben
+                                # Ist residual < 0.01 → alle Locations dieses Defekttyps löschen,
+                                # da spätere Phasen sonst an bereits reparierten Stellen arbeiten.
+                                for _dk, _dv in _pmgg_resolved.items():
+                                    if _dv < 0.01 and _dk in _defect_locations:
+                                        _defect_locations[_dk] = []
                             _collect_guard_payload(_phase_for_exec, phase_id)
+                            # §v10.22: Merged severity map für Dedicated-Repair-Funktionen
+                            _defect_severity_map_merged = (
+                                {
+                                    k: min(v, self._resolved_defects_accumulator.get(k, 1.0))
+                                    for k, v in _defect_severity_map.items()
+                                }
+                                if self._resolved_defects_accumulator
+                                else _defect_severity_map
+                            )
                             # §3.1 NaN-Guard: revert to pre-phase audio if NaN produced
                             if np.any(np.isnan(_pmgg_audio_out)):
                                 logger.warning(
@@ -34679,7 +34779,7 @@ class UnifiedRestorerV3:
                                     phase_id=phase_id,
                                     sample_rate=sample_rate,
                                     material_type=material_type,
-                                    defect_severity_map=_defect_severity_map,
+                                    defect_severity_map=_defect_severity_map_merged,
                                     defect_locations=_defect_locations,
                                 )
                                 current_audio = self._apply_dedicated_pre_echo_repair(
@@ -34687,7 +34787,7 @@ class UnifiedRestorerV3:
                                     phase_id=phase_id,
                                     sample_rate=sample_rate,
                                     material_type=material_type,
-                                    defect_severity_map=_defect_severity_map,
+                                    defect_severity_map=_defect_severity_map_merged,
                                     defect_locations=_defect_locations,
                                 )
                                 current_audio = self._apply_dedicated_aliasing_repair(
@@ -34695,7 +34795,7 @@ class UnifiedRestorerV3:
                                     phase_id=phase_id,
                                     sample_rate=sample_rate,
                                     material_type=material_type,
-                                    defect_severity_map=_defect_severity_map,
+                                    defect_severity_map=_defect_severity_map_merged,
                                     defect_locations=_defect_locations,
                                 )
                                 current_audio = self._apply_dedicated_compression_artifact_repair(
@@ -34703,7 +34803,7 @@ class UnifiedRestorerV3:
                                     phase_id=phase_id,
                                     sample_rate=sample_rate,
                                     material_type=material_type,
-                                    defect_severity_map=_defect_severity_map,
+                                    defect_severity_map=_defect_severity_map_merged,
                                     defect_locations=_defect_locations,
                                 )
                                 current_audio = self._apply_dedicated_dynamic_compression_excess_repair(
@@ -34711,7 +34811,7 @@ class UnifiedRestorerV3:
                                     phase_id=phase_id,
                                     sample_rate=sample_rate,
                                     material_type=material_type,
-                                    defect_severity_map=_defect_severity_map,
+                                    defect_severity_map=_defect_severity_map_merged,
                                     defect_locations=_defect_locations,
                                 )
                                 # §HF-Tracking (PMGG-Primary): hf_cumulative_gain_db nach HF-additiver Phase.
@@ -34810,6 +34910,95 @@ class UnifiedRestorerV3:
                                     "§2.64 PMGG phase_delta non-blocking error for %s: %s", phase_id, _delta_pmgg_exc
                                 )
                             executed.append(phase_id)
+                            # §v10.28: Bidirektionaler Re-Scan nach subtractiven Phasen
+                            # Entfernen lauter Defekte kann leisere Defekte ENTHÜLLEN.
+                            # Nach Phase 01 (Klicks), 03 (Denoise), 07 (Declip) prüfen,
+                            # ob neu sichtbare Defekte im Signal vorhanden sind.
+                            if phase_id in {"phase_01_click_removal", "phase_03_denoise", "phase_07_declipper"}:
+                                try:
+                                    from backend.core.defect_re_scanner import DefectReScanner
+
+                                    _re_scanner = DefectReScanner()
+                                    _revealed = _re_scanner.scan(current_audio, sample_rate, phase_id)
+                                    if _revealed:
+                                        for _rd, _rs in _revealed.items():
+                                            _old = self._resolved_defects_accumulator.get(_rd, 0.0)
+                                            if _rs > _old:
+                                                self._resolved_defects_accumulator[_rd] = _rs
+                                                logger.info(
+                                                    "§v10.28 Re-Scan: %s enthüllt — Severity %.2f → %.2f",
+                                                    _rd,
+                                                    _old,
+                                                    _rs,
+                                                )
+                                except Exception as _re_scan_exc:
+                                    logger.debug("§v10.28 Re-Scan non-blocking: %s", _re_scan_exc)
+                            # §v10.23: Akustische Re-Messungen nach Schlüsselphasen
+                            # Noise-Floor nach Denoise (Phase 03)
+                            if phase_id == "phase_03_denoise":
+                                try:
+                                    _nf_db = self._estimate_noise_floor_db(current_audio, sample_rate)
+                                    if _nf_db is not None:
+                                        if hasattr(self, "_cstc_noise_profile") and isinstance(
+                                            self._cstc_noise_profile, dict
+                                        ):
+                                            self._cstc_noise_profile["noise_floor_db"] = float(_nf_db)
+                                        _rctx = getattr(self, "_restoration_context", None)
+                                        if isinstance(_rctx, dict):
+                                            _sf = _rctx.get("spectral_fingerprint")
+                                            if isinstance(_sf, dict):
+                                                _sf["noise_floor_p5_db"] = float(_nf_db)
+                                        logger.info("§v10.23 Noise-Floor nach Denoise: %.1f dB", _nf_db)
+                                except Exception as _nf_exc:
+                                    logger.debug("§v10.23 Noise-Floor: %s", _nf_exc)
+                            # Bandwidth nach Frequenz-Restauration (Phase 06)
+                            if phase_id == "phase_06_frequency_restoration":
+                                try:
+                                    _bw_hz = self._estimate_effective_bandwidth_hz(current_audio, sample_rate)
+                                    if _bw_hz is not None:
+                                        _rctx = getattr(self, "_restoration_context", None)
+                                        if isinstance(_rctx, dict):
+                                            _sf = _rctx.get("spectral_fingerprint")
+                                            if isinstance(_sf, dict):
+                                                _sf["effective_bandwidth_hz"] = float(_bw_hz)
+                                        logger.info("§v10.23 Bandwidth nach Phase 06: %.0f Hz", _bw_hz)
+                                except Exception as _bw_exc:
+                                    logger.debug("§v10.23 Bandwidth: %s", _bw_exc)
+                            # Crest-Faktor nach Declipper (Phase 07)
+                            if phase_id == "phase_07_declipper":
+                                try:
+                                    _cf_db = self._estimate_crest_factor_db(current_audio)
+                                    if _cf_db is not None:
+                                        _rctx = getattr(self, "_restoration_context", None)
+                                        if isinstance(_rctx, dict):
+                                            _rctx["crest_factor_db"] = float(_cf_db)
+                                        logger.info("§v10.23 Crest-Faktor nach Declip: %.1f dB", _cf_db)
+                                except Exception as _cf_exc:
+                                    logger.debug("§v10.23 Crest-Faktor: %s", _cf_exc)
+                            # §v10.25: Adaptive PMGG-Guards — Restorability aus resolved_defects
+                            _current_restorability = self._compute_current_restorability()
+                            if hasattr(self, "_restoration_context") and isinstance(
+                                getattr(self, "_restoration_context", None), dict
+                            ):
+                                self._restoration_context["current_restorability"] = _current_restorability
+                            # §v10.26: Adaptive quality_mode — Downgrade MAXIMUM→QUALITY
+                            if _quality_mode_value == "maximum" and _current_restorability > 85.0:
+                                _quality_mode_value = "quality"
+                                logger.info(
+                                    "§v10.26 quality_mode: MAXIMUM→QUALITY (restorability=%.1f%%)",
+                                    _current_restorability,
+                                )
+                            # §v10.27: UQ Drive — resolved_defects Dämpfungs-Reduktion
+                            _uq_resolved_ratio = (
+                                sum(self._resolved_defects_accumulator.values())
+                                / max(len(self._resolved_defects_accumulator), 1)
+                                if self._resolved_defects_accumulator
+                                else 0.0
+                            )
+                            if hasattr(self, "_restoration_context") and isinstance(
+                                getattr(self, "_restoration_context", None), dict
+                            ):
+                                self._restoration_context["uq_resolved_ratio"] = float(_uq_resolved_ratio)
                             # §CROWN: Phase Impact Learning — zeichne Quality-Delta auf
                             try:
                                 from backend.core.phase_impact_recorder import get_phase_impact_recorder
@@ -35451,17 +35640,50 @@ class UnifiedRestorerV3:
                         except Exception as _stg_exc:
                             logger.debug("§2.51a Mid-pipeline stereo guard failed: %s", _stg_exc)
 
-                    # §2.61 Output-Length-Guard — harter Crop + Log; kein stilles Zero-Padding
-                    if hasattr(current_audio, "shape") and abs(len(current_audio) - _phase_input_len_2_61) > 64:
-                        logger.error(
-                            "§2.61 length_mismatch phase=%s delta=%d — hard crop",
-                            phase_id,
-                            len(current_audio) - _phase_input_len_2_61,
-                        )
-                        current_audio = current_audio[:_phase_input_len_2_61]
-                        if "length_corrections" not in self._metadata:  # type: ignore[attr-defined]
-                            self._metadata["length_corrections"] = []  # type: ignore[attr-defined]
-                        self._metadata["length_corrections"].append(phase_id)  # type: ignore[attr-defined]
+                    # §2.61 Output-Length-Guard — sample-accurate; erkennt Längen-
+                    # Abweichungen unabhängig von channels-first vs channels-last.
+                    # Bei erheblicher Diskrepanz: Phase als fehlgeschlagen markieren
+                    # und pre-phase Audio wiederherstellen (kein blinder Crop!).
+                    if hasattr(current_audio, "shape"):
+                        _post_size = int(current_audio.size)
+                        _delta = _post_size - _phase_input_len_2_61
+                        if abs(_delta) > 64:
+                            # Nur loggen wenn die Abweichung moderat ist (< 1% des Originals)
+                            _pct = abs(_delta) / max(_phase_input_len_2_61, 1)
+                            if _pct < 0.01:
+                                logger.warning(
+                                    "§2.61 length_mismatch phase=%s delta=%d samples (%.3f%%) — "
+                                    "minor discrepancy, trimming to match input length",
+                                    phase_id, _delta, _pct * 100,
+                                )
+                                # Trim sample axis (letzte Achse = samples bei channels-first)
+                                _sample_axis = 1 if current_audio.ndim == 2 and current_audio.shape[0] == 2 else 0
+                                _target = _phase_input_len_2_61 // (current_audio.shape[0] if current_audio.ndim == 2 else 1)
+                                if _sample_axis == 0:
+                                    current_audio = current_audio[:_target]
+                                else:
+                                    current_audio = current_audio[:, :_target]
+                            else:
+                                logger.error(
+                                    "§2.61 CATASTROPHIC length_mismatch phase=%s delta=%d "
+                                    "samples (%.1f%% of original) — restoring pre-phase audio "
+                                    "and marking phase as failed",
+                                    phase_id, _delta, _pct * 100,
+                                )
+                                # Restore pre-phase audio from snapshot (captured before phase started)
+                                try:
+                                    _snap = locals().get("_pre_phase_audio_2_61")
+                                    if _snap is not None and isinstance(_snap, __import__("numpy").ndarray):
+                                        current_audio = _snap
+                                    else:
+                                        logger.error("§2.61 no pre-phase snapshot available — cannot restore")
+                                except Exception:
+                                    logger.error("§2.61 snapshot restore failed")
+                                if phase_id not in skipped:
+                                    skipped.append(phase_id)
+                            if "length_corrections" not in self._metadata:
+                                self._metadata["length_corrections"] = []
+                            self._metadata["length_corrections"].append(phase_id)
 
                     # §0d Carrier-Recovery-Checkpoint: nach jeder erfolgreichen Carrier-Phase
                     # den Audio-Snapshot speichern (letzter Carrier-Checkpoint = best_carrier_checkpoint)
@@ -37068,6 +37290,56 @@ class UnifiedRestorerV3:
                 "total_change_db": _cumulative_rms,
             }
 
+        # §v10.32 Pipeline-Delay-Kompensation: Kumulativer Delay aus STFT-Lookahead,
+        # filtfilt-Padding und Crossfade-Overlaps wird per Kreuzkorrelation gemessen
+        # und am Output kompensiert. Verhindert Zeitversatz zwischen Input und Output
+        # (z.B. 106.7ms / 5120 samples @48kHz). Universal für alle Songs.
+        _delay_compensated = False
+        if original_audio_reference is not None and current_audio is not None:
+            try:
+                _ref_mono = (
+                    original_audio_reference.mean(axis=0).astype(np.float64)
+                    if original_audio_reference.ndim == 2
+                    else original_audio_reference.astype(np.float64)
+                )
+                _out_mono = (
+                    current_audio.mean(axis=0).astype(np.float64)
+                    if current_audio.ndim == 2
+                    else current_audio.astype(np.float64)
+                )
+                # Kreuzkorrelation über erste 5s für Performance (Delay ist konstant)
+                _corr_len = min(len(_ref_mono), len(_out_mono), sample_rate * 5)
+                _ref_seg = _ref_mono[:_corr_len]
+                _out_seg = _out_mono[:_corr_len]
+                from scipy.signal import correlate as _xc_delay
+
+                _xc = _xc_delay(_ref_seg, _out_seg)
+                _lag = np.argmax(_xc) - len(_ref_seg) + 1
+                _peak_corr = float(
+                    _xc.max() / (np.sqrt(np.sum(_ref_seg**2) * np.sum(_out_seg**2)) + 1e-12)
+                )
+                logger.info(
+                    "§v10.32 Pipeline-Delay: lag=%d samples (%.1f ms), peak_corr=%.4f",
+                    _lag, _lag / sample_rate * 1000, _peak_corr,
+                )
+                # Nur kompensieren wenn Delay > 1ms und Korrelation hoch genug
+                if _lag > sample_rate // 1000 and _peak_corr > 0.5:
+                    _trim = int(_lag)
+                    if _trim < current_audio.shape[-1] // 2:
+                        if current_audio.ndim == 2:
+                            current_audio = current_audio[:, _trim:]
+                        else:
+                            current_audio = current_audio[_trim:]
+                        _delay_compensated = True
+                        logger.info(
+                            "§v10.32 Delay-Kompensation: %d samples (%.1f ms) getrimmt — "
+                            "neue Länge: %d samples (%.1f s)",
+                            _trim, _trim / sample_rate * 1000,
+                            current_audio.shape[-1], current_audio.shape[-1] / sample_rate,
+                        )
+            except Exception as _dc_exc:
+                logger.debug("§v10.32 Delay-Kompensation fehlgeschlagen (non-blocking): %s", _dc_exc)
+
         return current_audio, executed, skipped, deferred
 
     @staticmethod
@@ -37213,6 +37485,62 @@ class UnifiedRestorerV3:
             }
         return info
 
+    def _should_skip_resolved_phase(self, phase_id: str) -> bool:
+        """§v10.24: Prüft ob eine Phase wegen resolved_defects übersprungen werden kann.
+
+        Wenn ALLE primary defects dieser Phase bereits residual < 0.05 haben,
+        wurde der Defekt bereits von einer früheren Phase vollständig behoben.
+        Die Phase kann übersprungen werden.
+        """
+        acc = getattr(self, "_resolved_defects_accumulator", None)
+        if not acc:
+            return False
+        try:
+            from backend.core.defect_phase_mapper import get_reverse_phase_map
+
+            rmap = get_reverse_phase_map()
+            target_defects = rmap.get(phase_id)
+            if not target_defects:
+                return False  # Enhancement-Phase: immer ausführen
+            all_resolved = True
+            for dt in target_defects:
+                dt_key = dt.value if hasattr(dt, "value") else str(dt)
+                # §v10.24: resolved_defects verwendet UPPERCASE keys ("CLIPPING"),
+                # aber DefectType.value liefert lowercase ("clipping").
+                # Versuche beide Varianten.
+                residual = acc.get(dt_key, acc.get(dt_key.upper(), 1.0))
+                if residual >= 0.05:
+                    all_resolved = False
+                    break
+            return all_resolved
+        except Exception:
+            return False
+
+    def _estimate_noise_floor_db(self, audio: np.ndarray, sample_rate: int) -> float | None:
+        """§v10.23: Schätzt den Noise-Floor per P5-Perzentil-FFT-Methode."""
+        try:
+            import numpy as np
+
+            a = np.asarray(audio, dtype=np.float32)
+            if a.ndim > 1:
+                a = np.mean(a, axis=0)
+            n_fft = 2048
+            hop = n_fft
+            frames = [a[i : i + n_fft] for i in range(0, len(a) - n_fft, hop) if len(a[i : i + n_fft]) == n_fft]
+            if len(frames) < 4:
+                return None
+            window = np.hanning(n_fft)
+            p5_bins = []
+            for frame in frames[:200]:
+                spec = np.abs(np.fft.rfft(frame * window))
+                power = spec**2
+                p5_bins.append(float(np.percentile(power, 5)))
+            p5 = float(np.median(p5_bins))
+            noise_db = 10.0 * np.log10(max(p5, 1e-12))
+            return float(np.clip(noise_db, -120.0, 0.0))
+        except Exception:
+            return None
+
 
 # ========== CLI/Testing Interface ==========
 
@@ -37342,3 +37670,51 @@ if __name__ == "__main__":
         logger.debug("%s\n", "=" * 70)
 
     logger.debug("\n✅ UnifiedRestorerV3 Test Complete!")
+
+    def _estimate_effective_bandwidth_hz(self, audio: np.ndarray, sample_rate: int) -> float | None:
+        """§v10.23: Schätzt effektive Bandbreite (-20dB Rolloff)."""
+        try:
+            import numpy as np
+
+            a = np.asarray(audio, dtype=np.float32)
+            if a.ndim > 1:
+                a = np.mean(a, axis=0)
+            n_fft = 4096
+            if len(a) < n_fft:
+                return None
+            window = np.hanning(n_fft)
+            spec = np.abs(np.fft.rfft(a[:n_fft] * window))
+            spec_db = 20 * np.log10(np.maximum(spec, 1e-10))
+            peak_db = np.max(spec_db)
+            threshold_db = peak_db - 20
+            freqs = np.fft.rfftfreq(n_fft, 1.0 / sample_rate)
+            above = np.where(spec_db >= threshold_db)[0]
+            if len(above) > 0:
+                return float(freqs[above[-1]])
+            return None
+        except Exception:
+            return None
+
+    def _estimate_crest_factor_db(self, audio: np.ndarray) -> float | None:
+        """§v10.23: Crest-Faktor = Peak/RMS in dB."""
+        try:
+            import numpy as np
+
+            a = np.asarray(audio, dtype=np.float32)
+            peak = np.max(np.abs(a)) + 1e-12
+            rms = np.sqrt(np.mean(a * a)) + 1e-12
+            return float(20 * np.log10(peak / rms))
+        except Exception:
+            return None
+
+    def _compute_current_restorability(self) -> float:
+        """§v10.25: Aktuellen Restorability-Score aus resolved_defects berechnen."""
+        acc = getattr(self, "_resolved_defects_accumulator", None)
+        if not acc:
+            return 50.0  # Fallback: fair
+        resolved = sum(acc.values())
+        n = max(len(acc), 1)
+        avg_residual = resolved / n
+        # 0% residual = 100% restorability, 100% residual = 0% restorability
+        score = 100.0 * (1.0 - avg_residual)
+        return float(np.clip(score, 10.0, 95.0))

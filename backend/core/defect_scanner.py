@@ -3712,6 +3712,10 @@ class DefectScanner:
         magnitudes: list[float] = []
         bump_scores: list[float] = []
         suppressed_head_dip_like = 0
+        # §v10.30: Gesammelte Zeitbereiche der suppressed Events für Forwarding
+        # an den TAPE_HEAD_LEVEL_DIP-Detektor. Werden NICHT verworfen, sondern
+        # als Hint-Locations an _detect_tape_head_level_dips() übergeben.
+        _suppressed_head_dip_locations: list[tuple[float, float]] = []
 
         i = 0
         while i < n_frames:
@@ -3743,6 +3747,12 @@ class DefectScanner:
                     )
                     if _looks_like_head_level_dip:
                         suppressed_head_dip_like += 1
+                        # §v10.30: Zeitbereich des suppressed Events sammeln,
+                        # NICHT verwerfen. Wird als Hint an den Head-Dip-Detektor
+                        # weitergereicht, damit Phase 54/24 ihn reparieren kann.
+                        _t_start_hd = max(0.0, float(start_frame * hop) / sr - 0.015)
+                        _t_end_hd = min(float(n) / sr, float(end_frame * hop + win) / sr + 0.015)
+                        _suppressed_head_dip_locations.append((_t_start_hd, _t_end_hd))
                         continue
 
                     t_start = max(0.0, float(start_frame * hop) / sr - 0.015)
@@ -3754,6 +3764,10 @@ class DefectScanner:
                 i += 1
 
         n_bumps = len(locations)
+        # §v10.30: Forward suppressed head-dip-like events to the tape head dip detector.
+        # These were filtered from TRANSPORT_BUMP but are genuine defects that need repair.
+        # Store on self so _detect_tape_head_level_dips() can pick them up.
+        self._forwarded_head_dip_locations = _suppressed_head_dip_locations
         if n_bumps == 0:
             return DefectScore(DefectType.TRANSPORT_BUMP, 0.0, 0.6)
 
@@ -6632,6 +6646,28 @@ class DefectScanner:
                 dip_depths.append(depth)
 
             n_dips = len(locations)
+            # §v10.30: Forwarded head-dip-like events aus dem TRANSPORT_BUMP-Detektor
+            # übernehmen. Diese Events wurden dort als "sieht aus wie Head-Dip" erkannt
+            # und NICHT verworfen, sondern als Hint-Locations hierher weitergereicht.
+            _forwarded = getattr(self, "_forwarded_head_dip_locations", None)
+            if _forwarded:
+                for _ft_start, _ft_end in _forwarded:
+                    # Nur hinzufügen wenn nicht bereits überlappend mit bestehender Location
+                    _overlaps = any(
+                        abs(_ft_start - _ex_start) < 0.050 and abs(_ft_end - _ex_end) < 0.050
+                        for _ex_start, _ex_end in locations
+                    )
+                    if not _overlaps:
+                        locations.append((_ft_start, _ft_end))
+                        # Geschätzte Tiefe: 4 dB (konservativ, da vom Transport-Bump-
+                        # Detektor als "≤0.90 max ratio" klassifiziert)
+                        dip_depths.append(4.0)
+                logger.info(
+                    "§v10.30 Forwarded %d head-dip events from TRANSPORT_BUMP → TAPE_HEAD_LEVEL_DIP "
+                    "(%d existing + %d forwarded = %d total)",
+                    len(_forwarded), n_dips, len(locations) - n_dips, len(locations),
+                )
+            n_dips = len(locations)  # Update nach Merge
             if n_dips == 0:
                 return DefectScore(
                     DefectType.TAPE_HEAD_LEVEL_DIP,

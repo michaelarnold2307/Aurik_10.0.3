@@ -4068,6 +4068,10 @@ class PerPhaseMusicalGoalsGate:
         _decision_class, _decision_reason = self._classify_action_decision(action)
         log_entry.metadata["pmgg_decision_class"] = _decision_class
         log_entry.metadata["pmgg_decision_reason"] = _decision_reason
+        # §v10.18: resolved_defects aus PhaseResult in Log-Entry durchreichen
+        _resolved = getattr(self, "_last_resolved_defects", None) or {}
+        if _resolved:
+            log_entry.metadata["resolved_defects"] = dict(_resolved)
         _recon_decision = (
             dict(self._last_reconstruction_localized_decision)
             if isinstance(self._last_reconstruction_localized_decision, dict)
@@ -5321,6 +5325,10 @@ class PerPhaseMusicalGoalsGate:
             kw["strength"] = strength
             # CRITICAL: phase.process() statt phase() — PhaseInterface hat kein __call__
             result = phase.process(audio, **kw)
+            # §v10.18: resolved_defects aus PhaseResult extrahieren und
+            # über Instanzvariable an _evaluate_and_decide weiterreichen
+            _resolved = getattr(result, "resolved_defects", None) or {}
+            self._last_resolved_defects = _resolved
             if hasattr(result, "audio"):
                 out = result.audio
             elif hasattr(result, "processed_audio"):

@@ -496,6 +496,7 @@ class WowFlutterFix(PhaseInterface):
             return PhaseResult(
                 success=True,
                 audio=passthrough,
+                resolved_defects={},
                 metrics={
                     "wow_flutter_detected": False,
                     "max_deviation_percent": 0.0,
@@ -673,7 +674,11 @@ class WowFlutterFix(PhaseInterface):
                 _POLYPHONIC_CONSECUTIVE_ZERO_CONSENSUS += 1
                 if _POLYPHONIC_CONSECUTIVE_ZERO_CONSENSUS >= _POLYPHONIC_CB_MAX_FAILURES:
                     _POLYPHONIC_CB_ACTIVE = True
-                    logger.warning(
+                    # §C3 SOTA: Circuit-Breaker ist KEIN Fehler, sondern eine
+                    # normale Fallback-Strategie für Material ohne polyphone
+                    # Inhalte (Solo-Gesang, Sprache, Mono-Aufnahmen). Der
+                    # pYIN-Schätzer (Mauch & Dixon 2014) übernimmt zuverlässig.
+                    logger.info(
                         "Phase 12 Circuit-Breaker: %d konsekutive Zero-Consensus-Chunks — "
                         "polyphoner Pfad für diesen Lauf deaktiviert",
                         _POLYPHONIC_CONSECUTIVE_ZERO_CONSENSUS,
@@ -1383,6 +1388,10 @@ class WowFlutterFix(PhaseInterface):
         return PhaseResult(
             success=True,
             audio=restored,
+            resolved_defects={
+                "WOW": float(np.clip(residual_deviation / 100.0, 0.0, 0.3)),
+                "FLUTTER": float(np.clip(residual_deviation / 100.0, 0.0, 0.3)),
+            },
             metrics={
                 "wow_flutter_detected": True,
                 "max_deviation_percent": max_deviation,

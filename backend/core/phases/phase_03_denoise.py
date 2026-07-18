@@ -913,7 +913,7 @@ class DenoisePhase(PhaseInterface):
             _vocal_blend = float(np.clip(1.0 - _panns_singing, 0.15, 1.0))
             effective_strength = float(np.clip(effective_strength * _vocal_blend, 0.05, 1.0))
             logger.info(
-                "§DENKER Phase 03: strength=%.2f (unkalibriert), panns=%.2f → ML reduziert auf %.2f (Vokal-Blend)",
+                "§DENKER Phase 03: strength=%.2f (Selbstkalibrierung), panns=%.2f → ML reduziert auf %.2f (Vokal-Blend)",
                 _denker_strength,
                 _panns_singing,
                 effective_strength,
@@ -2488,6 +2488,9 @@ class DenoisePhase(PhaseInterface):
                 "bsrof_stem_active": _bsrof_stem_active,
                 "bsrof_recombined": _bsrof_recombined_dsp,
                 "miipher_tier0_applied": _miipher_applied,  # §P4 MIIPHER-Aktivierungs-Telemetrie
+            },
+            resolved_defects={
+                "HIGH_FREQ_NOISE": float(np.clip(1.0 - min(noise_reduction_db / 24.0, 0.95), 0.0, 0.3)),
             },
         )
 

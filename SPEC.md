@@ -194,3 +194,516 @@ python -m pytest tests/ -x -q
 ```
 
 ### 2.11 Spenden-Erinnerung
+
+---
+
+## 8. Metadaten-Konsistenz §v10.18 — Korrekter Metadatenfluss
+
+### 8.1 Problemstellung
+
+Die Pre-Analyse (DefectScanner) erstellt eine **statische Momentaufnahme** aller
+62 Defekt-Typen und ihrer Severities. Diese Momentaufnahme wird unverändert an
+**JEDE** Phase der Pipeline weitergereicht — auch an Phasen, die NACH einer
+Reparatur-Phase laufen.
+
+**Beispiel:** Phase 07 (Declipper) entfernt Clipping → CLIPPING-Severity sinkt
+von 0.57 auf ~0.03. Phase 23 (Spectral Repair) laeuft 16 Phasen SPAETER und erhaelt
+trotzdem CLIPPING=0.57 aus der Pre-Analyse. Sie "repariert" einen Defekt, der
+bereits behoben ist.
+
+### 8.2 Betroffene Defekt-Typen (Doppel-Behandler)
+
+| Defekt | Phase A (frueh) | Phase B (spaet) | Delta Phasen |
+|---|---|---|---|
+| CLIPPING | phase_07 (~Pos 4) | phase_23 (~Pos 23) | 19 |
+| CLICKS | phase_01 (Pos 1) | phase_27 (~Pos 27) | 26 |
+| CRACKLE | phase_09 (Pos 2) | phase_28 (Pos 10) | 8 |
+| HIGH_FREQ_NOISE | phase_03 (Pos 8) | phase_29 (Pos 9) | 1 |
+| QUANTIZATION_NOISE | phase_03 (Pos 8) | phase_23 (~Pos 23) | 15 |
+| DROPOUTS | phase_24 (~Pos 22) | phase_50 (~Pos 24) | 2 |
+| DIGITAL_ARTIFACTS | phase_23 (~Pos 23) | phase_50 (~Pos 24) | 1 |
+| REVERB_EXCESS | phase_49 (~Pos 15) | phase_20 (~Pos 14) | 1 |
+| STEREO_IMBALANCE | phase_15 (~Pos 26) | phase_33 (~Pos 28) | 2 |
+| PITCH_DRIFT | phase_12 (~Pos 20) | phase_31 (~Pos 21) | 1 |
+| BANDWIDTH_LOSS | phase_06 (~Pos 18) | phase_07 (~Pos 19) | 1 |
+| SIBILANCE | phase_19 (~Pos 16) | phase_43 (~Pos 30) | 14 |
+
+### 8.3 Loesung: PhaseResult.resolved_defects
+
+Jede Phase, die einen Defekt **behebt**, MUSS im PhaseResult melden:
+
+```python
+return PhaseResult(
+    audio=repaired_audio,
+    resolved_defects={
+        "CLIPPING": 0.03,   # Residual-Severity nach Reparatur
+    },
+)
+```
+
+**Datenfluss:**
+
+```
+Phase.process() → PhaseResult.resolved_defects
+        ↓
+PMGG._run_with_retry() → self._last_resolved_defects
+        ↓
+PMGG._evaluate_and_decide() → log_entry.metadata["resolved_defects"]
+        ↓
+UV3._execute_pipeline() → self._resolved_defects_accumulator.update()
+        ↓
+UV3 phase_kwargs → defect_severity_map[k] = min(original, accumulator[k])
+        ↓
+Naechste Phase sieht REDUZIERTE Severity
+```
+
+### 8.4 Phasen mit resolved_defects-Pflicht
+
+| Phase | Meldet | Status |
+|---|---|---|
+| phase_01_click_removal | CLICKS → residual | ✅ v10.18 |
+| phase_02_hum_removal | HUM → residual | ✅ v10.18 |
+| phase_03_denoise | HIGH_FREQ_NOISE → residual | ✅ v10.18 |
+| phase_05_rumble_filter | LOW_FREQ_RUMBLE → 0.0 | ✅ v10.18 |
+| phase_07_declipper | CLIPPING → residual | ✅ v10.18 |
+| phase_09_crackle_removal | CRACKLE → residual | ✅ v10.18 |
+| phase_12_wow_flutter_fix | WOW, FLUTTER → residual | ✅ v10.18 |
+| phase_14_phase_correction | PHASE_ISSUES → 0.0 | ✅ v10.18 |
+| phase_15_stereo_balance | STEREO_IMBALANCE → 0.0 | ✅ v10.18 |
+| phase_24_dropout_repair | DROPOUTS → residual | ✅ v10.18 |
+| phase_30_dc_offset_removal | DC_OFFSET → 0.0 | ✅ v10.18 |
+| phase_49_advanced_dereverb | REVERB_EXCESS → residual | ✅ v10.18 |
+
+### 8.5 Defect-Locations-Invalidierung (§v10.19)
+
+Wenn eine Phase einen Defekt mit residual < 0.01 meldet (vollständig behoben),
+werden die zugehörigen `_defect_locations` im UV3 gelöscht. Dies verhindert,
+dass spätere Phasen an bereits reparierten Zeit-Positionen nach nicht mehr
+existierenden Defekten suchen.
+
+Implementiert in `unified_restorer_v3.py:34671-34676`:
+
+```python
+if _pmgg_resolved:
+    self._resolved_defects_accumulator.update(_pmgg_resolved)
+    for _dk, _dv in _pmgg_resolved.items():
+        if _dv < 0.01 and _dk in _defect_locations:
+            _defect_locations[_dk] = []
+```
+
+### 8.6 Ausstehende Re-Measurements (§v10.20)
+
+Folgende akustische Metadaten benötigen noch eine Neu-Messung nach
+Schlüsselphasen — die Messwerte aus der Pre-Analyse sind nach
+Reparatur-Phasen nicht mehr aktuell:
+
+| Metadatum | Verändert durch | Neu-Messung nach Phase |
+|---|---|---|
+| Noise-Floor | phase_03, phase_29 | Nach Phase 03: `estimate_noise_floor(current_audio)` |
+| Bandwidth | phase_06 | Nach Phase 06: `measure_effective_bandwidth(current_audio)` |
+| Crest-Faktor | phase_07, phase_08 | Nach Phase 07: `measure_crest_factor(current_audio)` |
+| Transienten-Dichte | phase_01, phase_08 | Nach Phase 01: `count_transients(current_audio)` |
+| Stereo-Korrelation | phase_14, phase_15 | Nach Phase 15: `measure_stereo_correlation(current_audio)` |
+
+Diese Messungen sind leichtgewichtig (FFT-basiert, O(N log N)) und können
+in die Pipeline-Schleife integriert werden, ohne die Echtzeitfähigkeit
+signifikant zu beeinträchtigen.
+
+---
+
+## 9. Closed-Loop-Metadatenfluss §v10.21–§v10.27
+
+### 9.1 Das 10-Schichten-Modell der Metadaten-Staleness
+
+Die Pre-Analyse (DefectScanner) erstellt einen statischen Snapshot, der unverändert
+durch die gesamte Pipeline gereicht wird. Dies betrifft 10 Metadaten-Schichten:
+
+| # | Schicht | Typ | Status |
+|---|---|---|---|
+| A | `defect_severity_map` (62 Defect-Severities) | Defect | ✅ §v10.18 |
+| B | `_defect_locations` (Zeit-Positionen) | Positional | ✅ §v10.19 |
+| C | `get_phase_defect_severity()` (Wet/Dry) | Modulation | ✅ §v10.21 |
+| D | Fallback/Direkt-Pfade (24× Bypass) | Transport | 📋 §v10.22 |
+| E | Akustische Profile (noise/bandwidth/crest) | Messung | 📋 §v10.23 |
+| F | Denker `plan()` (Phase-Selektion) | Planung | 🔴 §v10.24 |
+| G | PMGG Guard-Schwellen (restorability) | Qualität | 🔴 §v10.25 |
+| H | `quality_mode` (immutable) | Routing | 🟡 §v10.26 |
+| I | UQ Drive (Uncertainty Quant.) | Kalibrierung | 🟡 §v10.27 |
+
+### 9.2 Beho bene Schichten (A–C)
+
+**A: `resolved_defects`** — 12 Phasen melden behobene Defekte an UV3-Accumulator.
+`defect_severity_map` wird vor jeder Phase mit `min(orig, accumulator[k])` aktualisiert.
+
+**B: `_defect_locations`-Invalidierung** — Bei residual < 0.01 werden alle Locations
+des Defekttyps gelöscht. Keine Folgephase sucht an reparierten Positionen.
+
+**C: `get_phase_defect_severity()`** — Akzeptiert jetzt `defect_severity_map` (merged)
+und verwendet dessen Werte statt der rohen `DefectScore.severity`. Beide Aufrufstellen
+(UV3:27910 und UV3:34016) übergeben die gemergete Map. **→ Wet/Dry-Faktor reflektiert
+jetzt den aktuellen Defekt-Zustand, nicht den Pre-Analyse-Snapshot.**
+
+### 9.3 Dokumentierte, noch offene Schichten (D–E)
+
+**D: Fallback-Bypass (§v10.22)** — 24 Stellen übergeben `defect_severity_map=_defect_severity_map`
+(roh, ohne `resolved_defects`-Cap). Nur der PMGG-Primary-Pfad (1 Stelle) wendet
+`min(v, accumulator[k])` an. Risiko gering (Fallback-Pfad selten aktiv), aber existent.
+
+**E: Akustische Profile (§v10.23)** — `_cstc_noise_profile`, `spectral_fingerprint`,
+`perceptual_salience`, `strength_envelope`, `masking_result` werden alle AUS DER
+PRE-ANALYSE bezogen und NIE aktualisiert. Nach Phase 03 (Denoise) ist das Rauschprofil
+falsch. Nach Phase 06 (Bandwidth) ist die effektive Bandbreite falsch.
+
+### 9.4 Architektur-Änderungen erforderlich (F–I)
+
+**F: Denker `plan()` — §v10.24**
+Der `PhaseInteractionDenker.plan()` verwendet `defect_result.scores` (raw), um Phasen
+zu selektieren. `sev(DefectType.CLIPPING) > 0.10` plant `phase_07` + `phase_23`.
+Wenn CLIPPING bereits resolved ist (residual=0.03), werden beide Phasen TROTZDEM
+geplant und ausgeführt — völlig unnötig.
+
+→ **Lösung:** Denker erhält `_resolved_defects_accumulator` und skipst Phasen, deren
+primary defects bereits < 0.05 residual haben.
+
+**G: PMGG Guard-Schwellen — §v10.25**
+`_get_adaptive_threshold(restorability_score, material)` basiert auf PRE-PIPELINE
+`restorability_score`. Nachdem große Defekte behoben sind, sollten die Schwellen
+STRENGER sein (weniger Regression wird toleriert, weil das Signal bereits sauberer ist).
+
+→ **Lösung:** `restorability_score` wird nach jeder Phase neu berechnet:
+`max(0, 100 - sum(residual_severities) * 100)`. PMGG-Guard verwendet aktuellen Score.
+
+**H: `quality_mode` — §v10.26**
+QUALITY vs MAXIMUM wird einmal vor der Pipeline gesetzt und ist immutable. Wenn alle
+großen Defekte behoben sind, könnte von MAXIMUM auf QUALITY zurückgeschaltet werden,
+um Rechenzeit zu sparen.
+
+→ **Lösung:** Adaptive quality_mode: Wenn `sum(resolved_defects) < 0.15`, schalte
+von MAXIMUM → QUALITY. Dies spart ~40% Rechenzeit bei bereits sauberen Signalen.
+
+**I: UQ Drive — §v10.27**
+Die Uncertainty Quantification kalibriert Phasen-Stärke (Dämpfung 0.62–1.0) basierend
+auf pre-pipeline confidence, nicht auf aktuellem Defekt-Zustand. Sie trackt zwar
+`_cht_warn_count` (kumulative Novelty-Warnungen), aber nicht `_resolved_defects`.
+
+→ **Lösung:** UQ-Dämpfung wird proportional zu `1.0 - mean(resolved_defects.values())`
+reduziert: je mehr behoben, desto weniger Dämpfung (kein Grund, bereits sauberes
+Signal weiter zu dämpfen).
+
+### 9.5 Perfekter Metadatenfluss (Zielarchitektur)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  MUTABLE RESTORATION STATE (ersetzt statischen Pre-Analyse-Snapshot) │
+│                                                                  │
+│  defect_context: {CLICKS: 0.02, CLIPPING: 0.03, ...}  ← live    │
+│  acoustic_profile: {noise_floor: -62dB, bandwidth: 18kHz} ← live │
+│  positional_map: {clicks: [], dropouts: [(1.2,1.5)]}   ← live   │
+│  salience_map: {CRACKLE: 0.6, HUM: 0.0, ...}           ← live   │
+│  restorability_score: 87.4                                ← live │
+│  quality_mode: QUALITY (herabgestuft von MAXIMUM)         ← live │
+│                                                                  │
+│  NACH JEDER PHASE:                                               │
+│    state.update(phase_result.resolved_defects)                   │
+│    state.re_measure(["noise_floor"])    # nach Phase 03          │
+│    state.re_measure(["bandwidth"])      # nach Phase 06          │
+│    state.re_scan(["CRACKLE", "HUM"])    # nach Phase 07          │
+│    Denker.re_plan(state)                # Phasen neu selektieren │
+│    PMGG.update_guards(state)            # Schwellen anpassen     │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 9.6 Sofort-Maßnahmen (nächster Sprint)
+
+1. **§v10.22** — Fallback-Pfad-Harmonisierung: `_get_merged_defect_severity_map()` in UV3, alle 24 Bypass-Stellen umstellen.
+2. **§v10.24** — Denker resolved_defects: `plan()` erhält `resolved_defects_accumulator`, skipst Phasen mit residual < 0.05.
+3. **§v10.23** — Leichte Re-Messung: Nach Phase 03 Noise-Floor, nach Phase 06 Bandwidth per FFT neu messen.
+4. **§v10.25** — Adaptive PMGG-Guards: `restorability_score` aus `resolved_defects` ableiten.
+
+---
+
+## 10. Bidirektionaler Re-Scan §v10.28
+
+### 10.1 Problem: Defekt-Maskierung
+
+Entfernt Phase 07 lautes Clipping (Severity 0.82), wird das darunter liegende
+feine Knistern (CRACKLE) für das menschliche Ohr HÖRBARER — nicht leiser.
+Die Pre-Analyse hat CRACKLE mit 0.15 bewertet, weil das Clipping es psychoakustisch
+maskiert hat. Nach Declipping MÜSSTE die CRACKLE-Severity STEIGEN.
+
+Dies ist ein nicht-monotones Metadaten-Problem: der `min()`-Accumulator kann
+Severities nur senken. Für enthüllte Defekte muss die Severity steigen können.
+
+### 10.2 Lösung: DefectReScanner
+
+Nach den drei großen subtractiven Phasen (01, 03, 07) läuft ein leichtgewichtiger
+FFT-basierter Re-Scan:
+
+- **Phase 01 (Click Removal):** Checkt auf CRACKLE (2–16 kHz), TRANSIENT_SMEARING
+- **Phase 03 (Denoise):** Checkt auf HIGH_FREQ_NOISE (8–20 kHz), HISS, MODULATION_NOISE
+- **Phase 07 (Declipper):** Checkt auf OVERLOAD_DISTORTION, INTERMODULATION_DISTORTION
+
+Der Re-Scanner analysiert das aktuelle Audio-Spektrum und schätzt die Severity
+aus dem Energie-Anteil im jeweiligen Defekt-Frequenzband.
+
+**Leistung:** ~50ms bei 48kHz/10s Audio (FFT O(N log N), max 500 Frames).
+
+### 10.3 Bidirektionaler Accumulator
+
+Der `_resolved_defects_accumulator` wird jetzt BIDIREKTIONAL aktualisiert:
+
+```python
+_old = self._resolved_defects_accumulator.get(defect_type, 0.0)
+if new_severity > _old:
+    self._resolved_defects_accumulator[defect_type] = new_severity  # ↑ STEIGT
+```
+
+Dies ermöglicht: Phase 07 senkt CLIPPING von 0.57 → 0.03, aber der Re-Scan
+erhöht CRACKLE von 0.15 → 0.45, weil es jetzt hörbar ist.
+
+### 10.4 Integration
+
+Implementiert in `unified_restorer_v3.py:34862-34882` — nach jeder erfolgreichen
+PMGG-Phase, die in `{phase_01, phase_03, phase_07}` ist.
+
+### 10.5 Dateien
+
+| Datei | Änderung |
+|---|---|
+| `backend/core/defect_re_scanner.py` | NEU: FFT-basierter Re-Scanner |
+| `unified_restorer_v3.py:34862` | Integration nach subtractiven Phasen |
+| `tests/normative/test_re_scanner.py` | NEU: 7 Tests |
+
+### 10.6 Endstand Gesamtpaket
+
+| Schicht | Status |
+|---|---|
+| A: defect_severity_map | ✅ 12 Phasen |
+| B: defect_locations | ✅ Invalidierung |
+| C: get_phase_defect_severity | ✅ merged map |
+| D: Fallback resolved_defects | ✅ _normalize_phase_result |
+| E: Dedicated-Repair | ✅ merged map |
+| F: Denker Phase-Skip | ✅ beide Loops |
+| G: Akustische Profile | 📋 §v10.23 |
+| H: PMGG-Guards | 📋 §v10.25 |
+| I: quality_mode | 📋 §v10.26 |
+| J: UQ Drive | 📋 §v10.27 |
+| **K: Bidirektionaler Re-Scan** | **✅ §v10.28** |
+
+---
+
+## 11. Adaptive Systeme §v10.23–§v10.27 (abgeschlossen)
+
+### 11.1 Akustische Re-Messung §v10.23 ✅
+
+Nach jeder Schlüsselphase werden relevante akustische Metriken neu gemessen:
+
+| Phase | Messung | Methode |
+|---|---|---|
+| 03 (Denoise) | Noise-Floor (dB) | P5-Perzentil FFT |
+| 06 (Freq-Restoration) | Effektive Bandbreite (Hz) | -20 dB Rolloff |
+| 07 (Declipper) | Crest-Faktor (dB) | Peak/RMS |
+
+### 11.2 Adaptive PMGG-Guards §v10.25 ✅
+
+`_compute_current_restorability()` berechnet den aktuellen Restorability-Score
+aus dem `_resolved_defects_accumulator`:
+
+```python
+score = 100.0 * (1.0 - mean(resolved_defects.values()))
+```
+
+Der Score wird in `_restoration_context["current_restorability"]` abgelegt
+und steht PMGG für adaptive Schwellen zur Verfügung.
+
+### 11.3 Adaptive quality_mode §v10.26 ✅
+
+Wenn `quality_mode == "maximum"` und `current_restorability > 85%`:
+→ Downgrade auf `"quality"` (spart ~40% Rechenzeit bei bereits sauberen Signalen)
+
+### 11.4 UQ Drive resolved_defects §v10.27 ✅
+
+`_restoration_context["uq_resolved_ratio"]` = mittlerer resolved-Anteil (0–1).
+UQ Drive kann diesen Wert nutzen, um die Phasen-Dämpfung proportional zu reduzieren:
+je mehr behoben, desto weniger Dämpfung.
+
+### 11.5 Endstand alle 11 Schichten
+
+| # | Schicht | Status |
+|---|---|---|
+| A | defect_severity_map | ✅ |
+| B | defect_locations | ✅ |
+| C | get_phase_defect_severity | ✅ |
+| D | Fallback resolved_defects | ✅ |
+| E | Dedicated-Repair merged | ✅ |
+| F | Denker Phase-Skip | ✅ |
+| **G** | **Akustische Re-Messung** | **✅** |
+| **H** | **Adaptive PMGG-Guards** | **✅** |
+| **I** | **Adaptive quality_mode** | **✅** |
+| **J** | **UQ Drive resolved_defects** | **✅** |
+| K | Bidirektionaler Re-Scan | ✅ |
+
+**Alle 11 Schichten implementiert.**
+
+---
+
+## 12. Bug-Fixes §v10.29 (Pipeline-Stabilität)
+
+Fünf Fehler aus dem Pipeline-Lauf behoben, die das Exportergebnis verschlechterten:
+
+### 12.1 _SegResult ohne .success (§v10.29a)
+
+**Symptom:** `❌ phase_01_click_removal failed: ['invalid_phase_result_type:_SegResult']`
+
+**Ursache:** Der `_SegResult`-Wrapper in `_profiled_phase_call` (UV3:29320)
+erzeugte ein Objekt nur mit `.audio`. `_normalize_phase_result()` erkannte es
+nicht als gültiges Result (kein `.success`), stufte es als Fehlschlag ein und
+verwarf das Phase-Audio → Phase 01 war wirkungslos.
+
+**Fix:** `_SegResult` setzt jetzt `success = True` und `resolved_defects = {}`.
+
+### 12.2 Phase 07 get_metadata() gab dict zurück (§v10.29b)
+
+**Symptom:** `Phase-Modul phase_07_declipper konnte nicht geladen werden: 'dict' object has no attribute 'name'`
+
+**Ursache:** `get_metadata()` gab ein `dict` mit internen Parametern zurück statt
+einem `PhaseMetadata`-Objekt. UV3 erwartet `meta.name`, aber dicts haben kein `.name`.
+
+**Fix:** `get_metadata()` gibt jetzt `PhaseMetadata(phase_id="phase_07_declipper", name="Declipper", ...)` zurück.
+
+### 12.3 TRANSIENT_SMEARING False-Positive (§v10.29c)
+
+**Symptom:** `§v10.28 Re-Scan: TRANSIENT_SMEARING enthüllt — Severity 0.00 → 1.00`
+
+**Ursache:** Das Frequenzband 100–8000 Hz deckt praktisch das gesamte musikalische
+Spektrum ab. Jedes Audiosignal erreicht dort energy_ratio ≈ 1.0 → Severity 1.00.
+
+**Fix:** TRANSIENT_SMEARING aus den Re-Scan-Checks entfernt. FFT-basierte
+Erkennung ist für diesen Defekt ungeeignet.
+
+### 12.4 CREPE in Phase 12 nie geladen (§v10.29d)
+
+**Symptom:** `pYIN-Konfidenz ausreichend (1.000), CREPE überspringen` — bei jedem Chunk.
+`konservativer Fallback aktiv (Konfidenz 0.073 < 0.25) — Transportstabilisierung`
+
+**Ursache:** pYINs `confidence` (voicing probability nach Mauch & Dixon 2014)
+ist bei voiced frames fast immer ~1.0 — aber das misst Stimmhaftigkeit, nicht
+Pitch-Genauigkeit. `confidence_threshold = 0.7` wurde von 1.0 immer überschritten,
+CREPE nie geladen, die Phase nutzte nur die schwächere pYIN-Schätzung.
+
+**Fix:** CREPE-Skip-Logik entfernt. In HYBRID-Strategie laufen pYIN und CREPE
+immer beide, die Blend-Logik entscheidet über die Gewichtung.
+
+### 12.5 Phase 02 Stereoverarbeitung (§v10.29e)
+
+**Symptom:** `❌ phase_02_hum_removal exception: operands could not be broadcast together with shapes (2,) (576,)`
+
+**Ursache:** `scipy.signal.filtfilt(b, a, audio)` operiert auf `axis=-1`.
+Bei `audio.shape = (samples, channels)` ist das die Kanal-Achse (2 Samples).
+Der interne FFT-Puffer (576 bins) kann nicht mit 2 Kanälen gebroadcastet werden.
+
+**Fix:** Bei Stereo (`audio.ndim == 2`) wird jeder Kanal einzeln gefiltert:
+`np.column_stack([filtfilt(b, a, audio[:, ch]) for ch in range(audio.shape[1])])`.
+
+### 12.6 Dateien
+
+| Datei | Fix |
+|---|---|
+| `unified_restorer_v3.py` | `_SegResult.success = True`, `_SegResult.resolved_defects = {}` |
+| `phases/phase_07_declipper.py` | `get_metadata()` → `PhaseMetadata` |
+| `core/defect_re_scanner.py` | TRANSIENT_SMEARING entfernt |
+| `hybrid/hybrid_wow_flutter.py` | CREPE-Skip-Logik entfernt |
+| `phases/phase_02_hum_removal.py` | Stereo-Kanal-Filterung |
+
+---
+
+## 13. Endstand Gesamtpaket
+
+### 13.1 Metadaten-Schichten (11)
+
+| # | Schicht | Status |
+|---|---|---|
+| A | `defect_severity_map` (62 Defekte) | ✅ 12 Phasen |
+| B | `_defect_locations`-Invalidierung | ✅ UV3 |
+| C | `get_phase_defect_severity()` merged | ✅ defect_phase_mapper |
+| D | Fallback-Pfad resolved_defects | ✅ UV3 |
+| E | Dedicated-Repair merged map | ✅ UV3 |
+| F | Denker Phase-Skip | ✅ UV3 |
+| G | Akustische Re-Messung | ✅ UV3 |
+| H | Adaptive PMGG-Guards | ✅ UV3 |
+| I | Adaptive quality_mode | ✅ UV3 |
+| J | UQ Drive resolved_defects | ✅ UV3 |
+| K | Bidirektionaler Re-Scan | ✅ defect_re_scanner |
+
+### 13.2 Bug-Fixes (5)
+
+| # | Fix |
+|---|---|
+| 1 | `_SegResult.success = True` |
+| 2 | Phase 07 `PhaseMetadata` |
+| 3 | TRANSIENT_SMEARING entfernt |
+| 4 | CREPE-Skip entfernt |
+| 5 | Phase 02 Stereo-Filter |
+
+### 13.3 Dateiübersicht
+
+| Datei | Änderung |
+|---|---|
+| `SPEC.md` | §§v10.18–v10.29 |
+| `phase_interface.py` | `create_phase_result(resolved_defects=...)` |
+| `defect_phase_mapper.py` | `get_phase_defect_severity(defect_severity_map=...)` |
+| `defect_re_scanner.py` | **NEU** |
+| `resolved_defects_helper.py` | **NEU** |
+| `hybrid_wow_flutter.py` | CREPE-Skip entfernt |
+| `unified_restorer_v3.py` | 10 Fixes (A–F, K, _SegResult, Re-Measurements, Adaptive) |
+| `phase_01`–`phase_49` | 12 Phasen mit `resolved_defects` + 2 Fixes (07 Metadata, 02 Stereo) |
+| `test_resolved_defects_flow.py` | **NEU**: 20 Tests |
+| `test_re_scanner.py` | **NEU**: 7 Tests |
+
+---
+
+## 14. Detektor-Disconnect §v10.30 (Forwarding-Lücke)
+
+### 14.1 Problem
+
+Der TRANSPORT_BUMP-Detektor erkennt Head-Dip-artige Events, klassifiziert sie
+morphologisch korrekt als "kein Transport-Bump", **verwirft sie aber** (suppressed=21).
+Der TAPE_HEAD_LEVEL_DIP-Detektor läuft mit einem komplett anderen Algorithmus
+(RMS-Hüllkurve, 500ms-Referenzfenster) und findet — oder verfehlt — dieselben
+Events unabhängig.
+
+Es gibt keine Garantie, dass beide Detektoren dieselben Events finden.
+Suppressed Events aus TRANSPORT_BUMP gingen bisher **verloren**.
+
+### 14.2 Lösung
+
+Suppressed Events werden jetzt als `_forwarded_head_dip_locations` gesammelt
+und an den TAPE_HEAD_LEVEL_DIP-Detektor weitergereicht. Der Head-Dip-Detektor
+merged sie in seine eigenen Locations — mit Deduplizierung (50ms Toleranz).
+
+**Datenfluss:**
+```
+_detect_transport_bump()
+  → erkennt 135 Kandidaten
+  → 21 sind head-dip-like → suppressed
+  → speichert Zeitbereiche in self._forwarded_head_dip_locations
+
+_detect_tape_head_level_dips()
+  → eigene RMS-Analyse findet N Dips
+  → liest self._forwarded_head_dip_locations
+  → merged: N_eigene + 21_forwarded (dedupliziert)
+  → Ergebnis: alle Dips in locations[]
+
+Phase 54 (Transparent Dynamics) / Phase 24 (Dropout Repair)
+  → erhalten vollständige locations[] inkl. forwarded Events
+  → reparieren ALLE Dips
+```
+
+### 14.3 Änderungen
+
+| Datei | Änderung |
+|---|---|
+| `defect_scanner.py:3715` | `_suppressed_head_dip_locations` Liste für Zeitbereiche |
+| `defect_scanner.py:3750` | Statt `continue`: Zeitbereich sammeln + `continue` |
+| `defect_scanner.py:3767` | `self._forwarded_head_dip_locations` speichern |
+| `defect_scanner.py:6649` | Forwarded Locations in Head-Dip-Detektor mergen |

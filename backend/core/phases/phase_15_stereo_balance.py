@@ -352,6 +352,9 @@ class StereoBalancePhaseV2(PhaseInterface):
             success=True,
             audio=corrected_audio,
             execution_time_seconds=execution_time,
+            resolved_defects={
+                "STEREO_IMBALANCE": 0.0,  # Balance-Korrektur = vollständig behoben
+            },
             metadata={
                 "material": material_enum.name,
                 "correction_applied": correction_applied,

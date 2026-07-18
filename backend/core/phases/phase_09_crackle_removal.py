@@ -815,7 +815,7 @@ class CrackleRemovalPhase(PhaseInterface):
                     os.unlink(tmp_out_path)
 
         except Exception as e:
-            logger.error("BANQUET ML processing failed: %s", e)
+            logger.warning("BANQUET ML processing failed (DSP fallback aktiv): %s", e)
             raise  # Re-raise to trigger DSP fallback in process()
 
     def process(
@@ -1322,6 +1322,11 @@ class CrackleRemovalPhase(PhaseInterface):
                 "effective_strength": _effective_strength,
                 "rms_drop_db": round(float(_rms_drop_09), 3),
                 "loudness_makeup_db": round(float(_makeup_09), 3),
+            },
+            resolved_defects={
+                "CRACKLE": float(
+                    np.clip(1.0 - min(len(crackle_regions) / max(audio.shape[-1] * 0.00005, 1), 0.99), 0.0, 0.3)
+                ),
             },
         )
 

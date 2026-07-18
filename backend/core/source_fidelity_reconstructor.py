@@ -134,6 +134,29 @@ _ERA_BANDWIDTH_HZ: dict[int, float] = {
     2020: 20000.0,
 }
 
+# §v10.31: Physische Medium-Bandbreite (−3 dB Obergrenze).
+# Die Ära-Tabelle gibt Studio-Equipment-Bandbreite. Das END-Medium
+# (Consumer-Format) kann physikalisch weniger. Diese Caps verhindern,
+# dass unrealistische Ziele gesetzt werden (z.B. 18 kHz für Gen-4-Kassette).
+# Quellen: Eargle 2004, Camras 1988 (Magnetic Recording), IEC 60094.
+_MATERIAL_BANDWIDTH_CAP_HZ: dict[str, float] = {
+    "shellac": 8000.0,       # 78 rpm — mechanische Abtastung, keine HF
+    "lacquer_disc": 10000.0,  # Heimaufnahme — primitive Schneidtechnik
+    "vinyl": 18500.0,        # Stereo-LP — 18 kHz bei Innenrille möglich
+    "cassette": 15500.0,     # Type II Chrome bei −3 dB, Type I ~12 kHz
+    "tape": 16000.0,         # 7½ ips Viertelspur — IEC EQ limitiert HF
+    "reel_tape": 18500.0,    # 15 ips Halbspur — Studer/Ampex Studioniveau
+    "dat": 20000.0,          # Digital Audio Tape — 48 kHz Sampling
+    "cd": 20000.0,           # Compact Disc — Nyquist 22.05 kHz
+    "mp3_low": 15500.0,      # ≤128 kbps — Codec schneidet HF aggressiv
+    "mp3_high": 18000.0,     # ≥256 kbps — HF bis ~18 kHz erhalten
+    "wire_recording": 7000.0,  # Drahtton — sehr begrenzte HF
+    "streaming": 20000.0,
+    "minidisc": 18000.0,     # ATRAC 292 kbps — HF-Rolloff ab 18 kHz
+    "aac": 20000.0,
+    "unknown": 20000.0,
+}
+
 # Ära-spezifischer Original-Dynamikumfang (DR in dB):
 # Vor digitaler Kompression: Aufnahme-DR = Mikrofon-DR (Kondensator ~130 dB) begrenzt
 # durch Tape-Headroom + Rauschen. Erst nach 1990 DR-Krieg (Loudness War).
@@ -443,6 +466,14 @@ class SourceFidelityReconstructor:
         # -- 1. Ära-basierte Original-Bandbreite -----------------------------
         original_bw = _lookup_era(_ERA_BANDWIDTH_HZ, decade)
         notes.append(f"era_bw_{decade}={original_bw:.0f}Hz")
+
+        # -- 1a. §v10.31: Physische Medium-Obergrenze -------------------------
+        # Die Ära-Tabelle gibt Studio-Equipment-Bandbreite (z.B. Studer A80 = 18.5 kHz).
+        # Das END-Medium (Kassette, Vinyl-Pressung, MP3) kann physikalisch weniger.
+        # Clip auf das, was das konkrete Medium maximal erreichen kann.
+        _material_bw_cap = _MATERIAL_BANDWIDTH_CAP_HZ.get(material_key, 20000.0)
+        original_bw = min(original_bw, _material_bw_cap)
+        notes.append(f"material_cap={_material_bw_cap:.0f}Hz → era_bw_capped={original_bw:.0f}Hz")
 
         # -- 2. Gemessene aktuelle Bandbreite --------------------------------
         _cur_bw: float

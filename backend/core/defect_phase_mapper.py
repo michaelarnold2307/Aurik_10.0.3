@@ -2306,7 +2306,11 @@ def get_reverse_phase_map() -> dict[str, list[DefectType]]:
     return _REVERSE_PHASE_MAP
 
 
-def get_phase_defect_severity(phase_id: str, defect_scores: dict) -> float:
+def get_phase_defect_severity(
+    phase_id: str,
+    defect_scores: dict,
+    defect_severity_map: dict[str, float] | None = None,
+) -> float:
     """Gibt a severity factor ∈ [_MIN_SEVERITY_FLOOR, 1.0] for a given phase zurück.
 
     For defect-repair phases (present in reverse map): the factor scales
@@ -2318,9 +2322,16 @@ def get_phase_defect_severity(phase_id: str, defect_scores: dict) -> float:
 
     For enhancement phases (NOT in reverse map): returns 1.0 (no modulation).
 
+    §v10.21: Wenn defect_severity_map (merged, saliency-weighted, resolved-defects-
+    capped) übergeben wird, wird DIESE für die Severity verwendet — nicht die
+    rohen defect_scores. Dies stellt sicher, dass bereits behobene Defekte
+    (via resolved_defects-Accumulator) den Wet/Dry-Faktor korrekt reduzieren.
+
     Args:
-        phase_id:      Full phase ID (e.g. 'phase_03_denoise')
-        defect_scores: dict[DefectType, DefectScore] from DefectScanner
+        phase_id:            Full phase ID (e.g. 'phase_03_denoise')
+        defect_scores:       dict[DefectType, DefectScore] from DefectScanner
+        defect_severity_map: §v10.21: merged severity map (str → float),
+                             bereits saliency-gewichtet und resolved-defects-gecapped
 
     Returns:
         Severity factor ∈ [0.15, 1.0].
@@ -2334,7 +2345,19 @@ def get_phase_defect_severity(phase_id: str, defect_scores: dict) -> float:
 
     max_severity = 0.0
     found_any = False
+    # §v10.21: Prefer merged defect_severity_map (saliency-weighted + resolved-defects-capped)
+    # over raw defect_scores. This ensures the wet/dry factor reflects the CURRENT
+    # defect state, not the pre-analysis snapshot.
+    _use_merged = defect_severity_map is not None and len(defect_severity_map) > 0
     for dt in target_defects:
+        if _use_merged:
+            # Try string key first (defect_severity_map uses string keys like "CLICKS")
+            sev = defect_severity_map.get(dt.value if hasattr(dt, "value") else str(dt))
+            if sev is not None:
+                found_any = True
+                max_severity = max(max_severity, float(sev))
+                continue
+        # Fallback to raw defect_scores
         score = defect_scores.get(dt)
         if score is not None:
             found_any = True

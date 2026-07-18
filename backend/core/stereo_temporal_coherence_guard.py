@@ -391,9 +391,12 @@ class StereoTemporalCoherenceGuard:
                         _single_corr,
                     )
                 else:
-                    delay = 0.0
-                    _mp_spread = -1
-                    logger.warning(
+                    # SOTA: Keine Korrektur ohne verifizierbare Messung.
+                    # Multi-point hatte 0 valide Punkte, Single-Fallback
+                    # unterschreitet Korrelations-Schwelle oder überschreitet
+                    # Lag-Limit. Audio wird unverändert zurückgegeben —
+                    # "do no harm" vor blinder Korrektur.
+                    logger.info(
                         "STCG [%s]: multi-point got %d point(s), single-fallback "
                         "rejected (corr=%.3f < 0.60 or lag=%.1f ms > 10 ms) — skipping",
                         phase_id,

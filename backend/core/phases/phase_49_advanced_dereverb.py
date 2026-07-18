@@ -1041,6 +1041,9 @@ class AdvancedDereverbPhase(PhaseInterface):
             success=True,
             audio=restore_layout(processed, _p49_transposed),
             execution_time_seconds=elapsed,
+            resolved_defects={
+                "REVERB_EXCESS": float(np.clip(max(0.0, 1.0 - effective_strength), 0.0, 0.3)),
+            },
             metadata={
                 "algorithm": _ml_model_name,
                 "ml_used": _sgmse_used,

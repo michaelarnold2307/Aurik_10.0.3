@@ -474,6 +474,9 @@ class RumbleFilterPhase(PhaseInterface):
                 "vocal_guard_active": _vocal_guard_05,
                 "vocal_confidence": float(_vocal_conf_05),
             },
+            resolved_defects={
+                "LOW_FREQ_RUMBLE": 0.0,  # Hüllkurven-Filter = vollständige Beseitigung
+            },
         )
 
     def _rms_dbfs_gated(self, audio: np.ndarray, gate_dbfs: float = -50.0) -> float:

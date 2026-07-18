@@ -1264,8 +1264,16 @@ class EQCorrectionPhase(PhaseInterface):
         # Apply filter
         if audio.ndim == 2:
             filtered = np.zeros_like(audio)
-            filtered[:, 0] = signal.sosfiltfilt(sos, audio[:, 0])
-            filtered[:, 1] = signal.sosfiltfilt(sos, audio[:, 1])
+            # §v10.31: channels-aware per-channel filtering. Pipeline audio is
+            # channels-first (2,N). Use correct axis for each format.
+            if audio.shape[0] == 2 and audio.shape[1] > 2:
+                # channels-first (2, N): filter along axis 1 (samples)
+                filtered[0, :] = signal.sosfiltfilt(sos, audio[0, :])
+                filtered[1, :] = signal.sosfiltfilt(sos, audio[1, :])
+            else:
+                # channels-last (N, 2): filter each column
+                filtered[:, 0] = signal.sosfiltfilt(sos, audio[:, 0])
+                filtered[:, 1] = signal.sosfiltfilt(sos, audio[:, 1])
         else:
             filtered = signal.sosfiltfilt(sos, audio)
 

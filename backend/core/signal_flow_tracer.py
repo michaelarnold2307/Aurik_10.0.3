@@ -411,7 +411,22 @@ class SignalFlowTracer:
                         p in str(phase_id) for p in ("phase_14", "phase_16", "phase_25", "azimuth", "phase_correction")
                     )
                 )
-                if _pc_collapse:
+                # §SOTA: NOVELTY_CRIT ist bei Reparatur-Phasen ERWARTET —
+                # Click/Crackle/Dropout-Interpolation erzeugt per Definition
+                # neuen Spektralinhalt (das ist der Zweck der Reparatur).
+                _novelty_expected = (
+                    "NOVELTY_CRIT" in " | ".join(flags)
+                    and phase_id
+                    and any(
+                        p in str(phase_id) for p in (
+                            "phase_01", "phase_09", "phase_23", "phase_24",
+                            "phase_27", "phase_50", "phase_56",
+                            "click", "crackle", "dropout", "spectral_repair",
+                            "band_gap", "inpaint"
+                        )
+                    )
+                )
+                if _pc_collapse or _novelty_expected:
                     logger.info("§SFT %s FLAGS: %s", phase_id, " | ".join(flags))
                 else:
                     logger.warning("§SFT %s FLAGS: %s", phase_id, " | ".join(flags))
