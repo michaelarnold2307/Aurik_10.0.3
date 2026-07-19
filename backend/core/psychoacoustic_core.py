@@ -128,6 +128,9 @@ class PsychoacousticConfig:
     masking_simultaneous: bool = True
     fletcher_target_phon: int = 60
     fletcher_reference_phon: int = 80
+    # §v10.0.5: LUFS-adaptives Phon-Level — wenn True, wird target_phon
+    # aus dem Audio-LUFS-Pegel berechnet (leise = niedrigeres Phon).
+    fletcher_adaptive_phon: bool = True  # §v10.0.5: LUFS-adaptiv ist Default
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -285,6 +288,24 @@ class PsychoacousticCore:
         level_map = {"quiet": (40, 80), "normal": (60, 80), "loud": (80, 100)}
 
         target_phon, reference_phon = level_map.get(listening_level, (60, 80))
+
+        # §v10.0.5: LUFS-adaptives Phon-Level — überschreibt listening_level
+        # wenn fletcher_adaptive_phon=True. Misst LUFS und berechnet
+        # target_phon = clamp(60 + (LUFS+16)*1.5, 30, 80).
+        if self.config.fletcher_adaptive_phon:
+            try:
+                from backend.core.fletcher_munson_curves import compute_adaptive_phon
+
+                target_phon = compute_adaptive_phon(audio=audio, sr=sr, default_phon=target_phon)
+                logger.debug(
+                    "§v10.0.5 Adaptive Phon: target_phon=%d (from LUFS measurement)",
+                    target_phon,
+                )
+            except Exception:
+                logger.warning(
+                    "⚠️ SOTA Fletcher-Munson adaptive phon nicht verfügbar (LUFS-Messung fehlgeschlagen) — fallback zu listening_level-Map"
+                )
+                pass
 
         compensated, _ = self.fm_processor.apply_compensation(audio, sr, target_phon, reference_phon)
         compensated = np.nan_to_num(compensated, nan=0.0, posinf=0.0, neginf=0.0)

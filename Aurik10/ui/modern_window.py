@@ -2770,7 +2770,7 @@ class BatchProcessingThread(QThread):
                             if _uv3s2 is not None:
                                 _uv3s2["count"] = _total  # §K
                         except (ValueError, IndexError):
-                            pass
+                            pass  # _uv3s2 dict key missing — non-critical
                         return
                     if msg.startswith("__carrier_chain__:"):
                         _payload = msg.split(":", 1)[1]
@@ -3257,6 +3257,31 @@ class BatchProcessingThread(QThread):
                     # New callback arrived: allow long-phase heartbeat toasts again
                     # for the next real gap window.
                     self._long_phase_toast_bucket = -1
+                    # §v10.35 Denker→GUI Kommunikation: Live-Toast bei Denker-Entscheidungen
+                    if _pid_hint_live:
+                        _suppressed = int(_pid_hint_live.get("suppressed", 0) or 0)
+                        _injected = int(_pid_hint_live.get("injected", 0) or 0)
+                        _goal = str(_pid_hint_live.get("goal", "") or "")
+                        _risk = float(_pid_hint_live.get("risk", 0.0) or 0.0)
+                        if _suppressed > 0:
+                            self._show_toast(
+                                f"🧠 Aurik Denker: {_suppressed} Phase(n) optimiert übersprungen"
+                                + (f" (Top-Ziel: {_goal})" if _goal else ""),
+                                severity="info",
+                                duration_ms=4500,
+                            )
+                        elif _injected > 0:
+                            self._show_toast(
+                                f"🧠 Aurik Denker: {_injected} Zusatz-Phase(n) für {_goal} injiziert",
+                                severity="info",
+                                duration_ms=4500,
+                            )
+                        elif _risk >= 0.60:
+                            self._show_toast(
+                                f"⚠️ Aurik Denker: Erhöhtes Risiko für {_goal} ({_risk:.0%})",
+                                severity="warning",
+                                duration_ms=5000,
+                            )
                     self.phase_update.emit(_base_text)
 
                 # AurikDenker ist der verpflichtende Frontend-Einstiegspunkt.
@@ -10961,7 +10986,6 @@ class ExportConfigDialog(QDialog):
         ("44,1 kHz", 44_100),
     ]
 
-
     def paintEvent(self, event):
         """Splashscreen-Hintergrund für diesen Dialog."""
         p = QtGui.QPainter(self)
@@ -11816,7 +11840,6 @@ class _ToastNotification(QWidget):
         "error": ("#7A2E2E", "#EF5350", "✕"),
         "info": ("#1E3A5A", "#4FC3F7", "ℹ"),
     }
-
 
     def paintEvent(self, event):
         """Splashscreen-Hintergrund für diesen Dialog."""
@@ -14438,10 +14461,17 @@ class ModernMainWindow(QMainWindow):
             logger.exception("Fehler beim Starten der Verarbeitung")
             # Buttons wieder freigeben, damit der Nutzer es erneut versuchen kann
             self._set_magic_buttons_enabled(True)
+            # §v10.35: ErrorSimplifier für laienverständliche Fehlermeldung
+            try:
+                from Aurik10.ui.help_system import ErrorSimplifier
+
+                _friendly = ErrorSimplifier.simplify(_exc)
+            except Exception:
+                _friendly = str(_exc)
             QMessageBox.critical(
                 self,
                 t("dialog.processing_error_title"),
-                t("dialog.processing_error_body", error=_exc),
+                t("dialog.processing_error_body", error=_friendly),
             )
 
     def _create_magic_buttons_section(self) -> QWidget:
@@ -15145,8 +15175,10 @@ class ModernMainWindow(QMainWindow):
 
     def _show_about_dialog(self) -> None:
         """Zeigt reichhaltigen Über-Aurik-Dialog mit strukturierten Informationen."""
+
         class _AboutDialog(QtWidgets.QDialog):
             """About-Dialog mit Splashscreen-Hintergrund."""
+
             def paintEvent(self, event):
                 p = QtGui.QPainter(self)
                 p.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -15550,7 +15582,7 @@ class ModernMainWindow(QMainWindow):
         copyright_lbl.setTextFormat(QtCore.Qt.TextFormat.RichText)
         inner.addWidget(copyright_lbl)
 
-                # ── Entwickler ─────────────────────────────────────────────
+        # ── Entwickler ─────────────────────────────────────────────
         dev_lbl = QLabel(
             "<span style='font-size:10pt; color:#d0b860;'>"
             "Entwickelt von Michael Arnold | michael.arnold2307@gmail.com</span>"
@@ -15644,8 +15676,10 @@ class ModernMainWindow(QMainWindow):
 
     def _show_system_check_dialog(self) -> None:
         """Zeigt einen Systemcheck-Dialog konsistent zur Aurik-Designlinie."""
+
         class _SystemCheckDialog(QtWidgets.QDialog):
             """Dialog mit Splashscreen-Hintergrund."""
+
             def paintEvent(self, event):
                 p = QtGui.QPainter(self)
                 p.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -15681,6 +15715,7 @@ class ModernMainWindow(QMainWindow):
                 p.setClipping(False)
                 p.end()
                 super().paintEvent(event)
+
         dlg = _SystemCheckDialog(self)
         dlg.setWindowTitle("Aurik Systemcheck")
         dlg.setMinimumWidth(500)
@@ -15834,8 +15869,10 @@ class ModernMainWindow(QMainWindow):
 
     def _show_shortcut_help(self) -> None:
         """F1 / ?: Zeigt Tastenkürzel-Übersicht als modalen Dialog."""
+
         class _ShortcutHelpDialog(QtWidgets.QDialog):
             """Dialog mit Splashscreen-Hintergrund."""
+
             def paintEvent(self, event):
                 p = QtGui.QPainter(self)
                 p.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -15871,6 +15908,7 @@ class ModernMainWindow(QMainWindow):
                 p.setClipping(False)
                 p.end()
                 super().paintEvent(event)
+
         dlg = _ShortcutHelpDialog(self)
         dlg.setWindowTitle("Aurik — Tastenkürzel")
         dlg.setFixedWidth(420)
@@ -15998,7 +16036,7 @@ class ModernMainWindow(QMainWindow):
                     _ring.close()
                     _ring.unlink()
                 except Exception:
-                    pass
+                    pass  # Audio ring cleanup best-effort — non-critical
                 self._audio_ring = None
             self._uv3 = {"active": False, "count": 0, "idx": 0, "started_at": 0.0, "pct": 0.0}  # §K
             # GIL-Switch-Intervall auf Normalwert zurücksetzen
@@ -17453,7 +17491,7 @@ class ModernMainWindow(QMainWindow):
                             elif isinstance(_era_decade, (int, float)):
                                 _dec_int = int(_era_decade)
                         except (ValueError, TypeError):
-                            pass
+                            pass  # Non-standard era format — _dec_int stays default
                         self.prognose_widget.update_era_genre(_dec_int, _era_genre or None)  # type: ignore[union-attr]
 
                     # -- Era/Genre Chips in der Audio-Info-Bar aktualisieren --
@@ -18575,7 +18613,9 @@ class ModernMainWindow(QMainWindow):
 
         # Modus abfragen
         mode_dialog = QDialog(self)
-        mode_dialog.setStyleSheet("QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5); border-radius: 10px; }")
+        mode_dialog.setStyleSheet(
+            "QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5); border-radius: 10px; }"
+        )
         mode_dialog.setWindowTitle(t("ui.album_mode_title"))
         mode_dialog.setMinimumWidth(380)
         d_layout = QVBoxLayout(mode_dialog)
@@ -19013,7 +19053,7 @@ class ModernMainWindow(QMainWindow):
                 if not _msg.isHidden():
                     _msg.done(0)
             except Exception:
-                pass
+                pass  # Message cleanup best-effort — non-critical
 
         _auto.timeout.connect(_on_auto)
         _auto.start(60_000)
@@ -22380,24 +22420,22 @@ class ModernMainWindow(QMainWindow):
             try:
                 self._update_waveform_live(_audio, _sr, _pid)
             except Exception:
-                pass
+                pass  # Waveform update best-effort — non-critical GUI refresh
             try:
                 _audio_live = _normalize_audio(_audio)
-                if (isinstance(_audio_live, np.ndarray) and _audio_live.size > 0):
-                    _preview = _guard_preview_short_term_loudness(
-                        _audio_live, self._orig_audio, int(_sr))
+                if isinstance(_audio_live, np.ndarray) and _audio_live.size > 0:
+                    _preview = _guard_preview_short_term_loudness(_audio_live, self._orig_audio, int(_sr))
                     self._live_preview_audio = _preview.copy()
                     self._live_preview_sr = int(_sr)
-                    if (hasattr(self, "btn_play_restored")
-                            and self._rest_audio is None):
+                    if hasattr(self, "btn_play_restored") and self._rest_audio is None:
                         if not self.btn_play_restored.isEnabled():
                             self.btn_play_restored.setEnabled(True)
-                            self.btn_play_restored.setText(
-                                "🎧  Zwischenstand hören")
+                            self.btn_play_restored.setText("🎧  Zwischenstand hören")
                             self.btn_play_restored.setToolTip(
                                 "Zwischenstand der Restaurierung anh\u00f6ren "
                                 "(Snapshot der letzten Phase).\n"
-                                "Die Restaurierung l\u00e4uft im Hintergrund weiter.")
+                                "Die Restaurierung l\u00e4uft im Hintergrund weiter."
+                            )
             except Exception:
                 pass
         except Exception as _e:
@@ -23858,8 +23896,10 @@ class ModernMainWindow(QMainWindow):
         _bt = getattr(self, "batch_thread", None)
         _rft = getattr(self, "_ml_refinement_thread", None)
         _workers_running = bool((_bt is not None and _bt.isRunning()) or (_rft is not None and _rft.isRunning()))
+
         class _CloseWhileProcessingDialog(QtWidgets.QDialog):
             """Dialog mit Splashscreen-Hintergrund."""
+
             def paintEvent(self, event):
                 p = QtGui.QPainter(self)
                 p.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -23900,7 +23940,8 @@ class ModernMainWindow(QMainWindow):
         _dlg.setWindowTitle(t("dialog.close_while_processing_title"))
         _dlg.setMinimumWidth(400)
         _dlg.setStyleSheet(
-            "QDialog { background: transparent; color: #EAF2FF; }"                "QLabel#closeTitle { color: #EAF2FF; font-size: 13pt; font-weight: bold; }"
+            "QDialog { background: transparent; color: #EAF2FF; }"
+            "QLabel#closeTitle { color: #EAF2FF; font-size: 13pt; font-weight: bold; }"
             "QLabel#closeIcon { color: #F2D16B; font-size: 22pt; }"
             "QPushButton {"
             " background-color: #1F3557; color: #EAF2FF; border: 1px solid #3B5B89;"
@@ -24104,7 +24145,9 @@ class ModernMainWindow(QMainWindow):
 
         # ── Export-Dialog ────────────────────────────────────────────────
         dlg = QDialog(self)
-        dlg.setStyleSheet("QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5); border-radius: 10px; }")
+        dlg.setStyleSheet(
+            "QDialog { background: #0d0d1f; border: 1px solid rgba(102,126,234,0.5); border-radius: 10px; }"
+        )
         dlg.setWindowTitle(t("ui.export_dialog_title"))
         dlg.setMinimumWidth(420)
         dlg_layout = QVBoxLayout(dlg)
@@ -24351,8 +24394,10 @@ class ModernMainWindow(QMainWindow):
 
     def _show_settings(self):
         """Einstellungs-Dialog mit Output-Format-Voreinstellung."""
+
         class _SettingsDialog(QtWidgets.QDialog):
             """Settings-Dialog mit Splashscreen-Hintergrund."""
+
             def paintEvent(self, event):
                 p = QtGui.QPainter(self)
                 p.setRenderHint(QtGui.QPainter.Antialiasing)

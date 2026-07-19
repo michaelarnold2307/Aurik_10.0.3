@@ -50,18 +50,21 @@ MAGIC: int = 0x4155524B  # "AURK"
 META_STRUCT = struct.Struct("<I I I I I I I 64s")
 META_PHASE_ID_LEN = 64
 
+
 @dataclass
 class AudioFrame:
     """Audio-Frame aus dem Ringpuffer (Consumer-seitig gelesen)."""
-    audio: np.ndarray          # float32 [samples, channels]
+
+    audio: np.ndarray  # float32 [samples, channels]
     sample_rate: int
     phase_id: str
-    frame_index: int           # monotonisch steigend, ab 0
+    frame_index: int  # monotonisch steigend, ab 0
 
 
 @dataclass
 class RingInfo:
     """Statische Layout-Information für Debug/Diagnose."""
+
     magic: int = MAGIC
     meta_size: int = META_SIZE
     ring_offset: int = RING_OFFSET
@@ -86,8 +89,8 @@ class SharedAudioRing:
     def __init__(self, name: str = "aurik_audio_ring", create: bool = False):
         self._name = name
         self._create = create
-        self._shm: Optional[SharedMemory] = None
-        self._buf: Optional[memoryview] = None
+        self._shm: SharedMemory | None = None
+        self._buf: memoryview | None = None
         self._owned: bool = create
 
         if create:
@@ -116,8 +119,7 @@ class SharedAudioRing:
         self._shm = SharedMemory(name=self._name, create=True, size=TOTAL_SIZE)
         self._buf = memoryview(self._shm.buf)
         self._init_header()
-        logger.info("SharedAudioRing: Segment '%s' erstellt (%d bytes, %d frames)",
-                     self._name, TOTAL_SIZE, RING_SIZE)
+        logger.info("SharedAudioRing: Segment '%s' erstellt (%d bytes, %d frames)", self._name, TOTAL_SIZE, RING_SIZE)
 
     def _open_segment(self) -> None:
         self._shm = SharedMemory(name=self._name, create=False)
@@ -128,18 +130,26 @@ class SharedAudioRing:
     def _validate(self) -> None:
         magic = struct.unpack_from("<I", self._buf, 0)[0]
         if magic != MAGIC:
-            raise RuntimeError(
-                f"SharedAudioRing: Magic 0x{magic:08X} != 0x{MAGIC:08X}. Segment korrupt?"
-            )
+            raise RuntimeError(f"SharedAudioRing: Magic 0x{magic:08X} != 0x{MAGIC:08X}. Segment korrupt?")
 
     def _init_header(self) -> None:
-        self._pack(0, MAGIC, SAMPLE_RATE_DEFAULT, 0, 0, 0, 0, CHANNELS,
-                   b'\x00' * META_PHASE_ID_LEN)
+        self._pack(0, MAGIC, SAMPLE_RATE_DEFAULT, 0, 0, 0, 0, CHANNELS, b"\x00" * META_PHASE_ID_LEN)
 
-    def _pack(self, offset: int, magic: int, sr: int, write_idx: int, read_idx: int,
-              status: int, frame_count: int, channels: int, phase_id: bytes) -> None:
-        META_STRUCT.pack_into(self._buf, offset, magic, sr, write_idx, read_idx,
-                              status, frame_count, channels, phase_id)
+    def _pack(
+        self,
+        offset: int,
+        magic: int,
+        sr: int,
+        write_idx: int,
+        read_idx: int,
+        status: int,
+        frame_count: int,
+        channels: int,
+        phase_id: bytes,
+    ) -> None:
+        META_STRUCT.pack_into(
+            self._buf, offset, magic, sr, write_idx, read_idx, status, frame_count, channels, phase_id
+        )
 
     def _unpack(self, offset: int = 0):
         return META_STRUCT.unpack_from(self._buf, offset)
@@ -211,19 +221,19 @@ class SharedAudioRing:
     def phase_id(self) -> str:
         if self._buf is None:
             return ""
-        raw = bytes(self._buf[28:28 + META_PHASE_ID_LEN])
-        end = raw.find(b'\x00')
+        raw = bytes(self._buf[28 : 28 + META_PHASE_ID_LEN])
+        end = raw.find(b"\x00")
         if end >= 0:
             raw = raw[:end]
-        return raw.decode('utf-8', errors='replace')
+        return raw.decode("utf-8", errors="replace")
 
     @phase_id.setter
     def phase_id(self, v: str) -> None:
         if self._buf is None:
             return
-        encoded = v.encode('utf-8')[:META_PHASE_ID_LEN - 1]
-        self._buf[28:28 + META_PHASE_ID_LEN] = b'\x00' * META_PHASE_ID_LEN
-        self._buf[28:28 + len(encoded)] = encoded
+        encoded = v.encode("utf-8")[: META_PHASE_ID_LEN - 1]
+        self._buf[28 : 28 + META_PHASE_ID_LEN] = b"\x00" * META_PHASE_ID_LEN
+        self._buf[28 : 28 + len(encoded)] = encoded
 
     @property
     def info(self) -> RingInfo:
@@ -231,8 +241,7 @@ class SharedAudioRing:
 
     # ── Producer API ──────────────────────────────────────────────────────────
 
-    def write(self, audio: np.ndarray, sample_rate: int = SAMPLE_RATE_DEFAULT,
-              phase_id: str = "") -> int:
+    def write(self, audio: np.ndarray, sample_rate: int = SAMPLE_RATE_DEFAULT, phase_id: str = "") -> int:
         """Schreibt einen Audio-Frame in den Ringpuffer.
 
         Args:
@@ -264,10 +273,10 @@ class SharedAudioRing:
         slot = fc % RING_SIZE
         frame_offset = RING_OFFSET + slot * FRAME_BYTES
 
-        self._buf[frame_offset:frame_offset + n_samples * 4] = flat[:n_samples].tobytes()
+        self._buf[frame_offset : frame_offset + n_samples * 4] = flat[:n_samples].tobytes()
         if n_samples < FRAME_SAMPLES:
-            self._buf[frame_offset + n_samples * 4:frame_offset + FRAME_BYTES] = (
-                b'\x00' * (FRAME_BYTES - n_samples * 4)
+            self._buf[frame_offset + n_samples * 4 : frame_offset + FRAME_BYTES] = b"\x00" * (
+                FRAME_BYTES - n_samples * 4
             )
 
         self.sample_rate = sample_rate
@@ -312,20 +321,22 @@ class SharedAudioRing:
         for idx in range(ri + 1, fc):
             slot = idx % RING_SIZE
             frame_offset = RING_OFFSET + slot * FRAME_BYTES
-            raw = bytes(self._buf[frame_offset:frame_offset + FRAME_BYTES])
+            raw = bytes(self._buf[frame_offset : frame_offset + FRAME_BYTES])
             audio = np.frombuffer(raw, dtype=np.float32).reshape(-1, CHANNELS)
-            frames.append(AudioFrame(
-                audio=audio,
-                sample_rate=self.sample_rate,
-                phase_id=self.phase_id,
-                frame_index=idx,
-            ))
+            frames.append(
+                AudioFrame(
+                    audio=audio,
+                    sample_rate=self.sample_rate,
+                    phase_id=self.phase_id,
+                    frame_index=idx,
+                )
+            )
 
         if frames:
             self._local_read_idx = frames[-1].frame_index
         return frames
 
-    def read_latest(self) -> Optional[AudioFrame]:
+    def read_latest(self) -> AudioFrame | None:
         """Liest nur den neuesten Frame. Non-blocking."""
         if self._buf is None:
             return None
@@ -336,7 +347,7 @@ class SharedAudioRing:
         idx = fc - 1  # 0-indexed, letzter geschriebener Frame
         slot = idx % RING_SIZE
         frame_offset = RING_OFFSET + slot * FRAME_BYTES
-        raw = bytes(self._buf[frame_offset:frame_offset + FRAME_BYTES])
+        raw = bytes(self._buf[frame_offset : frame_offset + FRAME_BYTES])
         audio = np.frombuffer(raw, dtype=np.float32).reshape(-1, CHANNELS)
         frame = AudioFrame(
             audio=audio,
@@ -392,6 +403,7 @@ class SharedAudioRing:
 
 if __name__ == "__main__":
     import time
+
     logging.basicConfig(level=logging.INFO)
 
     print("=== SharedAudioRing Test Suite ===")
@@ -405,9 +417,9 @@ if __name__ == "__main__":
 
     # Test 2: Schreiben
     for i in range(5):
-        audio = np.sin(np.linspace(0, (i+1)*440*2*np.pi, 48000, dtype=np.float32))
+        audio = np.sin(np.linspace(0, (i + 1) * 440 * 2 * np.pi, 48000, dtype=np.float32))
         idx = ring.write(audio, phase_id=f"phase_{i}")
-        assert idx == i + 1, f"Expected {i+1}, got {idx}"
+        assert idx == i + 1, f"Expected {i + 1}, got {idx}"
         time.sleep(0.001)
     assert ring.frame_count == 5
     assert ring.is_running

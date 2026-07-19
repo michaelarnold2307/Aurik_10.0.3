@@ -12,6 +12,7 @@ Verifiziert, dass:
 from __future__ import annotations
 
 import importlib
+
 import numpy as np
 import pytest
 
@@ -24,12 +25,9 @@ def test_phase_result_has_resolved_defects_field():
 
     pr = PhaseResult(audio=np.zeros(100, dtype=np.float32))
     assert hasattr(pr, "resolved_defects"), (
-        "PhaseResult.resolved_defects fehlt! "
-        "§v10.18 verlangt dieses Feld für den korrekten Metadatenfluss."
+        "PhaseResult.resolved_defects fehlt! §v10.18 verlangt dieses Feld für den korrekten Metadatenfluss."
     )
-    assert isinstance(pr.resolved_defects, dict), (
-        "PhaseResult.resolved_defects muss ein dict sein!"
-    )
+    assert isinstance(pr.resolved_defects, dict), "PhaseResult.resolved_defects muss ein dict sein!"
 
 
 # ── 2. create_phase_result reicht resolved_defects durch ─────────────
@@ -55,9 +53,7 @@ def test_create_phase_result_defaults_to_empty_dict():
     from backend.core.phases.phase_interface import create_phase_result
 
     pr = create_phase_result(audio=np.zeros(100, dtype=np.float32))
-    assert pr.resolved_defects == {}, (
-        f"Default resolved_defects muss leer sein, ist aber {pr.resolved_defects}"
-    )
+    assert pr.resolved_defects == {}, f"Default resolved_defects muss leer sein, ist aber {pr.resolved_defects}"
 
 
 # ── 3. Jede betroffene Phase setzt resolved_defects ──────────────────
@@ -81,16 +77,13 @@ PHASES_WITH_RESOLVED_DEFECTS = [
 @pytest.mark.parametrize("phase_name", PHASES_WITH_RESOLVED_DEFECTS)
 def test_phase_implements_resolved_defects(phase_name):
     """Jede §v10.18-Phase muss nach process() resolved_defects im PhaseResult haben."""
-    import importlib
 
     module = importlib.import_module(f"backend.core.phases.{phase_name}")
     # PhaseInterface-Instanz finden
     phase_class = None
     for attr in dir(module):
         obj = getattr(module, attr)
-        if hasattr(obj, "__bases__") and any(
-            "PhaseInterface" in str(base) for base in getattr(obj, "__bases__", [])
-        ):
+        if hasattr(obj, "__bases__") and any("PhaseInterface" in str(base) for base in getattr(obj, "__bases__", [])):
             phase_class = obj
             break
     assert phase_class is not None, f"{phase_name}: Keine PhaseInterface-Klasse gefunden!"
@@ -112,9 +105,7 @@ def test_phase_implements_resolved_defects(phase_name):
 
     # Check: PhaseResult muss existieren
     assert result is not None, f"{phase_name}: process() gab None zurück!"
-    assert hasattr(result, "resolved_defects"), (
-        f"{phase_name}: PhaseResult hat kein resolved_defects-Feld!"
-    )
+    assert hasattr(result, "resolved_defects"), f"{phase_name}: PhaseResult hat kein resolved_defects-Feld!"
     assert isinstance(result.resolved_defects, dict), (
         f"{phase_name}: resolved_defects ist kein dict: {type(result.resolved_defects)}"
     )
@@ -125,9 +116,7 @@ def test_phase_implements_resolved_defects(phase_name):
         for defect_name, severity in result.resolved_defects.items():
             assert isinstance(defect_name, str), f"Key muss str sein: {type(defect_name)}"
             assert isinstance(severity, float), f"Wert muss float sein: {type(severity)}"
-            assert 0.0 <= severity <= 0.5, (
-                f"Residual-Severity {severity} außerhalb [0.0, 0.5] für {defect_name}"
-            )
+            assert 0.0 <= severity <= 0.5, f"Residual-Severity {severity} außerhalb [0.0, 0.5] für {defect_name}"
 
 
 # ── 4. UV3-Accumulator — Integrationstest ─────────────────────────────
@@ -143,6 +132,7 @@ def test_uv3_resolved_defects_accumulator_exists():
     # während einer laufenden Pipeline benötigt wird.
     # Wir prüfen, dass die Klasse das Konzept unterstützt:
     import inspect
+
     source = inspect.getsource(uv3._execute_pipeline)
     assert "_resolved_defects_accumulator" in source, (
         "UV3._execute_pipeline() muss _resolved_defects_accumulator initialisieren!\n"
@@ -187,8 +177,7 @@ def test_defect_severity_reduction_logic():
     # ⚠️ Der alte Wert (0.57, 0.42, 0.68) darf NICHT mehr verwendet werden!
     for k in ["CLIPPING", "CLICKS", "HIGH_FREQ_NOISE"]:
         assert effective[k] < original[k], (
-            f"{k}: Severity {effective[k]} >= original {original[k]} — "
-            "es wurde keine Reduktion erzielt!"
+            f"{k}: Severity {effective[k]} >= original {original[k]} — es wurde keine Reduktion erzielt!"
         )
 
 
@@ -204,9 +193,7 @@ def test_compute_resolved_defects_helper():
 
     # Hohe Original-Severity, starke Reparatur
     result = compute_resolved_defects("CLICKS", 0.8, 0.98)
-    assert result == {"CLICKS": pytest.approx(0.016, abs=0.01)}, (
-        f"0.8 * (1-0.98) = 0.016, aber: {result}"
-    )
+    assert result == {"CLICKS": pytest.approx(0.016, abs=0.01)}, f"0.8 * (1-0.98) = 0.016, aber: {result}"
 
     # Mittlere Severity, mittlere Reparatur
     result = compute_resolved_defects("HUM", 0.5, 0.5)
@@ -221,9 +208,7 @@ def test_compute_resolved_defects_helper():
     assert result == {}, f"0.005 < 0.01 → sollte leer sein, aber: {result}"
 
     # Multi-Defect
-    result = compute_resolved_defects_multi(
-        {"CLICKS": (0.8, 0.98), "HUM": (0.5, 0.5), "RUMBLE": (0.1, 0.0)}
-    )
+    result = compute_resolved_defects_multi({"CLICKS": (0.8, 0.98), "HUM": (0.5, 0.5), "RUMBLE": (0.1, 0.0)})
     assert "CLICKS" in result
     assert "HUM" in result
     assert "RUMBLE" in result
@@ -231,6 +216,7 @@ def test_compute_resolved_defects_helper():
 
 
 # ── 7. Denker Phase-Skip (§v10.24) ─────────────────────────────────
+
 
 def test_should_skip_resolved_phase_helper():
     """UV3._should_skip_resolved_phase() skipst Phasen deren Defekte resolved sind."""
@@ -249,9 +235,7 @@ def test_should_skip_resolved_phase_helper():
 
     # Mit leeren Accumulator: nie skippen
     uv3._resolved_defects_accumulator = {}
-    assert not uv3._should_skip_resolved_phase("phase_23_spectral_repair"), (
-        "Leerer Accumulator → keine Phase skippen"
-    )
+    assert not uv3._should_skip_resolved_phase("phase_23_spectral_repair"), "Leerer Accumulator → keine Phase skippen"
 
     # Mit CLIPPING=0.03 (resolved): phase_23 sollte geskippt werden wenn
     # CLIPPING der einzige primary defect wäre
@@ -261,15 +245,11 @@ def test_should_skip_resolved_phase_helper():
     result = uv3._should_skip_resolved_phase("phase_23_spectral_repair")
     # phase_23 repariert 15 Defekte, CLIPPING ist nur einer davon
     # → skip nur wenn ALLE resolved sind
-    assert not result, (
-        f"phase_23 hat 15 primary defects, CLIPPING=0.03 reicht nicht zum Skippen: {result}"
-    )
+    assert not result, f"phase_23 hat 15 primary defects, CLIPPING=0.03 reicht nicht zum Skippen: {result}"
 
     # Enhancement-Phase: nie skippen
     uv3._resolved_defects_accumulator = {"CLICKS": 0.0}
-    assert not uv3._should_skip_resolved_phase("phase_21_exciter"), (
-        "Enhancement-Phasen dürfen nie geskippt werden"
-    )
+    assert not uv3._should_skip_resolved_phase("phase_21_exciter"), "Enhancement-Phasen dürfen nie geskippt werden"
 
 
 def test_denker_skip_integration():
@@ -298,6 +278,4 @@ def test_denker_skip_integration():
 
     # Phase 30 (DC_OFFSET): DC_OFFSET=0.0 → sollte geskippt werden
     result_30 = uv3._should_skip_resolved_phase("phase_30_dc_offset_removal")
-    assert result_30, (
-        f"phase_30: DC_OFFSET=0.0 → sollte geskippt werden, aber: {result_30}"
-    )
+    assert result_30, f"phase_30: DC_OFFSET=0.0 → sollte geskippt werden, aber: {result_30}"

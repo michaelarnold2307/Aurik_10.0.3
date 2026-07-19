@@ -90,16 +90,29 @@ _MATERIAL_QUALITY_BASELINE: dict[str, dict[str, float]] = {
 
 # Genre-spezifische Qualitäts-Modifier (Multiplikator auf Goals-Erwartung)
 _GENRE_QUALITY_MODIFIER: dict[str, float] = {
-    "schlager": 1.05,  # Hohe Erwartung an Wärme/Emotion
-    "rock": 0.95,  # Energie > Perfektion
+    # §v10.0.5: Alle 19 Genres vervollständigt
+    "schlager": 1.05,
+    "rock": 0.95,
     "pop": 1.00,
-    "jazz": 1.08,  # Höchste Ansprüche an Natürlichkeit
-    "classical": 1.10,  # Referenz-Qualität
-    "electronic": 0.90,  # Synthetische Quellen toleranter
+    "jazz": 1.08,
+    "classical": 1.10,
+    "klassik": 1.10,
+    "oper": 1.10,
+    "electronic": 0.90,
     "folk": 1.02,
-    "metal": 0.92,  # Lautstärke > Feinzeichnung
+    "metal": 0.92,
     "hiphop": 0.93,
+    "hip-hop": 0.93,
     "rnb": 1.00,
+    "soul": 1.02,
+    "blues": 1.03,
+    "country": 1.01,
+    "funk": 0.98,
+    "latin": 1.00,
+    "gospel": 1.02,
+    "reggae": 0.97,
+    "ambient": 0.95,
+    "world": 1.00,
 }
 
 

@@ -83,7 +83,7 @@ def _get_madmom_module():
     try:
         return importlib.import_module("madmom")
     except Exception:
-        logger.debug("musical_phrase_context: madmom nicht verfügbar — DSP-Fallback aktiv")
+        logger.warning("⚠️ SOTA musical_phrase_context: madmom nicht verfügbar — DSP-Fallback aktiv")
         return None
 
 

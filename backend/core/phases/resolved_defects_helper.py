@@ -60,8 +60,11 @@ def compute_resolved_defects_multi(
     result: dict[str, float] = {}
     for defect_type, (original_severity, reduction_ratio) in defect_map.items():
         resolved = compute_resolved_defects(
-            defect_type, original_severity, reduction_ratio,
-            max_residual=max_residual, min_original=min_original,
+            defect_type,
+            original_severity,
+            reduction_ratio,
+            max_residual=max_residual,
+            min_original=min_original,
         )
         result.update(resolved)
     return result

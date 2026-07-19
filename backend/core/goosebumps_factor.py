@@ -66,6 +66,137 @@ class GoosebumpsResult:
     details: dict = field(default_factory=dict)
 
 
+# §v10.0.5 Genre-adaptive Goosebumps-Gewichtung
+# Jedes Genre hat unterschiedliche emotionale Charakteristiken:
+# Ambient = natürlicherweise wenig Dynamik → niedrigere dynamic-Erwartung.
+# Klassik/Oper = hohe harmonische Komplexität → höheres harmonic-Gewicht.
+# Metal/Hip-Hop = basslastig → höheres warmth-Gewicht.
+_GENRE_WEIGHTS: dict[str, dict[str, float]] = {
+    "ambient": {"dynamic": 0.10, "harmonic": 0.20, "shimmer": 0.30, "breath": 0.20, "warmth": 0.20},
+    "classical": {"dynamic": 0.25, "harmonic": 0.30, "shimmer": 0.15, "breath": 0.15, "warmth": 0.15},
+    "klassik": {"dynamic": 0.25, "harmonic": 0.30, "shimmer": 0.15, "breath": 0.15, "warmth": 0.15},
+    "oper": {"dynamic": 0.25, "harmonic": 0.30, "shimmer": 0.15, "breath": 0.15, "warmth": 0.15},
+    "jazz": {"dynamic": 0.20, "harmonic": 0.25, "shimmer": 0.20, "breath": 0.20, "warmth": 0.15},
+    "metal": {"dynamic": 0.20, "harmonic": 0.15, "shimmer": 0.25, "breath": 0.10, "warmth": 0.30},
+    "hiphop": {"dynamic": 0.15, "harmonic": 0.10, "shimmer": 0.25, "breath": 0.20, "warmth": 0.30},
+    "hip-hop": {"dynamic": 0.15, "harmonic": 0.10, "shimmer": 0.25, "breath": 0.20, "warmth": 0.30},
+    "electronic": {"dynamic": 0.20, "harmonic": 0.15, "shimmer": 0.30, "breath": 0.15, "warmth": 0.20},
+    "reggae": {"dynamic": 0.15, "harmonic": 0.15, "shimmer": 0.20, "breath": 0.25, "warmth": 0.25},
+    "gospel": {"dynamic": 0.25, "harmonic": 0.20, "shimmer": 0.20, "breath": 0.15, "warmth": 0.20},
+}
+
+_GENRE_THRESHOLDS: dict[str, dict[str, float]] = {
+    "ambient": {
+        "dynamic_low": 0.10,
+        "dynamic_high": 0.70,
+        "shimmer_low": 0.15,
+        "shimmer_high": 0.90,
+        "breath_low": 0.10,
+        "warmth_low": 0.20,
+    },
+    "classical": {
+        "dynamic_low": 0.25,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.85,
+        "breath_low": 0.25,
+        "warmth_low": 0.25,
+    },
+    "klassik": {
+        "dynamic_low": 0.25,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.85,
+        "breath_low": 0.25,
+        "warmth_low": 0.25,
+    },
+    "oper": {
+        "dynamic_low": 0.25,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.85,
+        "breath_low": 0.25,
+        "warmth_low": 0.25,
+    },
+    "jazz": {
+        "dynamic_low": 0.20,
+        "dynamic_high": 0.85,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.85,
+        "breath_low": 0.20,
+        "warmth_low": 0.25,
+    },
+    "metal": {
+        "dynamic_low": 0.20,
+        "dynamic_high": 0.95,
+        "shimmer_low": 0.15,
+        "shimmer_high": 0.90,
+        "breath_low": 0.10,
+        "warmth_low": 0.20,
+    },
+    "hiphop": {
+        "dynamic_low": 0.15,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.15,
+        "shimmer_high": 0.90,
+        "breath_low": 0.15,
+        "warmth_low": 0.20,
+    },
+    "hip-hop": {
+        "dynamic_low": 0.15,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.15,
+        "shimmer_high": 0.90,
+        "breath_low": 0.15,
+        "warmth_low": 0.20,
+    },
+    "electronic": {
+        "dynamic_low": 0.20,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.95,
+        "breath_low": 0.10,
+        "warmth_low": 0.25,
+    },
+    "reggae": {
+        "dynamic_low": 0.15,
+        "dynamic_high": 0.80,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.85,
+        "breath_low": 0.20,
+        "warmth_low": 0.20,
+    },
+    "gospel": {
+        "dynamic_low": 0.25,
+        "dynamic_high": 0.90,
+        "shimmer_low": 0.20,
+        "shimmer_high": 0.85,
+        "breath_low": 0.15,
+        "warmth_low": 0.25,
+    },
+}
+
+
+def _get_genre_weights(genre: str) -> dict[str, float]:
+    return _GENRE_WEIGHTS.get(
+        genre.lower(), {"dynamic": 0.25, "harmonic": 0.20, "shimmer": 0.20, "breath": 0.15, "warmth": 0.20}
+    )
+
+
+def _get_genre_thresholds(genre: str) -> dict[str, float]:
+    return _GENRE_THRESHOLDS.get(
+        genre.lower(),
+        {
+            "dynamic_low": 0.30,
+            "dynamic_high": 0.85,
+            "shimmer_low": 0.25,
+            "shimmer_high": 0.85,
+            "breath_low": 0.20,
+            "warmth_low": 0.30,
+        },
+    )
+
+
 def compute_goosebumps(
     audio: np.ndarray,
     sr: int,
@@ -105,21 +236,35 @@ def compute_goosebumps(
     warmth = _measure_frequency_warmth(mono, sr)
 
     # ── Composite Score ──
-    score = float(np.clip(dynamic * 0.25 + harmonic * 0.20 + shimmer * 0.20 + breath * 0.15 + warmth * 0.20, 0.0, 1.0))
+    # §v10.0.5 Genre-adaptive Gewichtung: jede Musikrichtung hat
+    # unterschiedliche emotionale Charakteristiken.
+    _genre_weights = _get_genre_weights(genre)
+    score = float(
+        np.clip(
+            dynamic * _genre_weights.get("dynamic", 0.25)
+            + harmonic * _genre_weights.get("harmonic", 0.20)
+            + shimmer * _genre_weights.get("shimmer", 0.20)
+            + breath * _genre_weights.get("breath", 0.15)
+            + warmth * _genre_weights.get("warmth", 0.20),
+            0.0,
+            1.0,
+        )
+    )
 
-    # ── Label & Recommendation ──
+    # ── Genre-adaptive Label & Recommendation ──
+    _genre_thresholds = _get_genre_thresholds(genre)
     issues = []
-    if dynamic < 0.3:
+    if dynamic < _genre_thresholds.get("dynamic_low", 0.3):
         issues.append("Zu wenig dynamische Kontraste — wirkt flach")
-    elif dynamic > 0.85:
+    elif dynamic > _genre_thresholds.get("dynamic_high", 0.85):
         issues.append("Zu extreme Lautstärke-Wechsel — wirkt unruhig")
-    if shimmer < 0.25:
+    if shimmer < _genre_thresholds.get("shimmer_low", 0.25):
         issues.append("Fehlender Hochfrequenz-Glanz — wirkt dumpf")
-    elif shimmer > 0.85:
+    elif shimmer > _genre_thresholds.get("shimmer_high", 0.85):
         issues.append("Übermäßige Höhen — wirkt schrill")
-    if breath < 0.2:
+    if breath < _genre_thresholds.get("breath_low", 0.2):
         issues.append("Zu perfektes Timing — wirkt maschinell")
-    if warmth < 0.3:
+    if warmth < _genre_thresholds.get("warmth_low", 0.3):
         issues.append("Fehlende Bass-Wärme — wirkt kalt/dünn")
 
     if score >= 0.70:

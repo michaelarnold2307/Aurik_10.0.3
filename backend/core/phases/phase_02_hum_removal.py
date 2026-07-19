@@ -813,15 +813,11 @@ class HumRemovalPhase(PhaseInterface):
             if audio.ndim == 2:
                 # §v10.30: channels-aware per-channel filtering.
                 if audio.shape[0] == 2 and audio.shape[1] > 2:
-                    band_signal = np.row_stack([
-                        signal.sosfiltfilt(sos, audio[ch, :])
-                        for ch in range(audio.shape[0])
-                    ])
+                    band_signal = np.row_stack([signal.sosfiltfilt(sos, audio[ch, :]) for ch in range(audio.shape[0])])
                 elif audio.shape[1] == 2 and audio.shape[0] > 2:
-                    band_signal = np.column_stack([
-                        signal.sosfiltfilt(sos, audio[:, ch])
-                        for ch in range(audio.shape[1])
-                    ])
+                    band_signal = np.column_stack(
+                        [signal.sosfiltfilt(sos, audio[:, ch]) for ch in range(audio.shape[1])]
+                    )
                 else:
                     band_signal = signal.sosfiltfilt(sos, audio)
             else:
@@ -834,15 +830,13 @@ class HumRemovalPhase(PhaseInterface):
         if band_signal.ndim == 2:
             # §v10.30: channels-aware per-channel hilbert.
             if band_signal.shape[0] == 2 and band_signal.shape[1] > 2:
-                envelope = np.row_stack([
-                    np.abs(signal.hilbert(band_signal[ch, :]))
-                    for ch in range(band_signal.shape[0])
-                ])
+                envelope = np.row_stack(
+                    [np.abs(signal.hilbert(band_signal[ch, :])) for ch in range(band_signal.shape[0])]
+                )
             elif band_signal.shape[1] == 2 and band_signal.shape[0] > 2:
-                envelope = np.column_stack([
-                    np.abs(signal.hilbert(band_signal[:, ch]))
-                    for ch in range(band_signal.shape[1])
-                ])
+                envelope = np.column_stack(
+                    [np.abs(signal.hilbert(band_signal[:, ch])) for ch in range(band_signal.shape[1])]
+                )
             else:
                 envelope = np.abs(signal.hilbert(band_signal))
         else:

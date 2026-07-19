@@ -14,7 +14,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ── 1. Re-Scanner existiert und ist importierbar ──────────────────────
 
 
@@ -48,9 +47,7 @@ def test_re_scan_clean_signal():
     results = scanner.scan(clean, sr, "phase_01_click_removal")
 
     crackle = results.get("CRACKLE", 0.0)
-    assert crackle < 0.2, (
-        f"Clean harmonic signal should have low CRACKLE, got {crackle}: {results}"
-    )
+    assert crackle < 0.2, f"Clean harmonic signal should have low CRACKLE, got {crackle}: {results}"
 
 
 # ── 3. Re-Scan nach simuliertem Denoise (enthülltes Rauschen) ─────────
@@ -65,10 +62,11 @@ def test_re_scan_after_denoise_reveals_noise():
     # Signal mit leichtem HF-Rauschen (wäre vorher von lauterem Rauschen maskiert)
     signal = (np.sin(2 * np.pi * 440 * t) * 0.3).astype(np.float32)
     # Füge subtiles HF-Rauschen hinzu (8-16 kHz), das nach Denoise sichtbar wird
-    noise = (np.random.randn(sr).astype(np.float32) * 0.005)
+    noise = np.random.randn(sr).astype(np.float32) * 0.005
     # Hochpass-Filterung des Rauschens (einfach)
     from scipy.signal import butter, sosfilt
-    sos = butter(4, 8000, 'hp', fs=sr, output='sos')
+
+    sos = butter(4, 8000, "hp", fs=sr, output="sos")
     hf_noise = sosfilt(sos, noise).astype(np.float32)
     signal_with_hf = signal + hf_noise
 
@@ -117,9 +115,7 @@ def test_bidirectional_accumulator():
         if v > old:
             acc[k] = v  # ← Severity STEIGT
 
-    assert acc["CRACKLE"] == 0.45, (
-        f"CRACKLE should RISE from 0.02 to 0.45: {acc}"
-    )
+    assert acc["CRACKLE"] == 0.45, f"CRACKLE should RISE from 0.02 to 0.45: {acc}"
     assert acc["CRACKLE"] > 0.02, "Bidirectional update failed: severity did not increase"
     assert acc["CLIPPING"] == 0.03, "CLIPPING should remain unchanged"
 
@@ -136,9 +132,7 @@ def test_re_scan_phase_specific_checks():
     # Phase 01: Checkt CRACKLE, TRANSIENT_SMEARING, LACQUER_DISC_DEGRADATION
     checks_01 = scanner._get_checks_for_phase("phase_01_click_removal")
     assert len(checks_01) > 0, "Phase 01 should have re-scan checks"
-    assert any("CRACKLE" in c[0] for c in checks_01), (
-        f"Phase 01 checks should include CRACKLE: {checks_01}"
-    )
+    assert any("CRACKLE" in c[0] for c in checks_01), f"Phase 01 checks should include CRACKLE: {checks_01}"
 
     # Phase 03: Checkt HIGH_FREQ_NOISE, MODULATION_NOISE, QUANTIZATION_NOISE
     checks_03 = scanner._get_checks_for_phase("phase_03_denoise")

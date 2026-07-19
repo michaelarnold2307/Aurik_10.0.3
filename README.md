@@ -549,9 +549,58 @@ pytest tests/unit/test_human_hearing_comfort.py -v
 pytest tests/unit/test_adaptive_pipeline_canonical_policy_guard.py -v
 pytest tests/normative/test_real_audio_edge_lag_gate.py -v
 pytest tests/normative/test_modern_window_gui_contract.py -v
+
+# Phase Contract Tests (§v10.0.5 — PostGate Signatur + Genre-Propagation)
+pytest backend/tests/test_phase_contracts.py -v
 ```
 
-**Test-Status:** **~15.023 `def test_`-Funktionen** — alle grün ✅
+## ⏱️ Performance & Phase-Budget
+
+Aurik verwendet ein **Wall-Time-Budget** pro Song, um zu verhindern dass die
+Pipeline auf schwacher Hardware unbegrenzt läuft. Das Kernprinzip:
+
+| Budget-Typ | Beschreibung |
+|------------|-------------|
+| **Mandatory Phases** | Denoise, Click, Crackle, Wow/Flutter, DC-Offset — laufen **immer** |
+| **Enhancement Phases** | Frequency Restore, DeEsser, Dereverb, Transparent Dynamics — können **übersprungen** werden |
+| **Budget Guard** | `performance_guard.py` + `_budget_pressure_skip_reason()` — überspringt Enhancement-Phasen als Passthrough wenn Wall-Time erschöpft |
+| **Material-adaptiv** | Tape/Cassette bekommen höheres Budget (längere Analysen nötig) |
+
+### Fairness-Garantie
+
+- **Kurze Songs (< 100 s)**: Alle Enhancement-Phasen laufen vollständig
+- **Lange Songs (> 200 s)**: Enhancement-Phasen können entfallen; die Kern-Reparaturkette bleibt intakt
+- **`speed`-Mode**: Reduziert ML-Tiefe → alle Phasen laufen auch bei langen Songs
+- **`quality`-Mode**: Maximale Qualität, aber höheres Risiko von Budget-Überspringungen
+
+### Budget-Garantie (§v10.0.5)
+
+Seit v10.0.5 wurde das Wall-Time-Budget **verdoppelt**:
+
+- **Base-Budget**: Vinyl 2700s → **5400s** (90 min), Kassette 4800s → **7200s** (120 min)
+- **Overhead**: 1800s → **3600s** (Modell-Laden, Kalibrierung, Setup)
+- **Per-Sekunde**: 15s → **25s** (mehr Puffer für DSP-intensive Phasen)
+- **RT-Limit**: 32× → **48×** (aus CRITICAL-Bereich bei 4-Kern-CPU)
+- **Min-Effective-Strength-Guard**: Phasen mit strength < 0.12 werden als Passthrough übersprungen (§0)
+
+### §v10.0.5 Änderungen (14 Dateien, ~1100 Zeilen)
+
+| Kategorie | Highlights |
+|-----------|-----------|
+| **Bugfixes** | Genre-Key-Mismatch, PostGate Lambda-TypeError, Tuple-`ndim`-Crash, UVR-Div0 |
+| **Genre** | ambient+world Profile (8+12 Par.), oper+schlager vervollständigt, PQC 12 Modifier |
+| **Psychoakustik** | LUFS-adaptives Fletcher-Munson Phon-Level, `compute_adaptive_phon()` |
+| **Quality-Gates** | Instrumental-Recovery (phase_65), Exciter-Freigabe, DeEsser-Skip für HF-loses Material |
+| **Performance** | Budget ×2, RT-Limit 48×, 5 Phasen-Skip-Guards, Min-Effective-Strength |
+| **Goosebumps** | Genre-adaptive Weights + Thresholds (11 Profile) |
+| **OneTakeExport** | Iterative 2-Pass mit Feinkorrektur |
+| **Tests** | +37 Tests (24 Contract + 13 Genre-Universalität) |
+
+Damit laufen **alle geplanten Phasen** auch auf 4-Kern-CPU mit `quality`-Mode —
+kein Budget-bedingtes Überspringen von Enhancement-Phasen mehr.
+
+> Vor §v10.0.5: 9 Enhancement-Phasen wurden bei 225s Song auf 4 Kernen übersprungen.
+> Seit §v10.0.5: Budget reicht für vollständige Pipeline-Ausführung.
 
 **Test-Mindestanforderung pro neuem Modul:** ≥ 35 Unit-Tests,
 inkl. NaN/Inf-Tests, Bounds-Tests, Mono+Stereo, Edge-Cases, Thread-Safety.

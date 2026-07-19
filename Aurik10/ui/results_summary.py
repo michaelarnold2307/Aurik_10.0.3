@@ -101,6 +101,43 @@ class ResultsSummaryDialog(QtWidgets.QDialog):
         quality_label.setWordWrap(True)
         layout.addWidget(quality_label)
 
+        # ── §v10.35 Experience Insights (Joy/Fatigue/Recommendations) ────
+        joy_idx = d.get("joy_index", 0.0)
+        fatigue_idx = d.get("fatigue_index", 0.0)
+        recommendations = d.get("recommendations", [])
+
+        if joy_idx > 0 or fatigue_idx > 0 or recommendations:
+            exp_sep = QtWidgets.QFrame()
+            exp_sep.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+            exp_sep.setStyleSheet("background: rgba(102, 126, 234, 0.2); max-height: 1px;")
+            layout.addWidget(exp_sep)
+
+            exp_header = QtWidgets.QLabel(t("results.experience_header"))
+            exp_header.setStyleSheet("font-size: 12pt; font-weight: bold;")
+            layout.addWidget(exp_header)
+
+            if joy_idx > 0:
+                joy_pct = int(joy_idx * 100)
+                joy_emoji = "😊" if joy_idx > 0.7 else ("🙂" if joy_idx > 0.4 else "😐")
+                joy_label = QtWidgets.QLabel(f"{joy_emoji}  Hörgenuss: {joy_pct}%")
+                joy_color = "#82B89A" if joy_idx > 0.6 else ("#C8A84B" if joy_idx > 0.3 else "#B87A7A")
+                joy_label.setStyleSheet(f"font-size: 10pt; color: {joy_color}; padding: 4px 0;")
+                layout.addWidget(joy_label)
+
+            if fatigue_idx > 0:
+                fat_pct = int(fatigue_idx * 100)
+                fat_emoji = "😫" if fatigue_idx > 0.6 else ("😐" if fatigue_idx > 0.3 else "😌")
+                fat_label = QtWidgets.QLabel(f"{fat_emoji}  Hörermüdung: {fat_pct}%")
+                fat_color = "#82B89A" if fatigue_idx < 0.3 else ("#C8A84B" if fatigue_idx < 0.5 else "#B87A7A")
+                fat_label.setStyleSheet(f"font-size: 10pt; color: {fat_color}; padding: 4px 0;")
+                layout.addWidget(fat_label)
+
+            if recommendations:
+                rec_label = QtWidgets.QLabel("💡 " + " · ".join(recommendations[:3]))
+                rec_label.setStyleSheet("font-size: 10pt; color: #7B93F0; padding: 4px 0; font-style: italic;")
+                rec_label.setWordWrap(True)
+                layout.addWidget(rec_label)
+
         # ── Output path ───────────────────────────────────────────────────
         output = d.get("output_path", "")
         if output:
@@ -229,8 +266,27 @@ def build_results_data(
     clarity_improvement: float = 0,
     hpe_before: float = 0,
     hpe_after: float = 0,
+    restoration_result: object = None,
 ) -> dict:
     """Baut das data-dict für den ResultsSummaryDialog."""
+    # §v10.35: Experience Insights aus RestorationResult extrahieren
+    _joy = 0.0
+    _fatigue = 0.0
+    _recommendations: list = []
+    if restoration_result is not None:
+        try:
+            from backend.api.bridge import get_experience_insights
+
+            _xp = get_experience_insights(restoration_result)
+            _joy = float(_xp.get("joy_index", 0.0) or 0.0)
+            _fatigue = float(_xp.get("fatigue_index", 0.0) or 0.0)
+            _recs = _xp.get("recommendations", [])
+            if isinstance(_recs, list):
+                for r in _recs:
+                    if isinstance(r, dict) and r.get("action"):
+                        _recommendations.append(str(r["action"]))
+        except Exception:
+            pass  # Experience insights extraction best-effort
     return {
         "file_name": file_name,
         "duration_seconds": duration_seconds,
@@ -247,4 +303,7 @@ def build_results_data(
         "clarity_improvement": clarity_improvement,
         "hpe_before": hpe_before,
         "hpe_after": hpe_after,
+        "joy_index": _joy,
+        "fatigue_index": _fatigue,
+        "recommendations": _recommendations,
     }

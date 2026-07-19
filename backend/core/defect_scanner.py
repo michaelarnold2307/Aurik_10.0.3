@@ -6665,7 +6665,10 @@ class DefectScanner:
                 logger.info(
                     "§v10.30 Forwarded %d head-dip events from TRANSPORT_BUMP → TAPE_HEAD_LEVEL_DIP "
                     "(%d existing + %d forwarded = %d total)",
-                    len(_forwarded), n_dips, len(locations) - n_dips, len(locations),
+                    len(_forwarded),
+                    n_dips,
+                    len(locations) - n_dips,
+                    len(locations),
                 )
             n_dips = len(locations)  # Update nach Merge
             if n_dips == 0:

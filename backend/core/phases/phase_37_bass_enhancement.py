@@ -205,7 +205,7 @@ class BassEnhancement(PhaseInterface):
             except Exception as _fmg_exc_37:  # pylint: disable=broad-except
                 logger.debug("Phase37 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_37)
 
-        if _effective_strength <= 0.0:
+        if _effective_strength < 0.01:  # §v10.0.5: < 1% = keine sinnvolle Wirkung
             logger.info(
                 "Phase 37: skipped — effective_strength=%.3f (no bass enhancement applied)", _effective_strength
             )

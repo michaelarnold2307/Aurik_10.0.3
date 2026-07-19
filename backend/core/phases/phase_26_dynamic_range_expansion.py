@@ -295,6 +295,32 @@ class DynamicRangeExpansion(PhaseInterface):
                 },
             )
 
+        # §v10.0.5: Wenn effektive Expansions-Ratio ≈ 1.0 (strength → 0),
+        # ist die Wirkung vernachlässigbar. Expansion würde nur NOVELTY_CRIT
+        # ohne hörbare Dynamik-Verbesserung einführen → Phase skippen.
+        _eff_up = float(1.0 + (config["upward_ratio"] - 1.0) * _effective_strength)
+        _eff_down = float(1.0 + (config["downward_ratio"] - 1.0) * _effective_strength)
+        if _eff_up <= 1.02 and _eff_down <= 1.02:
+            logger.info(
+                "§v10.0.5 DR-Expansion-Skip: eff_ratio up/down=%.3f/%.3f (str=%.3f) → skipped",
+                _eff_up,
+                _eff_down,
+                _effective_strength,
+            )
+            passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
+            passthrough = np.clip(passthrough, -1.0, 1.0)
+            return PhaseResult(
+                success=True,
+                audio=passthrough,
+                execution_time_seconds=time.time() - start_time,
+                metadata={
+                    "material": material.name,
+                    "dr_increase_db": 0.0,
+                    "effective_strength": _effective_strength,
+                    "processing": "skipped_negligible_ratio",
+                },
+            )
+
         # Scale expansion aggressiveness toward neutral ratios for sparse locality.
         config["upward_ratio"] = float(1.0 + (config["upward_ratio"] - 1.0) * _effective_strength)
         config["downward_ratio"] = float(1.0 + (config["downward_ratio"] - 1.0) * _effective_strength)

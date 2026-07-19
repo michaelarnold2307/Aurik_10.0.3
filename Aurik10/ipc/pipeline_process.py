@@ -35,11 +35,12 @@ import traceback
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from collections.abc import Callable, Sequence
 
 import numpy as np
 
-from Aurik10.ipc.shared_audio import SharedAudioRing, AudioFrame
+from Aurik10.ipc.shared_audio import AudioFrame, SharedAudioRing
 
 logger = logging.getLogger("aurik.ipc.pipeline")
 
@@ -47,6 +48,7 @@ logger = logging.getLogger("aurik.ipc.pipeline")
 # ═══════════════════════════════════════════════════════════════════════
 # Status-Datentypen (leichtgewichtig, JSON-serialisierbar)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class PipelineState(Enum):
     IDLE = auto()
@@ -61,6 +63,7 @@ class PipelineState(Enum):
 @dataclass
 class PipelineStatus:
     """Statusmeldung vom Kindprozess an die GUI (via Pipe)."""
+
     state: str = "idle"  # PipelineState.name
     progress_pct: float = 0.0
     current_phase: str = ""
@@ -87,6 +90,7 @@ class PipelineStatus:
 @dataclass
 class PipelineJob:
     """Auftrag vom GUI-Thread an den Kindprozess (via Pipe)."""
+
     input_file: str
     output_file: str
     mode: str = "restoration"
@@ -99,6 +103,7 @@ class PipelineJob:
 # ═══════════════════════════════════════════════════════════════════════
 # Worker-Funktion (läuft im Kindprozess)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _pipeline_worker(
     input_pipe: mp.connection.Connection,
@@ -141,22 +146,26 @@ def _pipeline_worker(
             from Aurik10.bridge import (
                 get_aurik_denker_instance as _bridge_denker,
             )
+
             denker = _bridge_denker()
             if denker is None:
                 raise RuntimeError("Denker-Singleton nicht verfügbar")
 
             # ROCm warmup (falls im Kindprozess nötig)
             from Aurik10.bridge import warmup_rocm as _bridge_warmup
+
             if _bridge_warmup is not None:
                 _bridge_warmup()
 
             logger.info("Pipeline-Worker: Denker initialisiert")
         except Exception as e:
             logger.error("Pipeline-Worker: Denker-Init fehlgeschlagen: %s", e)
-            output_pipe.send(PipelineStatus(
-                state="failed",
-                error=f"Backend-Init fehlgeschlagen: {e}",
-            ).to_json())
+            output_pipe.send(
+                PipelineStatus(
+                    state="failed",
+                    error=f"Backend-Init fehlgeschlagen: {e}",
+                ).to_json()
+            )
             return
 
         # ── Bereitschaft signalisieren ─────────────────────────────
@@ -184,8 +193,7 @@ def _pipeline_worker(
                 continue
 
             # ── Auftrag verarbeiten ────────────────────────────────
-            job = PipelineJob(**{k: v for k, v in job_dict.items()
-                                 if not k.startswith("_")})
+            job = PipelineJob(**{k: v for k, v in job_dict.items() if not k.startswith("_")})
             logger.info("Pipeline-Worker: Verarbeite %s", job.input_file)
 
             try:
@@ -193,19 +201,23 @@ def _pipeline_worker(
             except Exception as e:
                 logger.error("Pipeline-Worker: Job fehlgeschlagen: %s", e)
                 traceback.print_exc()
-                output_pipe.send(PipelineStatus(
-                    state="failed",
-                    error=str(e),
-                ).to_json())
+                output_pipe.send(
+                    PipelineStatus(
+                        state="failed",
+                        error=str(e),
+                    ).to_json()
+                )
 
     except Exception as e:
         logger.error("Pipeline-Worker: Kritischer Fehler: %s", e)
         traceback.print_exc()
         try:
-            output_pipe.send(PipelineStatus(
-                state="failed",
-                error=f"Worker-Absturz: {e}",
-            ).to_json())
+            output_pipe.send(
+                PipelineStatus(
+                    state="failed",
+                    error=f"Worker-Absturz: {e}",
+                ).to_json()
+            )
         except Exception:
             pass
     finally:
@@ -231,27 +243,30 @@ def _run_restoration_job(
     """
 
     # ── Audio laden ────────────────────────────────────────────────
-    output_pipe.send(PipelineStatus(
-        state="running",
-        progress_pct=0.0,
-        current_phase="audio_loading",
-        phase_index=0,
-        total_phases=66,
-    ).to_json())
+    output_pipe.send(
+        PipelineStatus(
+            state="running",
+            progress_pct=0.0,
+            current_phase="audio_loading",
+            phase_index=0,
+            total_phases=66,
+        ).to_json()
+    )
 
     audio, sr = _load_audio_file(job.input_file)
     if audio is None or audio.size == 0:
-        output_pipe.send(PipelineStatus(
-            state="failed",
-            error="Audio konnte nicht geladen werden",
-        ).to_json())
+        output_pipe.send(
+            PipelineStatus(
+                state="failed",
+                error="Audio konnte nicht geladen werden",
+            ).to_json()
+        )
         return
 
     # ── Audio-Callback für denker.denke() ──────────────────────────
     # Nach jeder UV3-Phase wird dieser Callback mit dem aktuellen
     # Audio-Zustand aufgerufen.
-    def _phase_callback(phase_audio: np.ndarray, phase_sr: int,
-                        phase_id: str) -> None:
+    def _phase_callback(phase_audio: np.ndarray, phase_sr: int, phase_id: str) -> None:
         """Wird nach jeder UV3-Phase aufgerufen."""
         try:
             # In SharedAudioRing schreiben (lock-free, kopiert Daten)
@@ -259,25 +274,28 @@ def _run_restoration_job(
         except Exception as e:
             logger.debug("SharedAudioRing write fehlgeschlagen: %s", e)
 
-    def _progress_callback(pct: float, phase_name: str,
-                           phase_idx: int, total: int) -> None:
+    def _progress_callback(pct: float, phase_name: str, phase_idx: int, total: int) -> None:
         """Wird bei Fortschrittsänderungen aufgerufen."""
-        output_pipe.send(PipelineStatus(
-            state="running",
-            progress_pct=pct,
-            current_phase=phase_name,
-            phase_index=phase_idx,
-            total_phases=total,
-        ).to_json())
+        output_pipe.send(
+            PipelineStatus(
+                state="running",
+                progress_pct=pct,
+                current_phase=phase_name,
+                phase_index=phase_idx,
+                total_phases=total,
+            ).to_json()
+        )
 
     # ── Denker ausführen ───────────────────────────────────────────
-    output_pipe.send(PipelineStatus(
-        state="running",
-        progress_pct=0.0,
-        current_phase="restoration_start",
-        phase_index=0,
-        total_phases=66,
-    ).to_json())
+    output_pipe.send(
+        PipelineStatus(
+            state="running",
+            progress_pct=0.0,
+            current_phase="restoration_start",
+            phase_index=0,
+            total_phases=66,
+        ).to_json()
+    )
 
     try:
         # Defect-Scan-Ergebnis vorbereiten (falls vorhanden)
@@ -305,23 +323,24 @@ def _run_restoration_job(
                 "final",
             )
 
-        output_pipe.send(PipelineStatus(
-            state="completed",
-            progress_pct=100.0,
-        ).to_json())
+        output_pipe.send(
+            PipelineStatus(
+                state="completed",
+                progress_pct=100.0,
+            ).to_json()
+        )
 
     except Exception as e:
         logger.error("Denker.denke() fehlgeschlagen: %s", e)
         raise
 
 
-def _load_audio_file(path: str) -> Tuple[Optional[np.ndarray], int]:
+def _load_audio_file(path: str) -> tuple[np.ndarray | None, int]:
     """Lädt eine Audiodatei im Kindprozess.
 
     Returns:
         Tuple[audio, sample_rate] oder (None, 0) bei Fehler.
     """
-    from pathlib import Path
     p = Path(path)
     if not p.exists():
         logger.error("Audiodatei nicht gefunden: %s", path)
@@ -329,11 +348,10 @@ def _load_audio_file(path: str) -> Tuple[Optional[np.ndarray], int]:
 
     try:
         import soundfile as sf
+
         audio, sr = sf.read(str(p), dtype="float32", always_2d=False)
         # Normalisieren
-        if audio.ndim == 1:
-            audio = audio.astype(np.float32)
-        elif audio.ndim == 2:
+        if audio.ndim == 1 or audio.ndim == 2:
             audio = audio.astype(np.float32)
         # §V08: np.percentile(99.9) statt np.max(abs()) — robust gegen
         # einzelne Ausreißer-Samples (Clicks/Pops).
@@ -349,6 +367,7 @@ def _load_audio_file(path: str) -> Tuple[Optional[np.ndarray], int]:
 # ═══════════════════════════════════════════════════════════════════════
 # PipelineProcess — GUI-seitige Steuerklasse
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class PipelineProcess:
     """Steuert den Pipeline-Kindprozess vom GUI-Thread aus.
@@ -371,18 +390,18 @@ class PipelineProcess:
     """
 
     def __init__(self):
-        self._process: Optional[mp.Process] = None
-        self._parent_pipe: Optional[mp.connection.Connection] = None
-        self._child_pipe: Optional[mp.connection.Connection] = None
+        self._process: mp.Process | None = None
+        self._parent_pipe: mp.connection.Connection | None = None
+        self._child_pipe: mp.connection.Connection | None = None
         self._ready_event = mp.Event()
-        self._ring: Optional[SharedAudioRing] = None
+        self._ring: SharedAudioRing | None = None
         self._ring_name: str = ""
         self.latest_status = PipelineStatus()
-        self._status_queue: List[PipelineStatus] = []
+        self._status_queue: list[PipelineStatus] = []
         self._shutting_down = False
 
     @property
-    def ring(self) -> Optional[SharedAudioRing]:
+    def ring(self) -> SharedAudioRing | None:
         """SharedAudioRing für Live-Audio-Preview."""
         return self._ring
 
@@ -394,8 +413,7 @@ class PipelineProcess:
     def is_ready(self) -> bool:
         return self._ready_event.is_set()
 
-    def start(self, ring_frame_count: int = 10,
-              ring_max_duration_s: float = 4.0) -> bool:
+    def start(self, ring_frame_count: int = 10, ring_max_duration_s: float = 4.0) -> bool:
         """Startet den Pipeline-Kindprozess und initialisiert SharedAudioRing.
 
         Args:
@@ -468,15 +486,17 @@ class PipelineProcess:
             return False
 
         try:
-            self._child_pipe.send({
-                "input_file": job.input_file,
-                "output_file": job.output_file,
-                "mode": job.mode,
-                "material": job.material,
-                "variant": job.variant,
-                "quality_target": job.quality_target,
-                "settings": job.settings,
-            })
+            self._child_pipe.send(
+                {
+                    "input_file": job.input_file,
+                    "output_file": job.output_file,
+                    "mode": job.mode,
+                    "material": job.material,
+                    "variant": job.variant,
+                    "quality_target": job.quality_target,
+                    "settings": job.settings,
+                }
+            )
             return True
         except Exception as e:
             logger.error("PipelineProcess.submit() fehlgeschlagen: %s", e)
@@ -521,7 +541,7 @@ class PipelineProcess:
 
         return had_updates
 
-    def drain_status(self) -> List[PipelineStatus]:
+    def drain_status(self) -> list[PipelineStatus]:
         """Gibt alle kumulierten Statusmeldungen zurück und leert die Queue."""
         result = self._status_queue[:]
         self._status_queue.clear()

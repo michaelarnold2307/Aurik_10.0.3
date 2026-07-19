@@ -1060,3 +1060,161 @@ class TestClapDspConsistencyGateV10:
             assert result.confidence >= 0.0
         finally:
             clf._compute_clap_score = original_clap
+
+
+# ═══════════════════════════════════════════════════════════════
+# §v10.0.5 Genre-Profile Coverage Tests
+# Stellt sicher, dass ALLE Genre-Profile vollständig definiert
+# und mit konsistenten Parametern ausgestattet sind.
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestGenreProfileUniversality:
+    """§v10.0.5: Alle 19 Genres müssen vollständige Profile haben."""
+
+    REQUIRED_PARAMS = frozenset(
+        {
+            "gp_memory_key",
+            "groove_dtw_max_ms",
+            "compression_ratio_cap",
+        }
+    )
+
+    RECOMMENDED_PARAMS = frozenset(
+        {
+            "brillanz_target",
+            "waerme_target",
+            "deessing_strength_cap",
+            "transient_preservation_strength",
+        }
+    )
+
+    def test_ambient_profile_not_empty(self):
+        """Ambient darf KEIN leeres Profil sein (Bug: war vorher nicht definiert)."""
+        from backend.core.genre_classifier import AMBIENT_RESTORATION_PROFILE
+
+        assert len(AMBIENT_RESTORATION_PROFILE) >= 8
+        assert AMBIENT_RESTORATION_PROFILE["gp_memory_key"] == "ambient"
+        assert "groove_dtw_max_ms" in AMBIENT_RESTORATION_PROFILE
+        assert "brillanz_target" in AMBIENT_RESTORATION_PROFILE
+        assert "waerme_target" in AMBIENT_RESTORATION_PROFILE
+
+    def test_world_profile_not_empty(self):
+        """World darf KEIN leeres Profil sein (Bug: war vorher nicht definiert)."""
+        from backend.core.genre_classifier import WORLD_RESTORATION_PROFILE
+
+        assert len(WORLD_RESTORATION_PROFILE) >= 6
+        assert WORLD_RESTORATION_PROFILE["gp_memory_key"] == "world"
+        assert "groove_dtw_max_ms" in WORLD_RESTORATION_PROFILE
+        assert "brillanz_target" in WORLD_RESTORATION_PROFILE
+
+    def test_oper_profile_has_all_required(self):
+        """Oper muss groove_dtw_max_ms, compression_ratio_cap, etc. haben."""
+        from backend.core.genre_classifier import OPER_RESTORATION_PROFILE
+
+        for param in self.REQUIRED_PARAMS:
+            assert param in OPER_RESTORATION_PROFILE, f"oper MISSING required param: {param}"
+        assert OPER_RESTORATION_PROFILE["groove_dtw_max_ms"] == 12.0
+        assert OPER_RESTORATION_PROFILE["compression_ratio_cap"] == 1.2
+        assert OPER_RESTORATION_PROFILE["brillanz_target"] == 0.85
+        assert OPER_RESTORATION_PROFILE["waerme_target"] == 0.82
+
+    def test_all_genre_profiles_non_empty(self):
+        """JEDES Genre-Profil muss mindestens 4 Parameter haben."""
+        from backend.core.genre_classifier import GENRE_RESTORATION_PROFILES
+
+        empty_or_tiny = []
+        for name, prof in GENRE_RESTORATION_PROFILES.items():
+            if not isinstance(prof, dict) or len(prof) < 3:
+                empty_or_tiny.append(name)
+
+        assert not empty_or_tiny, f"Genres mit zu wenigen Parametern: {empty_or_tiny}"
+
+    def test_get_restoration_profile_returns_populated_for_all_genres(self):
+        """get_restoration_profile() muss für ALLE 19 Genres ein nicht-leeres Dict liefern."""
+        from backend.core.genre_classifier import get_restoration_profile
+
+        genres = [
+            "schlager",
+            "jazz",
+            "klassik",
+            "oper",
+            "rock",
+            "pop",
+            "blues",
+            "soul/r&b",
+            "country",
+            "folk",
+            "funk",
+            "electronic",
+            "hip-hop",
+            "metal",
+            "latin",
+            "gospel",
+            "reggae",
+            "ambient",
+            "world",
+        ]
+
+        fails = []
+        for genre in genres:
+            profile = get_restoration_profile(genre)
+            if not profile or len(profile) < 3:
+                fails.append(f"{genre}: {profile}")
+
+        assert not fails, "get_restoration_profile() returned empty/tiny profiles:\n" + "\n".join(fails)
+
+    def test_ambient_has_dereverb_disabled(self):
+        """Ambient: Hall ist intentional — Dereverb muss disabled sein."""
+        from backend.core.genre_classifier import AMBIENT_RESTORATION_PROFILE
+
+        assert AMBIENT_RESTORATION_PROFILE.get("phase_20_dereverb_enabled") is False
+        assert AMBIENT_RESTORATION_PROFILE.get("phase_49_dereverb_enabled") is False
+
+    def test_ambient_has_high_groove_tolerance(self):
+        """Ambient hat keine perkussiven Transienten — hohe DTW-Toleranz."""
+        from backend.core.genre_classifier import AMBIENT_RESTORATION_PROFILE
+
+        assert AMBIENT_RESTORATION_PROFILE["groove_dtw_max_ms"] >= 10.0
+
+    def test_hiphop_has_bass_kraft_target(self):
+        """Hip-Hop braucht bass_kraft_target für Sub-Bass-Präsenz."""
+        from backend.core.genre_classifier import HIPHOP_RESTORATION_PROFILE
+
+        assert "bass_kraft_target" in HIPHOP_RESTORATION_PROFILE
+        assert HIPHOP_RESTORATION_PROFILE["bass_kraft_target"] >= 0.85
+
+    def test_country_has_transient_preservation(self):
+        """Country: Akustik-Gitarren-Transienten müssen erhalten bleiben."""
+        from backend.core.genre_classifier import COUNTRY_RESTORATION_PROFILE
+
+        assert "transient_preservation_strength" in COUNTRY_RESTORATION_PROFILE
+        assert COUNTRY_RESTORATION_PROFILE["transient_preservation_strength"] >= 0.8
+
+    def test_gospel_has_deessing_cap(self):
+        """Gospel: Vokal-lastig mit potenziell starken Sibilanten."""
+        from backend.core.genre_classifier import GOSPEL_RESTORATION_PROFILE
+
+        assert "deessing_strength_cap" in GOSPEL_RESTORATION_PROFILE
+        assert 0.2 <= GOSPEL_RESTORATION_PROFILE["deessing_strength_cap"] <= 0.7
+
+    def test_reggae_has_waerme_target(self):
+        """Reggae: Wärme für Bass-Dub und Orgel-Sounds."""
+        from backend.core.genre_classifier import REGGAE_RESTORATION_PROFILE
+
+        assert "waerme_target" in REGGAE_RESTORATION_PROFILE
+        assert REGGAE_RESTORATION_PROFILE["waerme_target"] >= 0.80
+
+    def test_required_params_in_all_lowercase_profiles(self):
+        """Jedes Profil muss gp_memory_key, groove_dtw_max_ms, compression_ratio_cap haben."""
+        from backend.core.genre_classifier import GENRE_RESTORATION_PROFILES
+
+        missing = []
+        for name, prof in GENRE_RESTORATION_PROFILES.items():
+            if name[0].isupper():
+                continue
+            for param in self.REQUIRED_PARAMS:
+                if param not in prof:
+                    missing.append(f"{name}: MISSING {param}")
+
+        assert not missing, "Fehlende Pflichtparameter in Genre-Profilen:\n" + "\n".join(missing)

@@ -15,7 +15,7 @@ def _load_with_sf(filepath, always_2d: bool = False):
     This is the ONLY sanctioned sf.read call site — all other modules
     MUST use load_audio_file().
     """
-    return sf.read(filepath, always_2d=always_2d)  # noqa: V02
+    return sf.read(filepath, always_2d=always_2d)
 
 
 logger = logging.getLogger(__name__)

@@ -21,9 +21,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # ── Phasen, die einen Re-Scan triggern ────────────────────────────────
-_RESCAN_TRIGGER_PHASES: frozenset[str] = frozenset(
-    {"phase_01_click_removal", "phase_03_denoise", "phase_07_declipper"}
-)
+_RESCAN_TRIGGER_PHASES: frozenset[str] = frozenset({"phase_01_click_removal", "phase_03_denoise", "phase_07_declipper"})
 
 # ── Phase-spezifische Defekt-Checks ────────────────────────────────────
 # Jede subtractive Phase enthüllt bestimmte Defekte:
@@ -99,7 +97,7 @@ class DefectReScanner:
 
         # Magnituden-Spektrum
         spec = self._compute_magnitude_spectrum(a, freqs)
-        total_energy = float(np.sum(spec ** 2)) + 1e-12
+        total_energy = float(np.sum(spec**2)) + 1e-12
 
         revealed: dict[str, float] = {}
 
@@ -118,20 +116,20 @@ class DefectReScanner:
                 if severity > 0.05:
                     revealed[defect_type] = severity
                     logger.debug(
-                        "§v10.28 Re-Scan: %s enthüllt nach %s — "
-                        "Band [%d–%d Hz] ratio=%.4f → severity=%.3f",
-                        defect_type, phase_id,
-                        int(low_hz), int(high_hz),
-                        energy_ratio, severity,
+                        "§v10.28 Re-Scan: %s enthüllt nach %s — Band [%d–%d Hz] ratio=%.4f → severity=%.3f",
+                        defect_type,
+                        phase_id,
+                        int(low_hz),
+                        int(high_hz),
+                        energy_ratio,
+                        severity,
                     )
 
         return revealed
 
     # ── Private helpers ────────────────────────────────────────────────
 
-    def _compute_magnitude_spectrum(
-        self, audio: np.ndarray, freqs: np.ndarray
-    ) -> np.ndarray:
+    def _compute_magnitude_spectrum(self, audio: np.ndarray, freqs: np.ndarray) -> np.ndarray:
         """Gemitteltes Magnituden-Spektrum über Frames."""
         n_samples = len(audio)
         hop = self.n_fft // 2
@@ -148,7 +146,7 @@ class DefectReScanner:
             start = i * hop
             if start + self.n_fft > n_samples:
                 break
-            frame = audio[start:start + self.n_fft] * window
+            frame = audio[start : start + self.n_fft] * window
             spec = np.abs(np.fft.rfft(frame))
             spec_sum += spec
 

@@ -708,7 +708,9 @@ class SemanticGoalsEngine:
 
         except ImportError:
             if not self._instrument_fallback_logged:
-                logger.info("SemanticGoals: transformers nicht verfügbar — akustischer Offline-Fallback aktiv")
+                logger.warning(
+                    "⚠️ SOTA SemanticGoals: transformers nicht verfügbar — akustischer Offline-Fallback aktiv"
+                )
                 self._instrument_fallback_logged = True
             return None
         except Exception as e:
@@ -732,7 +734,9 @@ class SemanticGoalsEngine:
             return madmom
         except ImportError:
             if not self._structure_fallback_logged:
-                logger.info("SemanticGoals: madmom nicht gebündelt — heuristische Struktur-Analyse aktiv")
+                logger.warning(
+                    "⚠️ SOTA SemanticGoals: madmom nicht gebündelt — heuristische Struktur-Analyse aktiv (librosa Fallback)"
+                )
                 self._structure_fallback_logged = True
             return None
 

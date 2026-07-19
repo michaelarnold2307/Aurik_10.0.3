@@ -25,7 +25,10 @@ except Exception:  # pragma: no cover - optionale Abhängigkeit
 logger = logging.getLogger(__name__)
 
 # Toleranzgrenzwert für Onset-Verschiebung
-TRANSIENT_SHIFT_THRESHOLD_MS = 2.0
+# §v10.35: 2.0→3.5 ms — Harmonische Restauration verschiebt Transienten
+# physikalisch um 5-30 ms. 2 ms war zu aggressiv und unterdrückte legitime
+# Harmonic-Restauration komplett (blend_reduction=1.00 bei 26 ms Shift).
+TRANSIENT_SHIFT_THRESHOLD_MS = 3.5
 # Maximale Suchfenster-Breite für Onset-Matching
 _MATCH_WINDOW_MS = 30.0
 

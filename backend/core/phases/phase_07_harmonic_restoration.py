@@ -859,6 +859,27 @@ class HarmonicRestorationPhase(PhaseInterface):
 
             _h2_prof_07 = _get_era_h2(_era_d_07)
             _h2_target_07 = float(_h2_prof_07.h2_ratio)
+            # §v10.35 Material-adaptive h2_target: wenn era=None und Material bekannt,
+            # verwende realistischeres Target statt 1970-Transistor-Fallback (0.006).
+            # Kassette hat inhärente Bandsättigung → h2≈0.03, nicht 0.006.
+            if _era_d_07 is None and _h2_target_07 < 0.01:
+                _mat_for_h2 = str(material_type or "").lower()
+                _MATERIAL_H2_FALLBACK: dict[str, float] = {
+                    "cassette": 0.030,
+                    "tape": 0.025,
+                    "reel_tape": 0.020,
+                    "vinyl": 0.015,
+                    "shellac": 0.035,
+                    "cd_digital": 0.002,
+                    "mp3_low": 0.003,
+                    "mp3_high": 0.002,
+                }
+                _h2_target_07 = _MATERIAL_H2_FALLBACK.get(_mat_for_h2, _h2_target_07)
+                logger.info(
+                    "§ERA_HARMONIC phase_07: era=None, material=%s → h2_target=%.4f (material-adaptiv)",
+                    _mat_for_h2,
+                    _h2_target_07,
+                )
             _h2_actual_07 = self._measure_h2_ratio(restored, sample_rate)
             _h2_tol_07 = 0.002  # ±0.002 Toleranzband
             if _h2_actual_07 > _h2_target_07 + _h2_tol_07:
@@ -962,13 +983,17 @@ class HarmonicRestorationPhase(PhaseInterface):
             )
             _ts_07 = _dts_07(_pre_v22_07, _post_v22_07, sample_rate)
             if not _ts_07.ok:
-                _wet_ts_07 = max(0.0, 1.0 - _ts_07.blend_reduction)
+                # §v10.35: blend_reduction capped at 0.60 — nie komplette Unterdrückung.
+                # Harmonische Restauration verschiebt Transienten physikalisch;
+                # 100% Blend würde legitime Verbesserungen komplett verwerfen.
+                _blend_07 = min(_ts_07.blend_reduction, 0.60)
+                _wet_ts_07 = max(0.0, 1.0 - _blend_07)
                 restored = (_wet_ts_07 * restored + (1.0 - _wet_ts_07) * _audio_07_orig).astype(np.float32)
-                _log_v22_07 = logger.warning if _wet_ts_07 > 0.0 else logger.info
+                _log_v22_07 = logger.warning if _wet_ts_07 < 0.50 else logger.info
                 _log_v22_07(
-                    "§V22 phase_07: onset_shift=%.2f ms → blend_reduction=%.2f",
+                    "§V22 phase_07: onset_shift=%.2f ms → blend_reduction=%.2f (capped 0.60)",
                     _ts_07.max_shift_ms,
-                    _ts_07.blend_reduction,
+                    _blend_07,
                 )
         except Exception as _v22_07_exc:
             logger.debug("§V22 phase_07 transient_guard non-blocking: %s", _v22_07_exc)

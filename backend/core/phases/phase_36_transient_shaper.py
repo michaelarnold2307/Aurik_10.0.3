@@ -186,7 +186,7 @@ class TransientShaper(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
-        if _effective_strength <= 0.0:
+        if _effective_strength < 0.01:  # §v10.0.5: < 1% = keine sinnvolle Wirkung
             logger.info(
                 "Phase 36: skipped — effective_strength=%.3f (no transient shaping applied)", _effective_strength
             )

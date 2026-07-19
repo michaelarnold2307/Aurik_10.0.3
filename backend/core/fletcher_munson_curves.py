@@ -458,6 +458,50 @@ class FletcherMunsonProcessor:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def compute_adaptive_phon(
+    audio: np.ndarray | None = None,
+    measured_lufs: float | None = None,
+    sr: int = 48000,
+    default_phon: int = 60,
+) -> int:
+    """§v10.0.5: Berechnet LUFS-adaptives target_phon für Fletcher-Munson.
+
+    Leise Aufnahmen (historische Schellacks, -30 LUFS) brauchen ein
+    niedrigeres Phon-Level (~40 phon) für korrekte Equal-Loudness-
+    Kompensation. Laute moderne Aufnahmen (-8 LUFS) nutzen 70+ phon.
+
+    Formel: phon = clamp(60 + (LUFS + 16) * 1.5, 30, 80)
+
+    Args:
+        audio: Optionales Audio (wird auf LUFS gemessen falls kein lufs-Wert)
+        measured_lufs: Bereits gemessener LUFS-Wert (überspringt Messung)
+        sr: Sample-Rate
+        default_phon: Fallback wenn keine Messung möglich
+
+    Returns:
+        Adaptives Phon-Level ∈ [30, 80]
+    """
+    if measured_lufs is None and audio is not None:
+        try:
+            import pyloudnorm as pyln
+
+            mono = audio if audio.ndim == 1 else audio.mean(axis=0)
+            meter = pyln.Meter(sr)
+            measured_lufs = float(meter.integrated_loudness(mono.astype(float)))
+        except Exception:
+            return default_phon
+
+    if measured_lufs is None:
+        return default_phon
+
+    # Leise Aufnahme → niedrigeres Phon (das Ohr ist bei niedrigen Pegeln
+    # weniger sensibel für Bässe und Höhen → sanftere Kompensation).
+    # Laute Aufnahme → höheres Phon (das Ohr ist bei hohen Pegeln
+    # gleichmäßiger → weniger Kompensation nötig).
+    adaptive = int(round(60.0 + (measured_lufs + 16.0) * 1.5))
+    return max(30, min(80, adaptive))
+
+
 def get_fletcher_munson_curve(frequencies: np.ndarray, target_phon: int = 60, reference_phon: int = 80) -> np.ndarray:
     """
     Quick Fletcher-Munson correction curve.

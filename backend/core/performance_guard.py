@@ -118,11 +118,11 @@ class PerformanceGuard:
     #                     Matchering) needs ~5× RT each; 32× gives comfortable margin
     #                     for 5–10 min audio in Stufe 1 without excessive deferral.
     #   BACKGROUND = ∞  — MLRefinementThread (KMV Stufe 2) only — never for Stufe 1.
-    LIMIT_3X_RT = 32.0  # Hard Limit (RT×32)
-    LIMIT_FAST = 8.0  # Target für Fast Mode — Real-Audio/ML-Guard-Reserve
-    LIMIT_BALANCED = 32.0  # Budget für Balanced Mode — maximal RT×32
-    LIMIT_QUALITY = 32.0  # Budget für Quality/Restoration Mode — maximal RT×32
-    LIMIT_MAXIMUM = 32.0  # Budget für Maximum/Studio-2026-Pfade — maximal RT×32
+    LIMIT_3X_RT = 48.0  # §v10.0.5: 32→48 — mehr Headroom für 4-Kern-CPU
+    LIMIT_FAST = 8.0
+    LIMIT_BALANCED = 48.0  # §v10.0.5: 32→48
+    LIMIT_QUALITY = 48.0  # §v10.0.5: 32→48
+    LIMIT_MAXIMUM = 48.0  # §v10.0.5: 32→48
     # §2.38 KMV: Hintergrund-ML-Veredelung läuft ohne RT-Limit (MLRefinementThread)
     LIMIT_BACKGROUND: float = float("inf")  # Stufe 2 — unbeschränkt, Priority=LowPriority
 

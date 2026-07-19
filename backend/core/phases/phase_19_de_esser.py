@@ -100,7 +100,7 @@ try:
     _HAS_CONSONANT_ENHANCEMENT = True
 except ImportError:  # pragma: no cover
     _HAS_CONSONANT_ENHANCEMENT = False
-    logger.debug("ConsonantEnhancement nicht verfügbar — Frikativ-Boost übersprungen")
+    logger.warning("⚠️ SOTA Phase 19: ConsonantEnhancement nicht verfügbar — Frikativ-Boost deaktiviert")
 
 # ========================================================================
 # AURIK 8.0 ENHANCEMENT MODULES — aktiviert ab Phase 19 v5.0
@@ -755,6 +755,27 @@ class DeEsserPhase(PhaseInterface):
                 _hf_threshold,
                 float(_bw_loss),
             )
+            # §v10.0.5: HF ratio < 0.005 → Material hat quasi keine Höhen.
+            # Breath-Processing (85s) würde only spectrales Rauschen einführen,
+            # das vom ArtifactFreedomGate gerollbackt wird. Phase komplett skippen.
+            if _hf_ratio < 0.005:
+                logger.info(
+                    "§v10.0.5 DeEsser-Skip: HF=%.4f < 0.005 → phase fully skipped (no sibilant-capable HF)",
+                    _hf_ratio,
+                )
+                enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
+                enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
+                return PhaseResult(
+                    success=True,
+                    audio=enhanced_audio,
+                    execution_time_seconds=time.time() - start_time,
+                    metadata={
+                        "material": material.name,
+                        "de_essing_applied": False,
+                        "aurik_8_enhancement": False,
+                        "skip_reason": "hf_ratio_too_low_for_sibilance",
+                    },
+                )
         else:
             logger.debug(
                 "Stage 2-6 gate: HF-ratio=%.3f >= %.3f, sibilant_content=%s, long_enough=%s",
@@ -912,29 +933,42 @@ class DeEsserPhase(PhaseInterface):
         if _deessing_cap is None:
             _era_decade = int(kwargs.get("decade", 1980) or 1980)
             _mat_str = str(getattr(material, "value", material) or "").lower()
-            _genre_str = str(kwargs.get("genre", "") or "").lower()
+            _genre_str = str(kwargs.get("genre", kwargs.get("genre_label", "")) or "").lower()
             # Basis-Cap aus Ära
-            if _era_decade < 1960:       _cap_era = 0.30
-            elif _era_decade < 1980:     _cap_era = 0.45
-            elif _era_decade < 2000:     _cap_era = 0.60
-            else:                        _cap_era = 0.70
+            if _era_decade < 1960:
+                _cap_era = 0.30
+            elif _era_decade < 1980:
+                _cap_era = 0.45
+            elif _era_decade < 2000:
+                _cap_era = 0.60
+            else:
+                _cap_era = 0.70
             # Material-Modifikator (Band = weniger HF = weniger De-Essing nötig)
             if _mat_str in ("cassette", "reel_tape", "tape"):
                 _cap_mat = 0.85
             elif _mat_str in ("vinyl", "lacquer_disc", "shellac"):
                 _cap_mat = 0.70
-            else:                        _cap_mat = 1.0
+            else:
+                _cap_mat = 1.0
             # Genre-Modifikator
             if "schlager" in _genre_str or "volksmusik" in _genre_str:
                 _cap_genre = 0.70
             elif "oper" in _genre_str or "klassik" in _genre_str:
                 _cap_genre = 0.55
-            elif "jazz" in _genre_str:   _cap_genre = 0.75
-            else:                        _cap_genre = 0.85
+            elif "jazz" in _genre_str:
+                _cap_genre = 0.75
+            else:
+                _cap_genre = 0.85
             _deessing_cap = _cap_era * _cap_mat * _cap_genre
             logger.info(
                 "§SOTA DeEsser-Kalibrierung: era=%d cap=%.2f mat=%s cap=%.2f genre=%s cap=%.2f → %.2f",
-                _era_decade, _cap_era, _mat_str, _cap_mat, _genre_str, _cap_genre, _deessing_cap,
+                _era_decade,
+                _cap_era,
+                _mat_str,
+                _cap_mat,
+                _genre_str,
+                _cap_genre,
+                _deessing_cap,
             )
         if _deessing_cap is not None:
             _cap_db = -12.0 * float(_deessing_cap)  # 0.45 → -5.4 dB max
@@ -1131,7 +1165,7 @@ class DeEsserPhase(PhaseInterface):
                         consonant_result.snr_improvement_db,
                     )
             except Exception as _ce_exc:
-                logger.debug("ConsonantEnhancement fehlgeschlagen, Skip: %s", _ce_exc)
+                logger.warning("⚠️ SOTA Phase 19: ConsonantEnhancement fehlgeschlagen: %s", _ce_exc)
 
         # ==============================================================
         # STAGE 8c: §2.8 FEEDBACK-INVARIANTE NACH GESAMTER KETTE

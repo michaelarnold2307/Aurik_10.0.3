@@ -57,6 +57,7 @@ class OneTakeExport:
         sr: int,
         *,
         is_studio_2026: bool = False,
+        iterative: bool = False,
     ) -> OneTakeResult:
         """Bereitet Audio für den Export vor — mit Auto-Korrektur.
 
@@ -64,6 +65,9 @@ class OneTakeExport:
             audio: float32 Stereo, beliebige Orientierung
             sr: 48000 Hz
             is_studio_2026: Studio-Mode (andere LUFS-Ziele)
+            iterative: §v10.0.5 2-Pass-Mode — nach Korrektur wird eine
+                       zweite Verifikation durchgeführt. Bei Restfehlern
+                       wird eine finale Feinkorrektur angewandt.
 
         Returns:
             OneTakeResult mit export-bereitem Audio.
@@ -91,6 +95,24 @@ class OneTakeExport:
                 result.passed = True
                 result.retries = attempt
                 result.audio = current.astype(np.float32)
+
+                # §v10.0.5 Iterative 2-Pass: nach erfolgreicher Korrektur
+                # eine zweite Verifikation. Bei True-Peak-Resten
+                # (knapp über 0 dBTP) finale Feinkorrektur anwenden.
+                if iterative and attempt < _MAX_RETRIES:
+                    check2 = ExportQualityGate.check(current.astype(np.float32), sr, is_studio_2026=is_studio_2026)
+                    if -0.3 < check2.true_peak_dbtp <= 1.0:  # §v10.35: auch TP=0.0 triggert
+                        _tp_reduction = check2.true_peak_dbtp * 0.5
+                        _gain = 10.0 ** (-_tp_reduction / 20.0)
+                        current = np.clip(current * _gain, -1.0, 1.0)
+                        result.corrections.append(f"iterative(fine TP {check2.true_peak_dbtp:+.1f} dBTP)")
+                        result.audio = current.astype(np.float32)
+                        logger.info(
+                            "OneTakeExport: iterative fine-correction TP=%.1f→~%.1f dBTP",
+                            check2.true_peak_dbtp,
+                            check2.true_peak_dbtp - _tp_reduction,
+                        )
+
                 logger.info(
                     "OneTakeExport: PASS (attempt=%d, TP=%.1f, LUFS=%.1f, fatigue=%.2f)",
                     attempt,
@@ -116,7 +138,8 @@ class OneTakeExport:
             corrections_this_round: list[str] = []
 
             # 1. True Peak zu hoch → Brickwall-Limiter
-            if check.true_peak_dbtp > 0.0:
+            # §v10.35: Ziel-Ceiling -0.3 dBTP (ITU-R BS.1770). TP ≥ -0.3 triggert Limiter.
+            if check.true_peak_dbtp > -0.3:
                 current = OneTakeExport._apply_limiter(current, sr)
                 corrections_this_round.append(
                     f"limiter(TP={check.true_peak_dbtp:+.1f}→{_BRICKWALL_CEILING_DBTP:+.1f} dBTP)"
@@ -164,7 +187,11 @@ class OneTakeExport:
                 result.passed = True  # best effort
                 result.retries = attempt
                 result.audio = current.astype(np.float32)
-                logger.info(
+                # §v10.35: WARNING wenn TP oder Fatigue kritisch
+                _has_tp_issue = check.true_peak_dbtp > -0.3
+                _has_fatigue = check.fatigue_score > 0.40
+                _log_fn = logger.warning if (_has_tp_issue or _has_fatigue) else logger.info
+                _log_fn(
                     "OneTakeExport: BEST-EFFORT (attempt=%d, no corrections possible) — %s",
                     attempt,
                     ", ".join(check.warnings[:2]) if check.warnings else "export",

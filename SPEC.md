@@ -682,6 +682,7 @@ und an den TAPE_HEAD_LEVEL_DIP-Detektor weitergereicht. Der Head-Dip-Detektor
 merged sie in seine eigenen Locations — mit Deduplizierung (50ms Toleranz).
 
 **Datenfluss:**
+
 ```
 _detect_transport_bump()
   → erkennt 135 Kandidaten

@@ -93,7 +93,7 @@ def validate_defect_contracts(
                 )
 
     except ImportError as e:
-        logger.debug("ContractValidator: PhasePruner-Check skipped (%s)", e)
+        logger.warning("⚠️ SOTA ContractValidator: PhasePruner-Check skipped (%s)", e)
 
     # ── 2. DefectPrecisionEnhancer: analyze_defects existiert ─────────
     try:
@@ -108,7 +108,7 @@ def validate_defect_contracts(
                 )
             )
     except ImportError:
-        logger.debug("ContractValidator: DefectPrecisionEnhancer-Check skipped (not importable)")
+        logger.warning("⚠️ SOTA ContractValidator: DefectPrecisionEnhancer-Check skipped (not importable)")
 
     # ── 3. SongGoalImportance: Defekt-Keys prüfen ─────────────────────
     try:
@@ -127,7 +127,7 @@ def validate_defect_contracts(
                 )
             )
     except ImportError:
-        logger.debug("ContractValidator: SongGoalImportance-Check skipped")
+        logger.warning("⚠️ SOTA ContractValidator: SongGoalImportance-Check skipped")
 
     # ── 4. DefectManifest ↔ PhasePruner Synchronisation ─────────────
     try:
@@ -148,7 +148,7 @@ def validate_defect_contracts(
                         )
                     )
     except ImportError:
-        logger.debug("ContractValidator: DefectManifest-Check skipped")
+        logger.warning("⚠️ SOTA ContractValidator: DefectManifest-Check skipped")
 
     # ── 5. ML-Health-Check: Kritische Modelle prüfen ──────────────────
     try:
@@ -171,7 +171,7 @@ def validate_defect_contracts(
                     )
                 )
     except ImportError:
-        logger.debug("ContractValidator: ML-Health-Check skipped")
+        logger.warning("⚠️ SOTA ContractValidator: ML-Health-Check skipped")
 
     # ── 6. Keine toten Verzeichnisse mehr ──────────────────────────────
     import os
@@ -205,7 +205,7 @@ def run_contract_validation(verbose: bool = False) -> dict[str, Any]:
     violations = validate_defect_contracts(verbose=verbose)
 
     if not violations:
-        logger.debug("ContractValidator: Alle Cross-Module-Contracts OK")
+        logger.info("✅ ContractValidator: Alle Cross-Module-Contracts OK")
         return {"ok": True, "violations": 0, "details": []}
 
     logger.warning(

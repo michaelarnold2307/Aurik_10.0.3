@@ -45,7 +45,6 @@ class OnboardingWizard(QtWidgets.QDialog):
         self._setup_ui()
         self._apply_theme()
 
-
     def paintEvent(self, event):
         """Zeichnet den Splashscreen-Hintergrund ins Onboarding."""
         p = QPainter(self)

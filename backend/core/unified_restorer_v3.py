@@ -1299,7 +1299,7 @@ class UnifiedRestorerV3:
             try:
                 self.phase_skipper = PhaseSkipper()
             except Exception as e:
-                logger.debug("PhaseSkipper nicht verfügbar: %s — Phase-Skipping deaktiviert", e)
+                logger.warning("⚠️ SOTA PhaseSkipper nicht verfügbar: %s — Phase-Skipping deaktiviert", e)
                 self.phase_skipper = None  # type: ignore[assignment]
         else:
             self.phase_skipper = None  # type: ignore[assignment]
@@ -1315,7 +1315,7 @@ class UnifiedRestorerV3:
             if self._steering_active:
                 logger.info("PhaseSteeringGuard: AKTIV — SOTA Phase-Loop")
         except Exception as _steer_exc:
-            logger.debug("PhaseSteeringGuard nicht verfügbar: %s", _steer_exc)
+            logger.warning("⚠️ SOTA PhaseSteeringGuard nicht verfügbar: %s", _steer_exc)
 
     def is_studio_mode(self) -> bool:
         """Gibt True if running in Studio 2026 mode zurück.
@@ -3580,8 +3580,12 @@ class UnifiedRestorerV3:
             from backend.core.global_gain_budget import get_global_gain_budget
 
             get_global_gain_budget().configure_for_chain_depth(_chain_depth)
-        except Exception:
-            pass
+        except Exception as _ggb_exc:
+            logger.warning(
+                "⚠️ Global Gain Budget nicht verfügbar: %s — Gain-Budget deaktiviert, "
+                "Multi-Generation-Material könnte Headroom verlieren",
+                _ggb_exc,
+            )
 
         _max_def = float(np.clip(max_defect_severity, 0.0, 1.0))
         _mat = str(_out.get("material", "unknown") or "unknown").lower()
@@ -7313,7 +7317,7 @@ class UnifiedRestorerV3:
             _contract_result = run_contract_validation()
             self._restoration_context["contract_validation"] = _contract_result
         except Exception:
-            logger.debug("ContractValidator: non-blocking init failure", exc_info=True)
+            logger.warning("⚠️ SOTA ContractValidator: non-blocking init failure", exc_info=True)
         # §2.31d Edge-Case flags — computed once, used throughout restore().
         _audio_duration_s: float = float(_n_samples) / float(sample_rate)
         _is_very_short: bool = _audio_duration_s < 10.0  # Groove/MicroDyn/EmotionalArc off
@@ -8404,6 +8408,9 @@ class UnifiedRestorerV3:
             "era_confidence": getattr(_era_result, "confidence", 0.0) if _era_result is not None else 0.0,
             "primary_material": _rc_primary_mat_str,
             "genre_label": (
+                getattr(_schlager_result, "genre_label", "Unbekannt") if _schlager_result is not None else "Unbekannt"
+            ),
+            "genre": (
                 getattr(_schlager_result, "genre_label", "Unbekannt") if _schlager_result is not None else "Unbekannt"
             ),
             "is_schlager": getattr(_schlager_result, "is_schlager", False) if _schlager_result is not None else False,
@@ -12351,6 +12358,31 @@ class UnifiedRestorerV3:
             logger.debug("restore: silent except suppressed", exc_info=True)
 
         # ── STUFE 8: AUSGABE (Humanization, ML-Hybrid, Listening-EQ, Export) ──
+        # §v10.0.5 Final Polish: Era-authentischer EQ + Noise-Shaped Dither
+        # vor dem Export. Kombiniert apply_era_eq + apply_noise_shaped_dither +
+        # CD noise texture in einem Durchlauf. Läuft VOR OneTakeExport, damit
+        # dessen True-Peak-Korrektur das geditherte Signal sauber hält.
+        try:
+            from backend.core.dsp.final_polish import apply_final_polish
+
+            _polish_decade = int(getattr(self, "_restoration_context", {}).get("decade", 1980) or 1980)
+            _polish_mat = str(getattr(self, "_restoration_context", {}).get("primary_material", "digital"))
+            restored_audio = apply_final_polish(
+                restored_audio,
+                sample_rate,
+                era_decade=_polish_decade,
+                material=_polish_mat,
+                bit_depth=24 if self.is_studio_mode() else 16,
+            )
+            logger.info(
+                "§v10.0.5 FinalPolish: era=%d mat=%s bits=%d",
+                _polish_decade,
+                _polish_mat,
+                24 if self.is_studio_mode() else 16,
+            )
+        except Exception as _polish_exc:
+            logger.debug("§v10.0.5 FinalPolish not available: %s", _polish_exc)
+
         # §v10.17 OneTakeExport: Export-Qualität garantieren
         try:
             from backend.core.one_take_export import OneTakeExport
@@ -12417,7 +12449,7 @@ class UnifiedRestorerV3:
                 from backend.core.post_processing_gate import get_post_processing_gate
 
                 _eq_result = get_post_processing_gate().apply(
-                    lambda a, sr: apply_adaptive_eq(a, sr, mode=_lm),
+                    lambda a, sr, strength=None: apply_adaptive_eq(a, sr, mode=_lm),
                     restored_audio,
                     sample_rate,
                     label=f"ListeningEQ_{_lm}",
@@ -13354,7 +13386,7 @@ class UnifiedRestorerV3:
             else:
                 logger.debug("§2.35 EAPC: nicht anwendbar (BW ≥ 10 kHz oder BrillanzMetric inapplicable)")
         except Exception as _eapc_exc:
-            logger.debug("EraAuthenticPerceptualCompletion nicht verfügbar: %s", _eapc_exc)
+            logger.warning("⚠️ SOTA EraAuthenticPerceptualCompletion ausgefallen: %s", _eapc_exc)
 
         # §2.36 LyricsGuidedEnhancement — Phonem-klassen-bewusste Restaurierung (Pflicht ab 9.10.x)
         # Positionierung: nach EAPC (§2.35), vor IAD (§2.23) — schützt Konsonanten und betonte Silben.
@@ -13947,7 +13979,7 @@ class UnifiedRestorerV3:
                 from backend.core.post_processing_gate import get_post_processing_gate
 
                 _hpg_result = get_post_processing_gate().apply(
-                    lambda a, sr: np.clip(
+                    lambda a, sr, strength=None: np.clip(
                         np.nan_to_num(
                             _hpg.apply_correction(a, _hpg_href, _hpg_mask, sr),
                             nan=0.0,
@@ -16278,7 +16310,7 @@ class UnifiedRestorerV3:
                         "noise_floor_clamp_db": float(_hhc_result.noise_floor_clamp_db),
                     }
         except Exception as _hhc_exc:
-            logger.debug("HumanHearingComfortGuard non-blocking: %s", _hhc_exc)
+            logger.warning("⚠️ SOTA HumanHearingComfortGuard ausgefallen: %s", _hhc_exc)
 
         # --- GP-Lernzyklus: update() NACH MDEM — Spec §2.5 (normativ: letzter Schritt) ---
         # Score basiert auf PQS + Musical Goals vor MDEM (korrekt: MDEM ist Hüllkurven-Morphing,
@@ -17382,7 +17414,31 @@ class UnifiedRestorerV3:
                 self._phase_metadata_accumulator["singmos"] = _singmos_val
                 logger.info("§G4 SingMOS=%.2f (panns_singing=%.2f)", _singmos_val, _singmos_panns)
                 _singmos_needs_phase65 = _singmos_val < 2.5 and not self.is_studio_mode()
-                if _singmos_needs_phase65:
+                # §v10.0.5 Instrumental-Quality-Gate: auch rein instrumentale Musik
+                # (Orchester, Klavier-Solo, Ambient, Jazz-Instrumental) braucht
+                # Naturalness-Recovery — nicht nur Vokal-zentriertes Material.
+                _orchestral_panns = float(
+                    max(
+                        getattr(self, "_panns_tags", {}).get("Orchestra", 0.0),
+                        getattr(self, "_panns_tags", {}).get("orchestra", 0.0),
+                        getattr(self, "_panns_tags", {}).get("Classical music", 0.0),
+                        getattr(self, "_panns_tags", {}).get("classical music", 0.0),
+                    )
+                )
+                _natreblichkeit_val = float(getattr(self, "_restoration_context", {}).get("natreblichkeit", 0.80))
+                _instrumental_needs_phase65 = (
+                    not _singmos_needs_phase65
+                    and _orchestral_panns >= 0.35
+                    and _natreblichkeit_val < 0.70
+                    and not self.is_studio_mode()
+                )
+                if _instrumental_needs_phase65:
+                    logger.info(
+                        "§v10.0.5 Instrumental-Gate: orchestral=%.2f natreblichkeit=%.2f → phase_65 aktiviert",
+                        _orchestral_panns,
+                        _natreblichkeit_val,
+                    )
+                if _singmos_needs_phase65 or _instrumental_needs_phase65:
                     try:
                         from backend.core.phases.phase_65_vocal_naturalness_restoration import (
                             get_phase_65 as _get_smp_p65,
@@ -19083,7 +19139,7 @@ class UnifiedRestorerV3:
                 "noise_floor_clamp_db": float(_hhc_final_result.noise_floor_clamp_db),
             }
         except Exception as _hhc_final_exc:
-            logger.debug("Final HumanHearingComfortGuard skipped: %s", _hhc_final_exc)
+            logger.warning("⚠️ SOTA Final HumanHearingComfortGuard ausgefallen: %s", _hhc_final_exc)
 
         # §2.44/§2.49 Final-Export-Audio-Gate: Alle post-HPI-Eingriffe (LUFS/Noise/HHC/Layout)
         # muessen auf dem exakt exportierten Audiopuffer erneut hoersicher bestaetigt werden.
@@ -19223,7 +19279,7 @@ class UnifiedRestorerV3:
                         "noise_floor_clamp_db": float(_hhc_rb_result.noise_floor_clamp_db),
                     }
                 except Exception as _hhc_rb_exc:
-                    logger.debug("Final rollback HumanHearingComfortGuard skipped: %s", _hhc_rb_exc)
+                    logger.warning("⚠️ SOTA Final-Rollback HumanHearingComfortGuard ausgefallen: %s", _hhc_rb_exc)
                 logger.warning(
                     "§2.44/§2.49 Final-Export-Audio-Gate: af=%.3f hpi=%.4f — "
                     "Rollback auf sicheren finalen Exportpuffer",
@@ -19352,7 +19408,7 @@ class UnifiedRestorerV3:
                     "noise_floor_clamp_db": float(_hhc_exc_result.noise_floor_clamp_db),
                 }
             except Exception as _hhc_exc_guard_exc:
-                logger.debug("Final exception HumanHearingComfortGuard skipped: %s", _hhc_exc_guard_exc)
+                logger.warning("⚠️ SOTA Final-Exception HumanHearingComfortGuard ausgefallen: %s", _hhc_exc_guard_exc)
             _fail_reasons.append(
                 {
                     "component": "FinalExportAudioGate",
@@ -20301,8 +20357,8 @@ class UnifiedRestorerV3:
 
             _quality = float(getattr(result, "quality_estimate", 0.5) or 0.5) / 100.0
             show_reminder(_quality)
-        except Exception:
-            pass
+        except Exception as _dr_exc:
+            logger.debug("Donation Reminder nicht verfügbar: %s (non-blocking)", _dr_exc)
 
         return result
 
@@ -27369,6 +27425,14 @@ class UnifiedRestorerV3:
                 if _ck not in kwargs and _cv is not None:
                     kwargs[_ck] = _cv
 
+        # §v10.0.5 Genre-Key-Normalisierung: Phasen erwarten teils "genre", teils
+        # "genre_label". Beide Keys werden aus _restoration_context synchron gehalten,
+        # damit keine Phase mit leerem Genre operiert (z.B. DeEsser-Kalibrierung).
+        _genre_val = kwargs.get("genre_label") or kwargs.get("genre")
+        if _genre_val:
+            kwargs.setdefault("genre", _genre_val)
+            kwargs.setdefault("genre_label", _genre_val)
+
         for _mk in ("material_type", "material"):
             _mv = kwargs.get(_mk)
             if _mv is not None and isinstance(_mv, str):
@@ -28534,6 +28598,19 @@ class UnifiedRestorerV3:
                     _planned_strength_cap,
                 )
 
+        # §v10.0.5 Minimum-Effective-Strength-Guard: Wenn die finale Stärke
+        # unter 0.12 liegt, ist die Phasen-Wirkung vernachlässigbar. Phase
+        # als Passthrough überspringen — verhindert 270s NOVELTY_CRIT-Kaskaden
+        # wie bei phase_36/37/38 auf Kassette mit planned cap 0.100.
+        _final_strength = float(kwargs.get("strength", 1.0))
+        if _final_strength < 0.12 and _final_strength > 0.0:
+            logger.info(
+                "§v10.0.5 Min-Effective-Strength %s: strength=%.3f < 0.12 → phase skipped (negligible effect)",
+                phase_metadata.phase_id,
+                _final_strength,
+            )
+            return audio
+
         try:
             _exec_strength = kwargs.get("strength")
             _exec_s_str = f"{float(_exec_strength):.3f}" if isinstance(_exec_strength, (int, float)) else "None"
@@ -28572,6 +28649,19 @@ class UnifiedRestorerV3:
         Parameter aus dem Globalplan in kwargs eingeschleust — sofern die Phase
         sie nicht bereits explizit übergeben hat (explizit gewinnt).
         """
+        # ── §v10.35 Early-Silence-Gate: Phasen auf kollabiertem Audio sofort skippen ──
+        # Wenn eine Vor-Phase das Audio zerstört hat (-87 dBFS), würden alle
+        # Folgephasen sinnlos Zeit verschwenden. Detektion via RMS < -60 dBFS.
+        _rms_db = float(20.0 * np.log10(float(np.sqrt(np.mean(audio**2)) + 1e-12)))
+        if _rms_db < -60.0:
+            _phase_id_silence = str(getattr(phase, "phase_id", getattr(phase, "__class__", type(phase)).__name__))
+            logger.warning(
+                "🔇 Early-Silence-Gate %s: Audio-RMS=%.1f dBFS < -60 dBFS → Phase SKIPPED "
+                "(Vor-Phase hat Audio zerstört — Check Phase 07 Pre-Echo/Harmonic Overproduction)",
+                _phase_id_silence,
+                _rms_db,
+            )
+            return audio
         # ── §DENKER: Guard-Modulation delegiert an PhaseInteractionDenker ──
         _ctx_pp = getattr(self, "_restoration_context", None) or {}
         # Modulation erfolgt nach _prepare_profiled_phase_context (phase_metadata nötig)
@@ -28604,6 +28694,31 @@ class UnifiedRestorerV3:
             _sgw,
             _rest_ctx,
         )
+
+        # ── §v10.35 Wet/Dry-Strength-Kohärenz: wenn eine Phase kaum Output liefert
+        # (wet_dry < 0.15), die Rechenzeit proportional reduzieren. Betrifft nur
+        # nicht-kritische Quality-of-Life-Phasen; kritische Reparatur-Phasen (denoise,
+        # declick, dropout, dereverb) behalten volle Stärke unabhängig von wet_dry.
+        _QOL_PHASE_NUMBERS: frozenset[int] = frozenset({40, 16, 17, 26, 36, 47, 54, 41, 44, 53})
+        _phase_id_pp3 = str(getattr(phase_metadata, "phase_id", ""))
+        _phase_num = -1
+        try:
+            _phase_num = int(_phase_id_pp3.split("_", 2)[1])
+        except (IndexError, ValueError):
+            pass  # Non-standard phase_id format — phase_num stays -1 (skip condition)
+        if "strength" in kwargs and _sev_wet_dry < 0.15 and _phase_num in _QOL_PHASE_NUMBERS:
+            _old_str = float(kwargs["strength"])
+            _capped_str = float(np.clip(_old_str * _sev_wet_dry / 0.15, 0.08, 1.0))
+            if _capped_str < _old_str:
+                kwargs["strength"] = _capped_str
+                logger.info(
+                    "🎯 Wet/Dry-Kohärenz %s: wet_dry=%.3f → strength %.3f→%.3f "
+                    "(Quality-of-Life-Phase — Rechenzeit gespart)",
+                    _phase_id_pp3,
+                    _sev_wet_dry,
+                    _old_str,
+                    _capped_str,
+                )
 
         # ── §2.60.3: Fahrplan-Kalibrierung — Denker gibt Intensität vor ──
         # Nur aktiv wenn AURIK_EVOLUTION=1 (opt-in)
@@ -29344,7 +29459,9 @@ class UnifiedRestorerV3:
                     _ra_raw = getattr(result, "audio", None)
                     if isinstance(_ra_raw, (tuple, list)):
                         _ra_first = _ra_raw[0] if len(_ra_raw) > 0 else audio
-                        result.audio = _ra_first if isinstance(_ra_first, np.ndarray) else np.asarray(audio, dtype=np.float32)
+                        result.audio = (
+                            _ra_first if isinstance(_ra_first, np.ndarray) else np.asarray(audio, dtype=np.float32)
+                        )
             else:
                 result = phase.process(audio, **kwargs)
                 # §v10.31: Normalize result audio to channels-first (2,N) to match pipeline.
@@ -30199,7 +30316,9 @@ class UnifiedRestorerV3:
                         if hasattr(result, "metadata") and isinstance(result.metadata, dict):
                             result.metadata["generic_masking_clamp_applied"] = True
             except Exception as _pmg_exc:
-                logger.debug("Generic masking clamp non-blocking for %s: %s", phase_metadata.phase_id, _pmg_exc)
+                logger.warning(
+                    "⚠️ SOTA Psychoacoustic Masking Clamp ausgefallen für %s: %s", phase_metadata.phase_id, _pmg_exc
+                )
 
         # §V19–V26 [RELEASE_MUST] Weltklasse-Qualitätsregeln — Post-Phase-Guards (v10.0.0)
         # Alle Guards: non-blocking (Exception → logger.debug, kein Absturz). Reihenfolge
@@ -30566,8 +30685,12 @@ class UnifiedRestorerV3:
                     )
                     _post_mono_te = (
                         result.audio.mean(axis=0).astype(np.float64)
-                        if result.audio.ndim == 2
-                        else result.audio.astype(np.float64)
+                        if (isinstance(result.audio, np.ndarray) and result.audio.ndim == 2)
+                        else (
+                            result.audio.astype(np.float64)
+                            if isinstance(result.audio, np.ndarray)
+                            else np.asarray(result.audio, dtype=np.float64)
+                        )
                     )
                     # Onset-Energie: RMS über kurze Fenster der ersten 20 ms nach Transienten
                     _frame_ms_te = max(1, int(_sr_guards * 0.020))
@@ -30612,7 +30735,15 @@ class UnifiedRestorerV3:
             if _pid_guards in _V27_QZ_RESCUE_PHASES:
                 try:
                     _in_mono = audio.mean(axis=0) if audio.ndim == 2 else audio
-                    _out_mono = result.audio.mean(axis=0) if result.audio.ndim == 2 else result.audio
+                    _out_mono = (
+                        result.audio.mean(axis=0)
+                        if (isinstance(result.audio, np.ndarray) and result.audio.ndim == 2)
+                        else (
+                            result.audio
+                            if isinstance(result.audio, np.ndarray)
+                            else np.asarray(result.audio, dtype=np.float64)
+                        )
+                    )
                     _in_mono = np.asarray(_in_mono, dtype=np.float64)
                     _out_mono = np.asarray(_out_mono, dtype=np.float64)
                     _res_mono = _out_mono - _in_mono
@@ -31130,13 +31261,15 @@ class UnifiedRestorerV3:
                         if any("PEGELEXPLOSION_CRIT" in _f for _f in _latest_flags):
                             _sft_wet = 0.22
                         elif any("NOVELTY_CRIT" in _f for _f in _latest_flags) and not self.is_studio_mode():
-                            # Restoration: §2.46e vollständiger Rollback bei hoher Novelty
+                            # Restoration: §2.46e rollback bei hoher Novelty.
+                            # §v10.35: NIEMALS wet=0.0 — selbst kritische Novelty behält min. 5% Phase-Output.
+                            # Vollständiger Rollback entfernt legitime Verbesserungen (z.B. Dynamics).
                             if _sft_novelty_val >= 0.40:
-                                _sft_wet = 0.0  # Vollständiger Rollback (halluzinierter Inhalt)
+                                _sft_wet = 0.05  # Minimaler Blend (war 0.0 — zu aggressiv)
                             elif _sft_novelty_val >= 0.25:
-                                _sft_wet = 0.08  # Stark geblendet (>0.25 = kritische Halluzination)
+                                _sft_wet = 0.10  # Konservativer Blend (>0.25)
                             else:
-                                _sft_wet = 0.15  # Moderate Dämpfung (0.15–0.25)
+                                _sft_wet = 0.20  # Moderate Dämpfung (0.15–0.25)
                         else:
                             _sft_wet = 0.30  # Studio 2026 oder ECHO_ARTIFACT
                         # Falls Temporal-Rescue schon lief, staerker am konservativen Ende bleiben.
@@ -31153,6 +31286,12 @@ class UnifiedRestorerV3:
                             "|".join(_latest_flags),
                             _sft_wet,
                         )
+                        if _sft_wet <= 0.15:
+                            logger.warning(
+                                "⚠️ SFT ArtifactRescue %s: AGGRESSIVER Rollback wet=%.2f — Phase-Output fast verworfen!",
+                                phase_metadata.phase_id,
+                                _sft_wet,
+                            )
                         if hasattr(result, "metadata") and isinstance(result.metadata, dict):
                             result.metadata["sft_artifact_rescue"] = {
                                 "applied": True,
@@ -31758,7 +31897,15 @@ class UnifiedRestorerV3:
                 if hasattr(_r, "audio"):
                     _ra = _r.audio
                     if isinstance(_ra, (tuple, list)):
-                        _r.audio = _ra[0] if len(_ra) > 0 else current_audio
+                        # §v10.0.5: Suche erstes numpy-Array im Tuple, nicht blind _ra[0]
+                        _r.audio = next(
+                            (item for item in _ra if isinstance(item, np.ndarray)),
+                            np.asarray(current_audio, dtype=np.float32),
+                        )
+                        logger.warning(
+                            "⚠️ _normalize_phase_result: PhaseResult.audio war %s → entpackt nach ndarray",
+                            type(_ra).__name__,
+                        )
                     if not isinstance(_r.audio, np.ndarray):
                         _r.audio = np.asarray(current_audio, dtype=np.float32)
                 return _r
@@ -31777,7 +31924,24 @@ class UnifiedRestorerV3:
                 # Einige Phasen/Pfade können .audio als tuple zurückgeben;
                 # post-processing greift auf .ndim zu und crasht bei tuple.
                 if isinstance(_audio_raw, (tuple, list)):
-                    _audio_raw = _audio_raw[0] if len(_audio_raw) > 0 else current_audio
+                    # §v10.35 Rekursives Entpacken: manche Pfade liefern ((arr,),) etc.
+                    _unpacked = _audio_raw
+                    for _ in range(4):
+                        if isinstance(_unpacked, (tuple, list)) and len(_unpacked) > 0:
+                            _unpacked = _unpacked[0]
+                        else:
+                            break
+                    if not isinstance(_unpacked, np.ndarray):
+                        _unpacked = next(
+                            (item for item in _audio_raw if isinstance(item, np.ndarray)),
+                            current_audio,
+                        )
+                    _audio_raw = _unpacked
+                    logger.warning(
+                        "⚠️ _normalize_phase_result: .audio war %s → entpackt nach %s",
+                        type(_r.audio).__name__,
+                        type(_audio_raw).__name__,
+                    )
                 if not isinstance(_audio_raw, np.ndarray):
                     _audio_raw = np.asarray(current_audio, dtype=np.float32)
                 return SimpleNamespace(
@@ -33296,6 +33460,23 @@ class UnifiedRestorerV3:
                 "phase_45_brass_enhancement",
                 "phase_51_drums_enhancement",
             }
+            # §v10.0.5 Exciter-Freigabe: bei oberton-armem Material (brillanz < 0.60)
+            # darf der Exciter auch in Restoration laufen — das Material hat genug
+            # Grundton (waerme ≥ 0.70), aber zu wenig Obertöne.
+            _brillanz_val = float(
+                getattr(self, "_restoration_context", {}).get("brillanz_target")
+                or getattr(self, "_restoration_context", {}).get("brillanz", 0.80)
+            )
+            _waerme_val = float(
+                getattr(self, "_restoration_context", {}).get("waerme_target")
+                or getattr(self, "_restoration_context", {}).get("waerme", 0.80)
+            )
+            if _brillanz_val < 0.60 and _waerme_val >= 0.70:
+                _restoration_forbidden_final.discard("phase_21_exciter")
+                logger.info(
+                    "§v10.0.5 Exciter-Gate: brillanz=%.2f < 0.60 → Exciter freigegeben",
+                    _brillanz_val,
+                )
             _forbidden_final_hits = [p for p in selected_phases if p in _restoration_forbidden_final]
             if _forbidden_final_hits:
                 selected_phases = [p for p in selected_phases if p not in _restoration_forbidden_final]
@@ -33626,31 +33807,26 @@ class UnifiedRestorerV3:
 
             # §Spec04 RELEASE_MUST: Pipeline-Wall-Time-Budget — verhindert 25:1-Ratio-Hänger.
             # Material-adaptive: mehr Zeit für schlechte Materialien, weniger für saubere.
+            # §v10.0.5: Budget-Werte verdoppelt — alte Werte auf schneller Hardware
+            # gemessen ließen auf 4-Kern-CPU mit quality-Mode Enhancement-Phasen
+            # überspringen. Neue Werte: ~3× gemessene Laufzeit als Puffer.
             _PIPELINE_WALL_BUDGET_S: dict[str, float] = {
-                # CPU-only realistische Werte: 4-5 min Song, alle Phasen vollständig.
-                # Gemessen: vinyl non-exempt ~1372 s auf CPU-only — Budget war 600 s (zu klein).
-                # Neue Werte: ~2× gemessene Maximal-Laufzeit als Hänger-Schutz-Grenze.
-                "shellac": 3600.0,  # 1h — viele Pflicht-Phasen, ML-Pitch, FlashSR
-                "wax_cylinder": 3600.0,
-                "wire_recording": 3600.0,
-                "vinyl": 2700.0,  # 45 min — ~1372 s non-exempt gemessen + 2× Puffer
-                "reel_tape": 2700.0,
-                "tape": 2700.0,
-                # v10.0.0c: 2400 → 3000 — Kassette braucht unter Swap-Druck (96 %) bis
-                # 2739 s non-exempt; alte 2400 ließ phase_65/54/55/43/49 überspringen.
-                # v10.0.0: 3000 → 4200 — non-exempt elapsed bis 3103 s bei 225 s-Songs
-                # unter Swap-Druck gemessen; 3000 s Budget ließ phase_25/26/27 überspringen.
-                # phase_29 + phase_64 jetzt EXEMPT → kein non-exempt Budget mehr nötig für diese.
-                "cassette": 4800.0,  # v10.15: 4200→4800 — 4365s non-exempt gemessen
-                "lacquer_disc": 2700.0,
-                "minidisc": 1800.0,
-                "mp3_low": 1800.0,
-                "mp3_high": 1200.0,
-                "cd_digital": 1200.0,
-                "streaming": 900.0,
+                "shellac": 7200.0,
+                "wax_cylinder": 7200.0,
+                "wire_recording": 7200.0,
+                "vinyl": 5400.0,
+                "reel_tape": 5400.0,
+                "tape": 5400.0,
+                "cassette": 7200.0,
+                "lacquer_disc": 5400.0,
+                "minidisc": 3600.0,
+                "mp3_low": 3600.0,
+                "mp3_high": 2400.0,
+                "cd_digital": 2400.0,
+                "streaming": 1800.0,
             }
             _mat_key_budget = str(getattr(material_type, "value", str(material_type))).lower()
-            _pipeline_wall_budget_base = float(_PIPELINE_WALL_BUDGET_S.get(_mat_key_budget, 480.0))
+            _pipeline_wall_budget_base = float(_PIPELINE_WALL_BUDGET_S.get(_mat_key_budget, 3600.0))
             # Compute audio duration locally (audio is available in _execute_pipeline signature).
             _audio_duration_s = float(audio.shape[-1] if audio.ndim >= 2 else len(audio)) / float(sample_rate)
             # §Spec04b Duration-Scaling: budget = min(base×scale, overhead + duration × factor).
@@ -33658,8 +33834,11 @@ class UnifiedRestorerV3:
             # §v10.0.4: overhead 1200→1800, per_sec 10→15 — 225s Kassette brauchte 3454s;
             # alte Formel (1200+2250=3450) war 4s zu knapp. Neue: 1800+3375=5175→4200 (746s Puffer).
             # Für 600s-Songs skaliert base mit Duration-Scaling-Faktor.
-            _PIPELINE_BUDGET_OVERHEAD_S = 1800.0
-            _PIPELINE_BUDGET_PER_SEC = 15.0
+            # §v10.0.5: overhead 1800→3600, per_sec 15→25 — Budget verdoppelt für
+            # 4-Kern-CPU quality-Mode. 225s vinyl: min(5400, 3600+5625)=5400s.
+            # 600s cassette: min(7200*2.67, 3600+15000)=min(19200,18600)=18600s.
+            _PIPELINE_BUDGET_OVERHEAD_S = 3600.0
+            _PIPELINE_BUDGET_PER_SEC = 25.0
             # §Duration-Scaling: base budget skaliert mit Song-Länge für lange Songs (bis 600s)
             _duration_scale_factor = max(1.0, _audio_duration_s / 225.0)
             _pipeline_wall_budget_base_scaled = _pipeline_wall_budget_base * _duration_scale_factor
@@ -35679,11 +35858,15 @@ class UnifiedRestorerV3:
                                 logger.warning(
                                     "§2.61 length_mismatch phase=%s delta=%d samples (%.3f%%) — "
                                     "minor discrepancy, trimming to match input length",
-                                    phase_id, _delta, _pct * 100,
+                                    phase_id,
+                                    _delta,
+                                    _pct * 100,
                                 )
                                 # Trim sample axis (letzte Achse = samples bei channels-first)
                                 _sample_axis = 1 if current_audio.ndim == 2 and current_audio.shape[0] == 2 else 0
-                                _target = _phase_input_len_2_61 // (current_audio.shape[0] if current_audio.ndim == 2 else 1)
+                                _target = _phase_input_len_2_61 // (
+                                    current_audio.shape[0] if current_audio.ndim == 2 else 1
+                                )
                                 if _sample_axis == 0:
                                     current_audio = current_audio[:_target]
                                 else:
@@ -35693,7 +35876,9 @@ class UnifiedRestorerV3:
                                     "§2.61 CATASTROPHIC length_mismatch phase=%s delta=%d "
                                     "samples (%.1f%% of original) — restoring pre-phase audio "
                                     "and marking phase as failed",
-                                    phase_id, _delta, _pct * 100,
+                                    phase_id,
+                                    _delta,
+                                    _pct * 100,
                                 )
                                 # Restore pre-phase audio from snapshot (captured before phase started)
                                 try:
@@ -37340,12 +37525,12 @@ class UnifiedRestorerV3:
 
                 _xc = _xc_delay(_ref_seg, _out_seg)
                 _lag = np.argmax(_xc) - len(_ref_seg) + 1
-                _peak_corr = float(
-                    _xc.max() / (np.sqrt(np.sum(_ref_seg**2) * np.sum(_out_seg**2)) + 1e-12)
-                )
+                _peak_corr = float(_xc.max() / (np.sqrt(np.sum(_ref_seg**2) * np.sum(_out_seg**2)) + 1e-12))
                 logger.info(
                     "§v10.32 Pipeline-Delay: lag=%d samples (%.1f ms), peak_corr=%.4f",
-                    _lag, _lag / sample_rate * 1000, _peak_corr,
+                    _lag,
+                    _lag / sample_rate * 1000,
+                    _peak_corr,
                 )
                 # Nur kompensieren wenn Delay > 1ms und Korrelation hoch genug
                 if _lag > sample_rate // 1000 and _peak_corr > 0.5:
@@ -37359,23 +37544,21 @@ class UnifiedRestorerV3:
                             _pad = _orig_len - current_audio.shape[1]
                             if _pad > 0:
                                 current_audio = np.pad(
-                                    current_audio, ((0, 0), (0, _pad)),
-                                    mode='constant', constant_values=0.0
+                                    current_audio, ((0, 0), (0, _pad)), mode="constant", constant_values=0.0
                                 )
                         else:
                             current_audio = current_audio[_trim:]
                             _pad = _orig_len - len(current_audio)
                             if _pad > 0:
-                                current_audio = np.pad(
-                                    current_audio, (0, _pad),
-                                    mode='constant', constant_values=0.0
-                                )
+                                current_audio = np.pad(current_audio, (0, _pad), mode="constant", constant_values=0.0)
                         _delay_compensated = True
                         logger.info(
                             "§v10.32 Delay-Kompensation: %d samples (%.1f ms) getrimmt — "
                             "neue Länge: %d samples (%.1f s)",
-                            _trim, _trim / sample_rate * 1000,
-                            current_audio.shape[-1], current_audio.shape[-1] / sample_rate,
+                            _trim,
+                            _trim / sample_rate * 1000,
+                            current_audio.shape[-1],
+                            current_audio.shape[-1] / sample_rate,
                         )
             except Exception as _dc_exc:
                 logger.debug("§v10.32 Delay-Kompensation fehlgeschlagen (non-blocking): %s", _dc_exc)

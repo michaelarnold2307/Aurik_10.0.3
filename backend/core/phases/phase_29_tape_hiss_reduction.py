@@ -784,7 +784,7 @@ class TapeHissReductionPhase(PhaseInterface):
         except Exception as _nmr_exc_29:
             logger.debug("Phase29 §V40 NMR non-blocking: %s", _nmr_exc_29)
 
-        if _effective_strength <= 0.0:
+        if _effective_strength < 0.01:  # §v10.0.5: < 1% = keine sinnvolle Wirkung
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
             return PhaseResult(

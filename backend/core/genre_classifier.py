@@ -2144,6 +2144,8 @@ SCHLAGER_RESTORATION_PROFILE: dict = {
     "stereo_width_max_era_aware": True,
     # GP-Optimizer Warmstart aus Schlager-spezifischem Gedächtnis
     "gp_memory_key": "schlager",  # ~/.aurik/gp_memory/schlager.json
+    # §v10.0.5: Kompressions-Cap für vokal-zentrierten Schlager
+    "compression_ratio_cap": 1.8,
 }
 
 # Subgenre-Erweiterungen (werden über das Basis-Profil gelegt)
@@ -2261,6 +2263,38 @@ REGGAE_RESTORATION_PROFILE: dict = {
     "gp_memory_key": "reggae",
 }
 
+# §v10.0.5: Ambient — atmosphärische Klangflächen, lange Hallfahnen,
+# keine perkussiven Transienten, oft instrumental. Sub-bass-dominant,
+# Hall ist intentional (kein Dereverb), weicher Frequenzgang.
+AMBIENT_RESTORATION_PROFILE: dict = {
+    "transient_preservation_strength": 0.6,
+    "brillanz_target": 0.86,
+    "waerme_target": 0.88,
+    "bass_kraft_target": 0.85,
+    "spatial_depth_threshold": 0.60,
+    "groove_dtw_max_ms": 14.0,
+    "compression_ratio_cap": 1.2,
+    "deessing_strength_cap": 0.60,
+    "phase_20_dereverb_enabled": False,
+    "phase_49_dereverb_enabled": False,
+    "soft_saturation_preserve": True,
+    "gp_memory_key": "ambient",
+}
+
+# §v10.0.5: World — ethnische Musik, akustische Instrumente,
+# oft vokal-lastig mit traditionellen Gesangsstilen. Natürliche
+# Dynamik (keine starke Kompression), organischer Klang.
+WORLD_RESTORATION_PROFILE: dict = {
+    "transient_preservation_strength": 0.9,
+    "brillanz_target": 0.85,
+    "waerme_target": 0.86,
+    "groove_dtw_max_ms": 7.0,
+    "compression_ratio_cap": 1.4,
+    "deessing_strength_cap": 0.50,
+    "soft_saturation_preserve": True,
+    "gp_memory_key": "world",
+}
+
 JAZZ_RESTORATION_PROFILE: dict = {
     "groove_dtw_max_ms": 4.0,
     "tonal_center_threshold": 0.92,
@@ -2290,6 +2324,12 @@ OPER_RESTORATION_PROFILE: dict = {
     "phase_20_dereverb_enabled": False,
     "vibrato_rate_tolerance_hz": 0.20,
     "de_esser_voice_adaptive": True,
+    # §v10.0.5: fehlende Schlüsselparameter ergänzt
+    "groove_dtw_max_ms": 12.0,
+    "compression_ratio_cap": 1.2,
+    "brillanz_target": 0.85,
+    "waerme_target": 0.82,
+    "transient_preservation_strength": 0.9,
     "gp_memory_key": "opera",
 }
 
@@ -2326,6 +2366,8 @@ GENRE_RESTORATION_PROFILES: dict[str, dict] = {
     "latin": LATIN_RESTORATION_PROFILE,
     "gospel": GOSPEL_RESTORATION_PROFILE,
     "reggae": REGGAE_RESTORATION_PROFILE,
+    "ambient": AMBIENT_RESTORATION_PROFILE,
+    "world": WORLD_RESTORATION_PROFILE,
     # Kapitalisierte Aliases (GermanSchlagerClassifier.genre_label-Format)
     "Schlager": SCHLAGER_RESTORATION_PROFILE,
     "Jazz": JAZZ_RESTORATION_PROFILE,
@@ -2344,6 +2386,8 @@ GENRE_RESTORATION_PROFILES: dict[str, dict] = {
     "Latin": LATIN_RESTORATION_PROFILE,
     "Gospel": GOSPEL_RESTORATION_PROFILE,
     "Reggae": REGGAE_RESTORATION_PROFILE,
+    "Ambient": AMBIENT_RESTORATION_PROFILE,
+    "World": WORLD_RESTORATION_PROFILE,
 }
 
 
@@ -2404,6 +2448,9 @@ def get_restoration_profile(subgenre: str = "unknown") -> dict:
         "latin": LATIN_RESTORATION_PROFILE,
         "gospel": GOSPEL_RESTORATION_PROFILE,
         "reggae": REGGAE_RESTORATION_PROFILE,
+        "ambient": AMBIENT_RESTORATION_PROFILE,
+        "world": WORLD_RESTORATION_PROFILE,
+        "world music": WORLD_RESTORATION_PROFILE,
     }
     return dict(label_map.get(key, {}))  # leere Kopie wenn unbekannt
 

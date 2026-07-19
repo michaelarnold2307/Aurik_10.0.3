@@ -171,7 +171,7 @@ def restore_shellac(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialRe
             result_audio = mod.restore(audio, sample_rate, **kwargs)
             return MaterialRestorationResult(result_audio, SourceMedium.SHELLAC, True, ["plugin"], {})
     except ImportError as _mrn_shellac_exc:
-        logger.debug("material_restoration_nets: shellac plugin not available (DSP fallback): %s", _mrn_shellac_exc)
+        logger.warning("material_restoration_nets: shellac plugin not available (DSP fallback): %s", _mrn_shellac_exc)
 
     # DSP-Pfad
     out = audio.copy()
@@ -250,7 +250,7 @@ def restore_vinyl(audio: np.ndarray, sample_rate: int, apply_riaa: bool = False,
             result_audio = mod.restore(audio, sample_rate, **kwargs)
             return MaterialRestorationResult(result_audio, SourceMedium.VINYL, True, ["plugin"], {})
     except ImportError as _mrn_vinyl_exc:
-        logger.debug("material_restoration_nets: vinyl plugin not available (DSP fallback): %s", _mrn_vinyl_exc)
+        logger.warning("material_restoration_nets: vinyl plugin not available (DSP fallback): %s", _mrn_vinyl_exc)
 
     out = audio.copy()
 
@@ -390,7 +390,7 @@ def restore_tape(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialResto
             result_audio = mod.restore(audio, sample_rate, **kwargs)
             return MaterialRestorationResult(result_audio, SourceMedium.TAPE, True, ["plugin"], {})
     except ImportError as _mrn_tape_exc:
-        logger.debug("material_restoration_nets: tape plugin not available (DSP fallback): %s", _mrn_tape_exc)
+        logger.warning("material_restoration_nets: tape plugin not available (DSP fallback): %s", _mrn_tape_exc)
 
     out = audio.copy()
 
@@ -465,7 +465,7 @@ def restore_lacquer(audio: np.ndarray, sample_rate: int, **kwargs) -> MaterialRe
             result_audio = mod.restore(audio, sample_rate, **kwargs)
             return MaterialRestorationResult(result_audio, SourceMedium.LACQUER, True, ["plugin"], {})
     except ImportError as _mrn_lacquer_exc:
-        logger.debug("material_restoration_nets: lacquer plugin not available (DSP fallback): %s", _mrn_lacquer_exc)
+        logger.warning("material_restoration_nets: lacquer plugin not available (DSP fallback): %s", _mrn_lacquer_exc)
 
     out = audio.copy()
 

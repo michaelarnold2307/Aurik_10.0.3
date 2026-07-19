@@ -6,7 +6,7 @@ Architektur:
   - Polling-Timer im GUI-Thread liest neue Frames ohne Eventloop-Blockade
 """
 
-from Aurik10.ipc.shared_audio import SharedAudioRing, AudioFrame, RingInfo
+from Aurik10.ipc.shared_audio import AudioFrame, RingInfo, SharedAudioRing
 
 __all__ = [
     "SharedAudioRing",

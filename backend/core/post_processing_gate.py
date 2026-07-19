@@ -21,6 +21,7 @@ Ausnahme: HumanizationPass hat adaptive Stärke und wird separat behandelt.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from collections.abc import Callable
@@ -117,6 +118,11 @@ class PostProcessingGate:
         t0 = time.time()
         self._total_checks += 1
         _thresh = threshold if threshold is not None else _REGRESSION_THRESHOLD
+
+        # §v10.0.5 Lambda-Signatur-Guard: component_fn MUSS (audio, sr, strength)
+        # akzeptieren. Fängt 2-arg-Lambdas wie ``lambda a, sr: ...`` sofort ab,
+        # statt zur Laufzeit mit kryptischem TypeError zu crashen.
+        PostProcessingGate._validate_lambda(label, component_fn)
 
         # ── 1. Messen VORHER ──────────────────────────────────────────
         scores_before = self._measure(audio, sr, goals)
@@ -223,6 +229,52 @@ class PostProcessingGate:
         except Exception:
             # Fallback: leere Scores — Gate wird immer passieren
             return dict.fromkeys(goals, 0.5)
+
+    # ── Signatur-Validierung ────────────────────────────────────────
+
+    @staticmethod
+    def _validate_lambda(label: str, component_fn: Callable) -> None:
+        """§v10.0.5: Prüft dass component_fn mindestens 3 positional args akzeptiert.
+
+        Verhindert, dass 2-arg-Lambdas (``lambda a, sr: ...``) zur Laufzeit
+        mit ``TypeError: takes 2 positional arguments but 3 were given`` crashen.
+        """
+        try:
+            sig = inspect.signature(component_fn)
+            params = list(sig.parameters.values())
+            required = sum(
+                1
+                for p in params
+                if p.default is inspect.Parameter.empty
+                and p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            )
+            positional = sum(
+                1
+                for p in params
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            )
+            has_catch_all = any(
+                p.kind == inspect.Parameter.VAR_POSITIONAL or p.kind == inspect.Parameter.VAR_KEYWORD for p in params
+            )
+            # Erlaubt: 3+ positional (mit/ohne default) OR catch-all
+            if not has_catch_all and positional < 3:
+                raise AssertionError(
+                    f"PostGate [{label}]: component_fn hat nur {positional} positional"
+                    f" args, braucht aber 3 (audio, sr, strength)."
+                    f" Signatur={sig}"
+                )
+        except (ValueError, TypeError):
+            # C-builtins oder inspect-inkompatible Callables —
+            # können wir nicht prüfen, also durchlassen.
+            pass
 
     # ── Statistik ─────────────────────────────────────────────────────
 

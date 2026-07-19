@@ -140,19 +140,19 @@ _ERA_BANDWIDTH_HZ: dict[int, float] = {
 # dass unrealistische Ziele gesetzt werden (z.B. 18 kHz für Gen-4-Kassette).
 # Quellen: Eargle 2004, Camras 1988 (Magnetic Recording), IEC 60094.
 _MATERIAL_BANDWIDTH_CAP_HZ: dict[str, float] = {
-    "shellac": 8000.0,       # 78 rpm — mechanische Abtastung, keine HF
+    "shellac": 8000.0,  # 78 rpm — mechanische Abtastung, keine HF
     "lacquer_disc": 10000.0,  # Heimaufnahme — primitive Schneidtechnik
-    "vinyl": 18500.0,        # Stereo-LP — 18 kHz bei Innenrille möglich
-    "cassette": 15500.0,     # Type II Chrome bei −3 dB, Type I ~12 kHz
-    "tape": 16000.0,         # 7½ ips Viertelspur — IEC EQ limitiert HF
-    "reel_tape": 18500.0,    # 15 ips Halbspur — Studer/Ampex Studioniveau
-    "dat": 20000.0,          # Digital Audio Tape — 48 kHz Sampling
-    "cd": 20000.0,           # Compact Disc — Nyquist 22.05 kHz
-    "mp3_low": 15500.0,      # ≤128 kbps — Codec schneidet HF aggressiv
-    "mp3_high": 18000.0,     # ≥256 kbps — HF bis ~18 kHz erhalten
+    "vinyl": 18500.0,  # Stereo-LP — 18 kHz bei Innenrille möglich
+    "cassette": 15500.0,  # Type II Chrome bei −3 dB, Type I ~12 kHz
+    "tape": 16000.0,  # 7½ ips Viertelspur — IEC EQ limitiert HF
+    "reel_tape": 18500.0,  # 15 ips Halbspur — Studer/Ampex Studioniveau
+    "dat": 20000.0,  # Digital Audio Tape — 48 kHz Sampling
+    "cd": 20000.0,  # Compact Disc — Nyquist 22.05 kHz
+    "mp3_low": 15500.0,  # ≤128 kbps — Codec schneidet HF aggressiv
+    "mp3_high": 18000.0,  # ≥256 kbps — HF bis ~18 kHz erhalten
     "wire_recording": 7000.0,  # Drahtton — sehr begrenzte HF
     "streaming": 20000.0,
-    "minidisc": 18000.0,     # ATRAC 292 kbps — HF-Rolloff ab 18 kHz
+    "minidisc": 18000.0,  # ATRAC 292 kbps — HF-Rolloff ab 18 kHz
     "aac": 20000.0,
     "unknown": 20000.0,
 }

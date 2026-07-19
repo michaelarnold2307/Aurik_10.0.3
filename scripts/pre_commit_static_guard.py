@@ -20,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def find_undefined_names(filepath: Path) -> list[tuple[int, str]]:
@@ -114,7 +114,7 @@ def scan_file(filepath: Path) -> list[str]:
                         )
                         if not defined_in_try:
                             issues.append(
-                                f"{filepath.relative_to(_PROJECT_ROOT)}:{j + 1}: Verdacht auf undefined name '{var_name}' nach `try: pass`"
+                                f"{filepath.resolve().relative_to(_PROJECT_ROOT)}:{j + 1}: Verdacht auf undefined name '{var_name}' nach `try: pass`"
                             )
                             break
                     break
@@ -158,7 +158,7 @@ def check_silent_except_pass(filepath: Path) -> list[str]:
                 )
                 if not has_logger and not has_comment:
                     issues.append(
-                        f"{filepath.relative_to(_PROJECT_ROOT)}:{i + 1}: "
+                        f"{filepath.resolve().relative_to(_PROJECT_ROOT)}:{i + 1}: "
                         f"V74 Silent except:pass without logging — add logger.debug() or comment"
                     )
                 in_except = False
@@ -221,7 +221,7 @@ def main() -> int:
 
     # Wenn explizite Dateien übergeben wurden, nur diese scannen
     if args.files:
-        explicit = [Path(f) for f in args.files if f.endswith(".py")]
+        explicit = [Path(f).resolve() for f in args.files if f.endswith(".py")]
         if explicit:
             files = explicit
 
@@ -229,11 +229,11 @@ def main() -> int:
     for fp in files:
         issues = scan_file(fp)
         if issues:
-            all_issues[str(fp.relative_to(_PROJECT_ROOT))] = issues
+            all_issues[str(fp.resolve().relative_to(_PROJECT_ROOT))] = issues
         # §V74: Check for silent except:pass
         silent_issues = check_silent_except_pass(fp)
         if silent_issues:
-            key = str(fp.relative_to(_PROJECT_ROOT))
+            key = str(fp.resolve().relative_to(_PROJECT_ROOT))
             all_issues.setdefault(key, []).extend(silent_issues)
 
     if args.json:

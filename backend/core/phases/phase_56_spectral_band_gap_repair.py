@@ -89,7 +89,7 @@ try:
     _LIBROSA_OK = True
 except ImportError:
     _LIBROSA_OK = False
-    logger.debug("librosa nicht verfügbar — DSP-Fallback für f₀-Schätzung")
+    logger.warning("⚠️ SOTA Phase 56: librosa nicht verfügbar — DSP-Fallback für f₀-Schätzung aktiv")
 
 try:
     from plugins.fcpe_plugin import get_fcpe_plugin as _get_pitch_plugin
@@ -476,7 +476,7 @@ def _nmf_beta_refine(
     try:
         from sklearn.decomposition import NMF as _NMF
     except ImportError:
-        logger.debug("sklearn nicht verfügbar — NMF-Verfeinerung übersprungen")
+        logger.warning("⚠️ SOTA Phase 56: sklearn nicht verfügbar — NMF-Verfeinerung deaktiviert")
         return stft_mag
 
     n_bins, n_frames = stft_mag.shape

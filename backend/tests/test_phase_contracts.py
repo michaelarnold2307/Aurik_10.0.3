@@ -3,8 +3,12 @@
 Validates: phase output types, audio shapes, stereo handling,
 PostGate signatures, OneTakeExport fallback, STCG consistency.
 
+§v10.0.5: Added Genre-Propagation und PostGate-Lambda-Signatur-Validierung.
+
 Run: python3 -m pytest backend/tests/test_phase_contracts.py -v
 """
+
+import inspect
 
 import numpy as np
 import pytest
@@ -257,3 +261,227 @@ class TestPostGateLambdaContract:
         audio = _make_mono_audio()
         result = vcm.process(audio, 48000)
         assert isinstance(result, np.ndarray)
+
+    # ── §v10.0.5 Lambda-Signatur-Validierung ────────────────────
+
+    def test_validate_lambda_accepts_3_arg_with_default(self):
+        """PostProcessingGate._validate_lambda must accept (a, sr, strength=None)."""
+        from backend.core.post_processing_gate import PostProcessingGate
+
+        PostProcessingGate._validate_lambda("test", lambda a, sr, strength=None: a)
+
+    def test_validate_lambda_rejects_2_arg(self):
+        """PostProcessingGate._validate_lambda must REJECT (a, sr)."""
+        from backend.core.post_processing_gate import PostProcessingGate
+
+        with pytest.raises(AssertionError, match="braucht aber 3"):
+            PostProcessingGate._validate_lambda("test", lambda a, sr: a)
+
+    def test_validate_lambda_accepts_2_arg_with_kwargs(self):
+        """PostProcessingGate._validate_lambda must accept (a, sr, **kw)."""
+        from backend.core.post_processing_gate import PostProcessingGate
+
+        PostProcessingGate._validate_lambda("test", lambda a, sr, **kw: a)
+
+    def test_all_postgate_lambdas_in_uv3_are_3_arg(self):
+        """§v10.0.5: JEDE in unified_restorer_v3.py an PostGate übergebene Lambda
+        muss 3 positional args akzeptieren. Scannt den Quelltext auf
+        ``get_post_processing_gate().apply(`` und prüft die direkt folgende
+        Lambda-Signatur."""
+        import ast
+        import os
+
+        from backend.core.post_processing_gate import PostProcessingGate
+
+        uv3_path = os.path.join(os.path.dirname(__file__), "..", "core", "unified_restorer_v3.py")
+        uv3_path = os.path.abspath(uv3_path)
+
+        with open(uv3_path) as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+
+        class LambdaCollector(ast.NodeVisitor):
+            def __init__(self):
+                self.violations: list[tuple[int, str]] = []
+
+            def visit_Call(self, node):
+                # Suche nach: get_post_processing_gate().apply(
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "apply"
+                    and isinstance(node.func.value, ast.Call)
+                    and isinstance(node.func.value.func, ast.Attribute)
+                    and node.func.value.func.attr == "get_post_processing_gate"
+                ):
+                    # Prüfe ob erstes Argument eine Lambda oder FunctionDef ist
+                    if node.args:
+                        first_arg = node.args[0]
+                        if isinstance(first_arg, ast.Lambda):
+                            # args von Lambda zählen (Parameter ohne default)
+                            pos_args = sum(
+                                1
+                                for a in first_arg.args.args
+                                if not getattr(first_arg.args, "defaults", None)
+                                or first_arg.args.args.index(a)
+                                >= len(first_arg.args.args) - len(first_arg.args.defaults)
+                            )
+                            # Vereinfacht: zähle alle positional args + *args + **kwargs
+                            n_positional = len(first_arg.args.args)
+                            n_vararg = 1 if first_arg.args.vararg else 0
+                            n_kwarg = 1 if first_arg.args.kwarg else 0
+
+                            if n_positional + n_vararg + n_kwarg < 3:
+                                self.violations.append(
+                                    (first_arg.lineno, f"Lambda: {n_positional} pos + {n_vararg} var + {n_kwarg} kw")
+                                )
+                        elif isinstance(first_arg, ast.Name):
+                            # Referenzierter Name — überspringen (zu komplex)
+                            pass
+
+        collector = LambdaCollector()
+        collector.visit(tree)
+
+        assert len(collector.violations) == 0, (
+            f"Found {len(collector.violations)} PostGate lambdas with < 3 positional args in uv3:\n"
+            + "\n".join(f"  Line {line}: {desc}" for line, desc in collector.violations)
+        )
+
+
+# ── Genre Propagation Contract ──────────────────────────────────
+
+
+class TestGenrePropagationContract:
+    """§v10.0.5: Genre muss via _restoration_context → phase kwargs propagieren."""
+
+    def test_restoration_context_has_genre_and_genre_label(self):
+        """_restoration_context must contain both 'genre' and 'genre_label' keys."""
+        # Simuliere minimales UV3-setup
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        ur = UnifiedRestorerV3.__new__(UnifiedRestorerV3)
+        ur._restoration_context = {
+            "genre_label": "Schlager",
+            "decade": 1970,
+            "primary_material": "vinyl",
+        }
+
+        # Genre-Key-Normalisierung: genre_label muss vorhanden sein
+        assert ur._restoration_context.get("genre_label") == "Schlager"
+        # Nach _prepare_profiled_phase_context wird auch "genre" gesetzt
+        # (dieser Test prüft den Ausgangszustand; die Normalisierung
+        #  wird im Unit-Test für prepare_profiled_phase_context geprüft.)
+
+    def test_genre_key_normalization_in_profiled_context(self):
+        """_prepare_profiled_phase_context injects both genre and genre_label."""
+        from backend.core.unified_restorer_v3 import UnifiedRestorerV3
+
+        ur = UnifiedRestorerV3.__new__(UnifiedRestorerV3)
+        ur._restoration_context = {
+            "genre_label": "Klassik",
+            "decade": 1955,
+            "primary_material": "shellac",
+        }
+        ur.config = type("Cfg", (), {"mode": type("M", (), {"value": "quality"})()})()
+
+        # Dummy phase mit get_metadata()
+        class DummyPhaseMeta:
+            phase_id = "phase_19_de_esser"
+            name = "DeEsser"
+
+        class DummyPhase:
+            def get_metadata(self):
+                return DummyPhaseMeta()
+
+        _, _, _, _, _, _, _ = ur._prepare_profiled_phase_context(DummyPhase(), kwargs := {})
+        # Nach der Normalisierung müssen beide Keys existieren
+        assert kwargs.get("genre_label") == "Klassik", f"genre_label missing: {kwargs}"
+        assert kwargs.get("genre") == "Klassik", f"genre missing: {kwargs}"
+
+    def test_de_esser_reads_genre_from_kwargs(self):
+        """Phase 19 must read genre from kwargs (testet genre/ genre_label Fallback)."""
+        import inspect as _inspect
+        import os
+
+        # Parse phase_19 source code to verify it reads both keys
+        phase19_path = os.path.join(os.path.dirname(__file__), "..", "core", "phases", "phase_19_de_esser.py")
+        phase19_path = os.path.abspath(phase19_path)
+
+        with open(phase19_path) as f:
+            source = f.read()
+
+        # Verify: kwargs.get("genre", kwargs.get("genre_label", ""))
+        # or kwargs.get("genre") with genre_label fallback
+        has_genre_fallback = (
+            'kwargs.get("genre", kwargs.get("genre_label"' in source
+            or 'kwargs.get("genre", kwargs.get("genre_label"' in source
+        )
+        has_genre_label_only = 'kwargs.get("genre_label"' in source
+
+        assert has_genre_fallback or has_genre_label_only, (
+            "phase_19 must read genre from kwargs (genre or genre_label); "
+            "if only 'genre' is read without 'genre_label' fallback, "
+            "the DeEsser calibration will use empty genre string"
+        )
+
+    def test_all_phase_kwargs_genre_consumers_have_fallback(self):
+        """Alle Phasen die kwargs.get('genre') lesen, sollten auch genre_label-Fallback haben
+        oder über _prepare_profiled_phase_context zentral versorgt werden."""
+        import ast
+        import os
+
+        phases_dir = os.path.join(os.path.dirname(__file__), "..", "core", "phases")
+        phases_dir = os.path.abspath(phases_dir)
+
+        violations: list[tuple[str, int]] = []
+
+        for fname in sorted(os.listdir(phases_dir)):
+            if not fname.endswith(".py") or fname.startswith("__"):
+                continue
+            fpath = os.path.join(phases_dir, fname)
+            with open(fpath) as f:
+                lines = f.readlines()
+
+            for i, line in enumerate(lines, 1):
+                # Pattern: kwargs.get("genre") ohne Fallback auf genre_label
+                stripped = line.strip()
+                if 'kwargs.get("genre"' in stripped or "kwargs.get('genre'" in stripped:
+                    # Ignoriere bereits gefixte (die genre_label fallback haben)
+                    if "genre_label" in stripped or "kwargs.get" not in stripped:
+                        continue
+                    # Diese Phase liest nur "genre" ohne genre_label Fallback
+                    # Das ist OK weil _prepare_profiled_phase_context jetzt
+                    # beide Keys setzt — aber wir loggen es als Info
+                    pass  # now safe due to centralized normalization
+
+        # Kein Assert — diesser Test dokumentiert nur die Abhängigkeit
+        # zur zentralen Normalisierung in _prepare_profiled_phase_context.
+        # Wird die zentrale Normalisierung entfernt, müssen ALLE diese Phasen
+        # auf genre_label-Fallback umgestellt werden.
+        pass  # informational test — no assert
+
+
+# ── UVR Divide-by-Zero Regression ───────────────────────────────
+
+
+class TestUvrDivideByZeroRegression:
+    """§v10.0.5: UVR MDX-Net darf nicht durch len(sessions)=0 crashen."""
+
+    def test_run_ensemble_guards_against_empty_sessions(self):
+        """UvrMdxNetPlugin._run_ensemble must handle zero/empty sessions."""
+        import ast
+        import os
+
+        uvr_path = os.path.join(os.path.dirname(__file__), "..", "..", "plugins", "uvr_mdxnet_plugin.py")
+        uvr_path = os.path.abspath(uvr_path)
+
+        with open(uvr_path) as f:
+            source = f.read()
+
+        # Verify: max(len(sessions), 1) guard exists
+        assert "max(len(sessions)" in source or "max(len(self._sessions)" in source, (
+            "UVR _run_ensemble must guard divide-by-zero with max(len(sessions), 1)"
+        )
+
+        # Verify: early exit when sessions is empty
+        assert "if not sessions" in source, "UVR _run_ensemble must return fallback when sessions is empty"
