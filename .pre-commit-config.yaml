@@ -313,6 +313,14 @@ repos:
         pass_filenames: false
         files: ^(backend|denker)/.*\.py$
 
+      # §v10.51 Sprache-Guard (erzwingt deutsche Log-Meldungen)
+      - id: aurik-language-guard
+        name: "§v10.51 Sprache-Guard (deutsche Logs)"
+        entry: .venv_aurik/bin/python scripts/pre_commit_language_guard.py
+        language: system
+        pass_filenames: false
+        files: ^(backend|denker|Aurik10)/.*\.py$
+
       # Conventional Commits Message Validation
       - id: conventional-commit-msg
         name: "Conventional Commits (feat/fix/docs/style/refactor/perf/test/chore/spec/build/ci)"
