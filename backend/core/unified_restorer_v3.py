@@ -28630,7 +28630,7 @@ class UnifiedRestorerV3:
                 str(getattr(phase_metadata, "phase_id", "")).startswith(p)
                 for p in ("phase_01", "phase_02", "phase_09", "phase_24", "phase_27")
             )
-            _floor = 0.25 if _is_repair else 0.0
+            _floor = 0.25 if _is_repair else 0.12  # v10.11: Mindest-Floor fuer ALLE Phasen
             _effective_cap = max(_planned_strength_cap, _floor)
             if _runtime_strength > _effective_cap:
                 kwargs["strength"] = _effective_cap
