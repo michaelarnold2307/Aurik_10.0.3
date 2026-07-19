@@ -1,6 +1,6 @@
-# Aurik 10.0.8 — Benutzerhandbuch
+# Aurik 10.0.10 — Benutzerhandbuch
 
-> **Version:** 10.0.8 | **Stand:** 13. Juli 2026 | **Sprache:** Deutsch
+> **Version:** 10.0.10 | **Stand:** 19. Juli 2026 | **Sprache:** Deutsch
 
 ---
 
@@ -23,8 +23,349 @@
 - [9. Hinweise für Sonderfälle](#9-hinweise-für-sonderfälle)
 - [10. FAQ](#10-faq)
 - [11. Technische Referenz](#11-technische-referenz)
+- [12. 🏗️ Aurik-Architektur — So funktioniert's](#12-aurik-architektur)
+
 
 ---
+
+## 🏗️ Aurik-Architektur — So funktioniert's
+
+> Alle Diagramme sind in **Mermaid** — kompatibel mit GitHub, VS Code, und jedem modernen Markdown-Viewer.
+
+---
+
+### 📐 Gesamtarchitektur
+
+```mermaid
+graph TB
+    subgraph INPUT["📥 Eingabe"]
+        A1[Audio-Datei<br/>WAV/FLAC/MP3/M4A]
+        A2[Album-Ordner<br/>Batch-Verarbeitung]
+    end
+
+    subgraph PRE["🔍 Pre-Analyse"]
+        B1[Material-Erkennung<br/>16 Trägermedien]
+        B2[Era-Klassifikation<br/>1900–2025]
+        B3[Genre-Erkennung<br/>19 Profile]
+        B4[Defect-Scanner<br/>62 Defekttypen]
+        B5[Restorability-Score<br/>0–100]
+    end
+
+    subgraph DENKER["🧠 AurikDenker (Orchestrator)"]
+        C1[StrategieDenker<br/>8×RT-Budget]
+        C2[DefektDenker<br/>Kausal-Reasoning]
+        C3[RestaurierDenker<br/>UV3-Pipeline]
+        C4[ExzellenzDenker<br/>Musical Goals]
+        C5[PhaseInteractionDenker<br/>Phasen-Steuerung]
+        C6[Preset × Selbstkalibrierung<br/>v10.10]
+    end
+
+    subgraph PIPELINE["🔧 Restaurierungs-Pipeline (44 Phasen)"]
+        D1[01–09: Reparatur<br/>Klicks, Brummen, Rauschen]
+        D2[10–19: Wiederherstellung<br/>EQ, Harmonics, Stereo]
+        D3[20–29: Cleanup<br/>Hall, Dropouts, Azimut]
+        D4[30–39: Veredelung<br/>Speed, M/S, Transienten]
+        D5[40–49: Mastering<br/>Loudness, De-Esser, Dereverb]
+        D6[50–66: SOTA<br/>Inpainting, BandGap, Vocal]
+    end
+
+    subgraph ML["🤖 ML-Infrastruktur"]
+        E1[ModelChainOrchestrator<br/>Shared Models, 6GB Budget]
+        E2[DeepFilterNet<br/>Perceptual Denoising]
+        E3[BanquetVinyl<br/>Vinyl-Restauration]
+        E4[SGMSE+<br/>Diffusion-Inpainting]
+        E5[BWReconstructor<br/>Bandbreiten-Rekonstruktion]
+        E6[45 ONNX-Modelle<br/>CPU + GPU]
+    end
+
+    subgraph POST["✨ Post-Processing"]
+        F1[ArtifactFreedomGate<br/>Neue Artefakte verhindern]
+        F2[HPE-QualityGate<br/>Mid-Pipeline-Wächter]
+        F3[SFT-ArtifactRescue<br/>Signalfluss-Überwachung]
+        F4[SteeringGuard<br/>HPE-Rollback]
+    end
+
+    subgraph EXPORT["💾 Export"]
+        G1[OneTakeExport<br/>LUFS + TruePeak + Fatigue]
+        G2[CD-Rauschprofil<br/>POW-r-Dithering]
+        G3[Restoration-Report<br/>HTML+PNG]
+        G4[Album-Consistency<br/>Track-übergreifend]
+    end
+
+    subgraph GUI["🖥️ GUI (PyQt5)"]
+        H1[MagicRestore<br/>Ein-Klick-Preset]
+        H2[Live-Waveform<br/>30fps Echtzeit]
+        H3[Denker-Toasts<br/>Entscheidungs-Infos]
+        H4[ResultsSummary<br/>Joy/Fatigue/Qualität]
+    end
+
+    A1 --> B1
+    A2 --> B1
+    B1 --> B2 --> B3 --> B4 --> B5
+    B5 --> C1
+    C1 --> C2 --> C3
+    C3 --> D1
+    C4 --> C3
+    C5 --> C3
+    C6 --> C3
+    D1 --> D2 --> D3 --> D4 --> D5 --> D6
+    E1 --> E2
+    E1 --> E3
+    E1 --> E4
+    E1 --> E5
+    E2 --> D1
+    E3 --> D2
+    E4 --> D6
+    E5 --> D2
+    D6 --> F1
+    F1 --> F2 --> F3 --> F4
+    F4 --> G1
+    G1 --> G2 --> G3
+    G3 --> G4
+    C6 --> H1
+    D1 --> H2
+    C5 --> H3
+    G3 --> H4
+
+    style INPUT fill:#1a1a2e,stroke:#667eea,color:#d0dcff
+    style PRE fill:#1a1a2e,stroke:#82B89A,color:#d0dcff
+    style DENKER fill:#1a1a2e,stroke:#C8A84B,color:#d0dcff
+    style PIPELINE fill:#1a1a2e,stroke:#B87A7A,color:#d0dcff
+    style ML fill:#1a1a2e,stroke:#7B93F0,color:#d0dcff
+    style POST fill:#1a1a2e,stroke:#4FC3F7,color:#d0dcff
+    style EXPORT fill:#1a1a2e,stroke:#82B89A,color:#d0dcff
+    style GUI fill:#1a1a2e,stroke:#C8A84B,color:#d0dcff
+```
+
+---
+
+### 🔍 Pre-Analyse & Denker
+
+```mermaid
+graph LR
+    subgraph SCAN["DefectScanner"]
+        S1[Clicks/Pops] --> DM[DefectPhaseMapper]
+        S2[Hiss/Noise] --> DM
+        S3[Dropouts] --> DM
+        S4[Wow/Flutter] --> DM
+        S5[62 Typen...] --> DM
+    end
+
+    DM --> PD[PhaseInteractionDenker]
+    
+    subgraph DECIDE["Denker-Entscheidungen"]
+        PD --> D1[Phase-Suppression<br/>unnötige Phasen skip]
+        PD --> D2[Phase-Injection<br/>Material-kritisch erzwingen]
+        PD --> D3[Order-Adaption<br/>Reihenfolge optimieren]
+        PD --> D4[Strength-Budget<br/>pro Phase kalkulieren]
+    end
+
+    D1 --> PL[Phasen-Plan<br/>44 Phasen optimiert]
+    D2 --> PL
+    D3 --> PL
+    D4 --> PL
+
+    style SCAN fill:#1a1a2e,stroke:#82B89A
+    style DECIDE fill:#1a1a2e,stroke:#C8A84B
+```
+
+---
+
+### 🔧 Phasen-Pipeline (vereinfacht)
+
+```mermaid
+graph LR
+    subgraph R["Reparatur (01–09)"]
+        R1[01 Klicks] --> R2[03 Denoise<br/>OMLSA+IMCRA]
+        R2 --> R3[07 Harmonics<br/>H2-Steering]
+        R3 --> R4[09 Crackle<br/>RBME+Bayes]
+    end
+    subgraph W["Wiederherstellung (10–19)"]
+        W1[12 Wow/Flutter<br/>pYIN+DTW]
+        W1 --> W2[14 Phase-Correction]
+        W2 --> W3[16 Final EQ]
+        W3 --> W4[19 De-Esser<br/>ConsonantBoost]
+    end
+    subgraph C["Cleanup (20–29)"]
+        C1[24 Dropout<br/>CQTdiff+NMF]
+        C1 --> C2[25 Azimuth]
+        C2 --> C3[29 Tape-Hiss<br/>QuietZone-Shield]
+    end
+    subgraph M["Mastering (40–49)"]
+        M1[40 Loudness<br/>EBU R128]
+        M1 --> M2[47 TruePeak<br/>-0.3 dBTP]
+    end
+    subgraph S["SOTA (50–66)"]
+        S1[55 Inpainting<br/>FlowMatching]
+        S1 --> S2[56 BandGap<br/>HEAD_WEAR]
+        S2 --> S3[65 Vocal-Natürlichkeit]
+    end
+
+    R --> W --> C --> M --> S
+
+    style R fill:#1a1a2e,stroke:#B87A7A
+    style W fill:#1a1a2e,stroke:#C8A84B
+    style C fill:#1a1a2e,stroke:#82B89A
+    style M fill:#1a1a2e,stroke:#667eea
+    style S fill:#1a1a2e,stroke:#7B93F0
+```
+
+---
+
+### 🤖 ML-Infrastruktur
+
+```mermaid
+graph TB
+    MCO[ModelChainOrchestrator<br/>Shared Instances, RAM-Budget 6GB]
+    
+    subgraph MODELS["45 ONNX-Modelle"]
+        M1[DeepFilterNet<br/>250 MB, Perceptual NR]
+        M2[BanquetVinyl<br/>92 MB, Vinyl-Specialized]
+        M3[SGMSE+<br/>500 MB, Diffusion]
+        M4[BWReconstructor<br/>5 MB, Bandwidth]
+        M5[MelBandRoformer<br/>860 MB, Spectral]
+        M6[Demucs/HDemucs<br/>300 MB, Stems]
+        M7[RMVPE<br/>345 MB, Pitch]
+        M8[BEATs<br/>345 MB, Semantic]
+        M9[CLAP<br/>400 MB, Audio-Text]
+        M10[...35 weitere Modelle]
+    end
+
+    WARMUP[ModelWarmUpPool<br/>5 Modelle parallel laden<br/>Cold-Start 5→0s]
+    
+    MRN[MRN-Plugins<br/>Shellac/Vinyl/Tape/Lacquer<br/>ML-Chains mit DSP-Fallback]
+
+    MCO --> M1
+    MCO --> M2
+    MCO --> M3
+    MCO --> M4
+    MCO --> M5
+    MCO --> M8
+    MCO --> M9
+    WARMUP --> MCO
+    MCO --> MRN
+
+    style MCO fill:#1a1a2e,stroke:#667eea,color:#d0dcff
+    style MODELS fill:#1a1a2e,stroke:#7B93F0
+    style WARMUP fill:#1a1a2e,stroke:#82B89A
+```
+
+---
+
+### 🎯 Preset-Learning × Selbstkalibrierung (v10.10)
+
+```mermaid
+graph TB
+    subgraph PRESET["Preset-Learning (statistisch)"]
+        P1[Built-in Presets<br/>6 kuratierte Profile]
+        P2[User-Presets<br/>lernend aus Ergebnissen]
+        P3[Material/Ära/Genre<br/>Fuzzy-Matching]
+        P4[learn_from_result()<br/>HPE + User-Rating]
+    end
+
+    subgraph SELF["Selbstkalibrierung (live)"]
+        S1[HPE-Gate<br/>alle 8 Phasen prüfen]
+        S2[Defekt-Profil<br/>→ Strength-Modulation]
+        S3[Material-Floor<br/>Ceiling-Prüfung]
+        S4[Recovery<br/>HPE stabil → zurück zu voller Strength]
+    end
+
+    subgraph MERGE["Synergie"]
+        M1[Preset = Startpunkt]
+        M2[Selbst = Feintuning ±15%]
+        M3[Optimaler Arbeitspunkt<br/>Preset ∩ Selbst]
+    end
+
+    P1 --> M1
+    P2 --> M1
+    P3 --> M1
+    P4 --> P2
+    S1 --> M2
+    S2 --> M2
+    S3 --> M2
+    S4 --> M2
+    M1 --> M3
+    M2 --> M3
+
+    style PRESET fill:#1a1a2e,stroke:#C8A84B
+    style SELF fill:#1a1a2e,stroke:#667eea
+    style MERGE fill:#1a1a2e,stroke:#82B89A
+```
+
+---
+
+### 🖥️ GUI-Kommunikation
+
+```mermaid
+graph LR
+    subgraph BACKEND["Backend → GUI"]
+        B1[Progress-Callback<br/>30fps Live-Status]
+        B2[Denker-Toasts<br/>Phase-Suppression/Goals]
+        B3[Waveform-Ring<br/>Live-Audio 30Hz]
+        B4[ErrorSimplifier<br/>23 Fehler-Patterns]
+        B5[Experience-Insights<br/>Joy/Fatigue/Empfehlungen]
+    end
+
+    subgraph UI["GUI-Widgets"]
+        U1[ModernProgressBar<br/>mit Sub-Phasen-Balken]
+        U2[_ToastNotification<br/>Floating oben-rechts]
+        U3[Live-Waveform<br/>Echtzeit-Visualisierung]
+        U4[QMessageBox<br/>Laien-verständlich]
+        U5[ResultsSummary<br/>mit Emoji-Bewertung]
+    end
+
+    B1 --> U1
+    B2 --> U2
+    B3 --> U3
+    B4 --> U4
+    B5 --> U5
+
+    style BACKEND fill:#1a1a2e,stroke:#667eea
+    style UI fill:#1a1a2e,stroke:#82B89A
+```
+
+---
+
+### 💾 Export-Pipeline
+
+```mermaid
+graph LR
+    subgraph QUALITY["Qualitäts-Gates"]
+        Q1[ArtifactFreedom<br/>≥ 0.95]
+        Q2[HPE-Check<br/>Harmonic Preservation]
+        Q3[Fatigue-Check<br/>Hörermüdung < 0.40]
+    end
+
+    subgraph EXPORT["OneTakeExport"]
+        E1[LUFS-Normalisierung<br/>-16 Restoration / -12 Studio]
+        E2[TruePeak-Limiter<br/>Ceiling -0.3 dBTP]
+        E3[Adaptiver Fatigue-Cut<br/>-1/-2/-3 dB High-Shelf]
+        E4[POW-r Dithering<br/>24→16 Bit]
+    end
+
+    subgraph OUTPUT["Ausgabe"]
+        O1[WAV/FLAC 48kHz]
+        O2[HTML-Report<br/>Phasen/Defekte/Joy]
+        O3[Spektrogramm-PNGs<br/>pro Phase]
+        O4[Album-Konsistenz<br/>Track-übergreifend]
+    end
+
+    Q1 --> Q2 --> Q3
+    Q3 --> E1
+    E1 --> E2 --> E3 --> E4
+    E4 --> O1
+    Q3 --> O2
+    E1 --> O3
+    O2 --> O4
+
+    style QUALITY fill:#1a1a2e,stroke:#B87A7A
+    style EXPORT fill:#1a1a2e,stroke:#667eea
+    style OUTPUT fill:#1a1a2e,stroke:#82B89A
+```
+
+---
+
+> **Legende:** 🟣 Input | 🟢 Analyse | 🟡 Denker | 🔴 Pipeline | 🔵 ML | 🔷 Post-Processing | 🟢 Export | 🟡 GUI
 
 ## 1. Was ist Aurik?
 
