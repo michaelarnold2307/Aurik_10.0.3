@@ -708,3 +708,85 @@ Phase 54 (Transparent Dynamics) / Phase 24 (Dropout Repair)
 | `defect_scanner.py:3750` | Statt `continue`: Zeitbereich sammeln + `continue` |
 | `defect_scanner.py:3767` | `self._forwarded_head_dip_locations` speichern |
 | `defect_scanner.py:6649` | Forwarded Locations in Head-Dip-Detektor mergen |
+
+---
+
+## 15. Kalibrierungs-Architektur (§v10.41, GEBOTE X+XI, VERBOTE E)
+
+### 15.1 Prinzip
+
+> **Jeder Schwellwert, Cap, Floor und Blend-Faktor in Aurik MUSS kontinuierlich aus Auriks eigenen Pre-Analysis-Messwerten abgeleitet werden. Kein hartcodierter Default. Keine diskreten Buckets. Keine Lookup-Tabellen.**
+
+### 15.2 CalibrationContext
+
+Der `CalibrationContext` ist die zentrale Datenstruktur, die ALLE für die Kalibrierung relevanten Messwerte bündelt:
+
+```python
+@dataclass
+class CalibrationContext:
+    # Pre-Analysis (einmalig, aus pre_analysis.py)
+    restorability_score: float      # 0–100
+    transfer_chain_depth: int       # 1–n
+    material_type: str              # cassette, vinyl, reel_tape, ...
+    snr_db: float                   # Signal-Rausch-Abstand
+    bandwidth_hz: float             # Effektive Bandbreite
+    era_decade: int                 # 1950, 1960, 1970, ...
+    genre: str                      # Deutscher Schlager, Jazz, ...
+    vocal_confidence: float         # 0–1
+
+    # Runtime (aktualisiert nach jeder Phase via Rekalibrierung)
+    _novelty_crit: float            # Aktueller NOVELTY_CRIT-Wert
+    _echo_thresh: float             # Aktueller ECHO_THRESH-Wert
+    _snapshot_generation: int       # Monoton steigend
+```
+
+### 15.3 Drei-Klassen-Kalibrierung
+
+| Klasse | Beispiele | Ableitung |
+|--------|----------|-----------|
+| **Physikalische Konstanten** | −60 dBFS (digital black), −0.3 dBTP (ITU-R BS.1770) | Keine Kalibrierung nötig — Naturgesetze |
+| **Material-Konstanten** | max_bandwidth_by_material, noise_floor_by_medium | Aus material_type + era_decade in calibration_matrix.py |
+| **Song-Adaptive Parameter** | NOVELTY_CRIT, min_strength, ECHO_THRESH, gain_budget | **Kontinuierlich aus CalibrationContext** — NIE hartcodiert |
+
+### 15.4 Kontinuierliche Ableitungs-Funktionen
+
+Jede Ableitung folgt dem Muster:
+
+```python
+def compute_X(context: CalibrationContext) -> float:
+    """Leitet X kontinuierlich aus dem CalibrationContext ab."""
+    return continuous_function(context.restorability_score,
+                                context.transfer_chain_depth,
+                                context.snr_db, ...)
+```
+
+Implementierte Ableitungen:
+
+- `compute_novelty_crit_threshold(ctx)` → §v10.41
+- `compute_min_phase_strength(ctx)` → joint_calibrator
+- `compute_echo_threshold(ctx)` → signal_flow_tracer
+- `compute_max_retries(ctx)` → one_take_export
+
+### 15.5 Laufzeit-Rekalibrierung (§v10.42)
+
+Der bestehende `_mid_pipeline_calibration_step()` (33% und 66% Pipeline-Fortschritt) nutzt PMGG-gemessene Musical-Goal-Scores — **ohne zusätzliche DSP-Kosten**. Natuerlichkeit dient als Proxy für die effektive Restorability: je sauberer das Audio, desto höher die effektive Restorability, desto niedriger die NOVELTY_CRIT-Toleranz.
+
+```python
+# §v10.42 in _mid_pipeline_calibration_step():
+_nat = current_scores.get("natuerlichkeit")
+_eff_rs = clamp(orig_rs + max(0, nat − 0.70) × 80, orig_rs, 100)
+_new_nov = 0.20 + (1 − eff_rs/100) × 0.40 + max(0, depth−1) × 0.03
+set_novelty_crit_threshold(_new_nov)  # Monotonie via min(current, previous)
+```
+
+Die Monotonie-Garantie (§G86) ist in `set_novelty_crit_threshold()` implementiert: `_NOVELTY_CRIT = min(value, _NOVELTY_CRIT)`.
+
+### 15.6 Cross-Referenzen
+
+| Dokument | Inhalt |
+|----------|--------|
+| `.github/GEBOTE.md` Kategorie X | §G76–§G81: Kalibrierungs-Dispatch |
+| `.github/GEBOTE.md` Kategorie XI | §G82–§G86: Laufzeit-Rekalibrierung |
+| `.github/VERBOTE.md` Kategorie E | §V25–§V28: Hartcodierte Schwellwerte VERBOTEN |
+| `.github/specs/09_global_calibration_matrix.md` | Detaillierte Dispatch-Implementierung |
+| `.github/specs/17_sft_novelty_adaptive_calibration.md` | SFT-Adaptivität und Defekt-Audibilität |

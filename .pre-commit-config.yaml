@@ -305,6 +305,14 @@ repos:
         pass_filenames: true
         files: ^(backend|Aurik10)/.*\.py$
 
+      # §v10.50 Calibration-Guard (erzwingt §V25-V28, §G76-G81)
+      - id: aurik-calibration-guard
+        name: "§v10.50 Calibration-Guard (§V25-V28, §G76-G81)"
+        entry: .venv_aurik/bin/python scripts/pre_commit_calibration_guard.py
+        language: system
+        pass_filenames: false
+        files: ^(backend|denker)/.*\.py$
+
       # Conventional Commits Message Validation
       - id: conventional-commit-msg
         name: "Conventional Commits (feat/fix/docs/style/refactor/perf/test/chore/spec/build/ci)"

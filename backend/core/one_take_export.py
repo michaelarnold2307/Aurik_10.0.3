@@ -28,19 +28,20 @@ logger = logging.getLogger(__name__)
 
 # ── Konfiguration ──────────────────────────────────────────────────────
 
-_MAX_RETRIES: int = 3
+_MAX_RETRIES: int = 5
 _BRICKWALL_CEILING_DBTP: float = -0.3
 _LUFS_RESTORATION: float = -16.0
 _LUFS_STUDIO: float = -12.0
 _FATIGUE_HF_CUT_DB: float = -1.0
 _FATIGUE_HF_CUT_FREQ: float = 4000.0
 
-# §v10.9: Adaptiver Fatigue-Cut — je höher die Hörermüdung, desto stärker die Dämpfung
+
+# §v10.45: Kontinuierlicher Fatigue-Cut — keine diskreten Stufen (§V26)
+# Formel: cut_db = -max(0, (fatigue - 0.20) * 10.0), clamped to [-3.0, 0.0]
 def _fatigue_cut_db(fatigue_score: float) -> float:
-    if fatigue_score > 0.50: return -3.0
-    if fatigue_score > 0.40: return -2.0
-    if fatigue_score > 0.30: return -1.0
-    return 0.0
+    if fatigue_score <= 0.20:
+        return 0.0
+    return float(np.clip(-(fatigue_score - 0.20) * 10.0, -3.0, 0.0))
 
 
 @dataclass
@@ -147,6 +148,12 @@ class OneTakeExport:
             # 1. True Peak zu hoch → Brickwall-Limiter
             # §v10.35: Ziel-Ceiling -0.3 dBTP (ITU-R BS.1770). TP ≥ -0.3 triggert Limiter.
             if check.true_peak_dbtp > -0.3:
+                # §v10.37 Last-Resort: bei finalem Retry zusätzlich −0.5 dB Gain-Reduktion
+                # vor dem Limiter, um inter-sample peaks (ISP) zu eliminieren.
+                if attempt >= _MAX_RETRIES - 1:
+                    _last_resort_gain = 10.0 ** (-0.5 / 20.0)
+                    current *= _last_resort_gain
+                    corrections_this_round.append("last_resort_gain(−0.5 dB)")
                 current = OneTakeExport._apply_limiter(current, sr)
                 corrections_this_round.append(
                     f"limiter(TP={check.true_peak_dbtp:+.1f}→{_BRICKWALL_CEILING_DBTP:+.1f} dBTP)"
@@ -168,7 +175,7 @@ class OneTakeExport:
             _fatigue_db = _fatigue_cut_db(check.fatigue_score)
             if _fatigue_db < 0:
                 try:
-                    from scipy.signal import butter, sosfilt
+                    from scipy.signal import butter, sosfiltfilt
 
                     sos = butter(
                         2,

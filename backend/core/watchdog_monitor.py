@@ -72,7 +72,22 @@ HPE_MIN_ACCEPTABLE: float = 0.35  # Unter 0.35 = anstrengend
 HPE_TARGET_QUALITY: float = 0.50  # Ziel für Restoration-Mode
 HPE_TARGET_STUDIO: float = 0.70  # Ziel für Studio 2026
 
-# Cumulative-Strength: Summe aller Phasen-Strengths > 1.5 = Überbearbeitungsrisiko
+
+# Cumulative-Strength: adaptiv kalibriert aus Restorability (§v10.46, §G68)
+# Schlechtere Restorability → mehr Stärke erlaubt bevor Warnung.
+def _cumulative_strength_thresholds(restorability_score: float) -> tuple[float, float]:
+    """§v10.46 Kontinuierlich: WARN/CRIT aus Restorability ableiten.
+
+    rs=100 (perfekt): WARN=0.80, CRIT=1.10  (sehr konservativ)
+    rs=50  (mittel):  WARN=1.30, CRIT=1.70  (moderat)
+    rs=0   (kaputt):  WARN=1.80, CRIT=2.30  (viel Spielraum)
+    """
+    _warn = 1.80 - (restorability_score / 100.0) * 1.00
+    _crit = 2.30 - (restorability_score / 100.0) * 1.20
+    return float(np.clip(_warn, 0.80, 1.80)), float(np.clip(_crit, 1.10, 2.30))
+
+
+# Defaults (vor Kalibrierung, überschrieben durch update_watchdog_thresholds)
 CUMULATIVE_STRENGTH_WARN: float = 1.2
 CUMULATIVE_STRENGTH_CRITICAL: float = 1.5
 
@@ -532,3 +547,34 @@ def get_watchdog() -> WatchdogMonitor:
         if _WATCHDOG is None:
             _WATCHDOG = WatchdogMonitor()
     return _WATCHDOG
+
+
+def calibrate_watchdog_thresholds(
+    *,
+    restorability_score: float = 50.0,
+    material_type: str = "unknown",
+) -> None:
+    """§v10.46 Zentrale Watchdog-Schwellwert-Kalibrierung aus CalibrationContext.
+
+    Passt alle Watchdog-Parameter kontinuierlich an die Song-Charakteristik an.
+    Kein hartcodierter Default (§V25, §G78).
+    """
+    global CUMULATIVE_STRENGTH_WARN, CUMULATIVE_STRENGTH_CRITICAL, RMS_CRITICAL_DROP_DB, CREST_MIN_NATURAL
+
+    _warn, _crit = _cumulative_strength_thresholds(restorability_score)
+    CUMULATIVE_STRENGTH_WARN = _warn
+    CUMULATIVE_STRENGTH_CRITICAL = _crit
+    logger.info("§v10.46 Watchdog: rs=%.0f → cumul_strength WARN=%.2f CRIT=%.2f", restorability_score, _warn, _crit)
+
+    # RMS-Drop: Tape-Medien haben natürliche Pegel-Variation → höhere Toleranz
+    _mat_lower = str(material_type).lower()
+    _is_tape = any(t in _mat_lower for t in ("cassette", "reel_tape", "tape"))
+    RMS_CRITICAL_DROP_DB = 16.0 if _is_tape else 12.0
+    logger.info("§v10.46 Watchdog: mat=%s → RMS_CRIT_DROP=%.0fdB", _mat_lower, RMS_CRITICAL_DROP_DB)
+
+    # Crest: komprimierte Quellen haben niedrigeren natürlichen Crest
+    if "mp3" in _mat_lower or "aac" in _mat_lower:
+        CREST_MIN_NATURAL = 4.0
+    else:
+        CREST_MIN_NATURAL = 6.0
+    logger.info("§v10.46 Watchdog: mat=%s → CREST_MIN=%.0fdB", _mat_lower, CREST_MIN_NATURAL)

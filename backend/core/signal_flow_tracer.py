@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _PEGEL_WARN_DB = 6.0  # Pegelexplosion Warning
 _PEGEL_CRIT_DB = 12.0  # Pegelexplosion Critical
-_NOVELTY_WARN = 0.08  # Spektrale Neuheit Warning (§2.46e Threshold ×0.53)
-_NOVELTY_CRIT = 0.15  # Spektrale Neuheit Critical (§2.46e hard-rollback)
+_NOVELTY_WARN = 0.20  # Spektrale Neuheit Warning (adaptiv: ×0.57 des CRIT-Werts)
+_NOVELTY_CRIT = 0.35  # Spektrale Neuheit Critical — adaptiv überschreibbar per set_novelty_threshold()
 _HNR_WARN_DB = 3.0  # HNR-Abfall Warning
 _HNR_CRIT_DB = 6.0  # HNR-Abfall Critical
 _ECHO_CORR_THRESH = 0.35  # Autokorrelations-Peak Diff-Signal für Echo-Detektion
@@ -241,7 +241,7 @@ class SignalFlowTracer:
                 if zones is not None:
                     self._silence_zones = list(zones)
         except Exception:  # pylint: disable=broad-except
-            pass
+            logger.debug("SFT begin_session non-critical fallback, ignoring", exc_info=True)
 
     def capture_pre_phase(self, audio: np.ndarray) -> None:
         """Pre-Phase-Audio für record_phase vormerken (kein Copy — nur Referenz).
@@ -253,7 +253,7 @@ class SignalFlowTracer:
                 # Keine Kopie nötig — UV3 erstellt sowieso eine neue Array nach phase.process()
                 self._pre_audio_ref = audio
         except Exception:  # pylint: disable=broad-except
-            pass
+            logger.debug("SFT capture_pre_phase non-critical, ignoring", exc_info=True)
 
     def record_phase(
         self,
@@ -1019,3 +1019,51 @@ def get_signal_flow_tracer() -> SignalFlowTracer:
             if _instance is None:
                 _instance = SignalFlowTracer()
     return _instance
+
+
+def set_novelty_crit_threshold(value: float) -> None:
+    """§v10.40 Adaptiv: Setzt die NOVELTY_CRIT-Schwelle pro Song.
+
+    Transfer-Chain-Tiefe 1:  value ≈ 0.25
+    Transfer-Chain-Tiefe 2:  value ≈ 0.35
+    Transfer-Chain-Tiefe 3:  value ≈ 0.45
+    Transfer-Chain-Tiefe 4+: value ≈ 0.55
+    """
+    global _NOVELTY_CRIT, _NOVELTY_WARN
+    # §G86 Monotonie-Garantie: NOVELTY_CRIT darf nur sinken, nie steigen.
+    # Saubereres Audio (Mid-Pipeline) rechtfertigt keine laschere Toleranz.
+    _NOVELTY_CRIT = min(float(value), _NOVELTY_CRIT)
+    _NOVELTY_WARN = _NOVELTY_CRIT * 0.57
+    logger.info("§v10.40 SFT: NOVELTY_CRIT kalibriert auf %.3f (monoton)", _NOVELTY_CRIT)
+
+
+def calibrate_sft_thresholds(
+    *,
+    novelty_crit: float | None = None,
+    material_type: str = "unknown",
+    vocal_confidence: float = 0.0,
+) -> None:
+    """§v10.43 Zentrale SFT-Schwellwert-Kalibrierung aus CalibrationContext.
+
+    Alle SFT-Schwellwerte, die vom Song abhängen, werden hier ZENTRAL gesetzt.
+    Kein Modul darf eigene Konstanten pflegen (§V27, §G81).
+    """
+    global _ECHO_CORR_THRESH, _HNR_WARN_DB, _HNR_CRIT_DB
+
+    if novelty_crit is not None:
+        set_novelty_crit_threshold(novelty_crit)
+
+    # Echo: Tape-Medien haben höhere Kanal-Korrelation (Kopf-Übersprechen)
+    _mat_lower = str(material_type).lower()
+    _is_tape = any(t in _mat_lower for t in ("cassette", "reel_tape", "tape"))
+    _ECHO_CORR_THRESH = 0.45 if _is_tape else 0.35
+    logger.info("§v10.43 SFT-Echo: mat=%s → ECHO=%.2f", _mat_lower, _ECHO_CORR_THRESH)
+
+    # HNR: Vocal-Material braucht strengere Grenzwerte (Gesangsschaden hörbarer)
+    if vocal_confidence > 0.30:
+        _HNR_WARN_DB = 2.0
+        _HNR_CRIT_DB = 4.0
+    else:
+        _HNR_WARN_DB = 3.0
+        _HNR_CRIT_DB = 6.0
+    logger.info("§v10.43 SFT-HNR: vocal=%.2f → WARN=%.0fdB CRIT=%.0fdB", vocal_confidence, _HNR_WARN_DB, _HNR_CRIT_DB)

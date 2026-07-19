@@ -77,7 +77,20 @@
 §V10  Phasen-Individuelle Werte §V22  ML-Recovery-Signaturbruch
 §V11  Rauschprofil-Flächendeckung §V23 Diffusionsmodell-Rauschen
 §V12  Stille-Verfälschung       §V24  Falsche Test-Toleranzen
+§V13  Dither-Reduktion          §V25  Hartcodierte Schwellwerte
+§V14  Unbegründeter Rauschfloor §V26  Diskrete Stützstellen
 ```
+
+---
+
+## Kategorie E — Kalibrierungs-Hoheit (§V25–§V28)
+
+| ID | Verbot | Begründung / Spezifikation |
+|----|--------|---------------------------|
+| §V25 | **Hartcodierte Schwellwerte** | Es ist VERBOTEN, irgendeinen Schwellwert, Floor, Cap oder Blend-Faktor als numerische Konstante im Code zu hinterlegen, der nicht AUSSCHLIESSLICH aus Auriks Pre-Analysis-Messwerten (restorability_score, transfer_chain_depth, material_type, SNR, bandwidth, era_decade) abgeleitet ist. Jeder Schwellwert MUSS über die zentrale Kalibrierungs-Matrix bezogen werden. Ausnahme: Physikalische Konstanten (z.B. −60 dBFS für digital black). |
+| §V26 | **Diskrete Stützstellen (Lookup-Tabellen)** | Es ist VERBOTEN, Kalibrierungswerte über diskrete `{key: value}`-Maps oder `if/elif`-Kaskaden mit festen Stützstellen (z.B. `{1:0.25, 2:0.35, 3:0.45}`) abzuleiten. Die Ableitung MUSS über eine kontinuierliche Funktion erfolgen, die jeden kontinuierlichen Eingabewert (z.B. restorability_score=73) auf einen kontinuierlichen Ausgabewert abbildet — ohne Sprünge an Bucket-Grenzen. |
+| §V27 | **Kalibrierungs-Silo** | Es ist VERBOTEN, dass ein Modul (z.B. signal_flow_tracer, joint_calibrator, one_take_export) eigene, vom Rest der Pipeline isolierte Schwellwerte pflegt. ALLE Module MÜSSEN ihre Schwellwerte aus DEMSELBEN zentralen Kalibrierungs-Kontext beziehen. Ein `_NOVELTY_CRIT` im signal_flow_tracer, das nicht aus dem restoration_context stammt, ist ein Verstoß. |
+| §V28 | **Unkalibrierter Default** | Es ist VERBOTEN, einen Default-Wert zu verwenden, der nicht als „letzte Rückfallebene nach fehlgeschlagener Kalibrierung" dokumentiert ist. Jeder Default MUSS mit einer `logger.warning("uncalibrated fallback: {name}={value}")`-Meldung versehen sein, damit unkalibrierte Pfade im Log sichtbar sind. |
 
 ---
 
@@ -85,5 +98,5 @@
 
 | Version | Datum | Änderung |
 |---------|-------|----------|
-| 10.0.5 | 2026-07-13 | §V16–§V24 ergänzt (CD-Rauschprofil, Architektur, ML). Kategorien A–D strukturiert. |
+| 10.0.9 | 2026-07-19 | §V25–§V28: Kalibrierungs-Hoheit. Verbot hartcodierter Schwellwerte und diskreter Stützstellen. Kategorie E. |
 | 10.0.4 | 2026-07-13 | Initiale Formalisierung §V1–§V15. |

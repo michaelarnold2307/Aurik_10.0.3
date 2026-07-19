@@ -877,6 +877,18 @@ class PhaseInteractionDenker:
         if _modern_digital and not _ph:
             return {"clicks": "off", "hum": "off", "clipping": "off"}
 
+        # §v10.47 Restorability-Modulation: schlechtere Qualität → niedrigere Schwellen
+        # (früherer Eingriff bei stark degradiertem Material)
+        _rs = float(
+            getattr(defect_result, "restorability_score", 0)
+            or getattr(getattr(defect_result, "metadata", None), "restorability_score", 0)
+            or 50.0
+        )
+        _rest_factor = float(np.clip(1.0 - (_rs / 100.0) * 0.50, 0.75, 1.0))
+        _click_threshold *= _rest_factor
+        _hum_threshold *= _rest_factor
+        _clip_threshold *= _rest_factor
+
         # ── Signal-Signatur-Fehlerjustage ───────────────────────────────
         if signal_signature:
             _tr = float(signal_signature.get("transient_ratio", 0.0))

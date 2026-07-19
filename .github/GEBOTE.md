@@ -195,12 +195,51 @@ audio = _apply_cd_noise_profile(audio, sr, mask=erb_mask)
 | §V32 | **Kein Audio-Trunkieren für Lag** | Es ist VERBOTEN, Audio zu trunkieren (`audio[:, :N - lag]`), um Lag zu korrigieren. Die Korrektur MUSS die Originallänge durch Zero-Padding erhalten. |
 | §V33 | **Kein shape[0] ohne Orientierungs-Check** | Es ist VERBOTEN, `audio.shape[0]` als Sample-Anzahl zu interpretieren, ohne vorher zu prüfen ob `(2,N)` oder `(N,2)` vorliegt. Die Multi-Point-Funktion MUSS beide Orientierungen unterstützen. |
 
+## Kategorie IX — SFT-Adaptivität & Defekt-Audibilität (§G68–§G75)
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G68 | **SFT-Novelty-Schwelle adaptiv pro Song** | Die NOVELTY_CRIT-Schwelle MUSS pro Song aus Transfer-Chain-Tiefe und Restorability-Tier kalibriert werden (§v10.40). Statische Schwellen sind VERBOTEN — ein fair-quality Kassette-Song mit 4-stufiger Kette hat fundamental andere Neuheits-Erwartungen als ein excellent Studio-Master mit 1-stufiger Kette. |
+| §G69 | **Defekt-Reparatur-Phasen-Klassifikation** | Jede Phase, die Defekte füllt/ersetzt/repariert (nicht nur entfernt), MUSS als Repair-Phase klassifiziert sein. Die Klassifikation steuert SFT-Wet-Minimum und Strength-Floor. Folgende Phasen sind MINDESTENS Repair: 01, 02, 09, 12, 23, 24, 27, 50, 56, 60, 61, 64. |
+| §G70 | **SFT-Prioritätskette: Zerstörung vor Neuheit** | Die SFT-ArtifactRescue MUSS in dieser Reihenfolge prüfen: LEVEL_COLLAPSE (wet=0.0) → ECHO_ARTIFACT (wet=0.30) → PEGELEXPLOSION_CRIT (wet=0.22) → NOVELTY_CRIT (adaptiv). LEVEL_COLLAPSE hat ABSOLUTEN Vorrang — zerstörtes Audio darf NIEMALS in die Pipeline getragen werden. |
+| §G71 | **Unhörbare Defekte als Qualitätsziel** | Transport Bumps, Tape Head Level Dips und alle anderen chirurgischen Defekte MÜSSEN nach der Restaurierung für das menschliche Ohr unhörbar sein. Die effektive Reparatur-Wirkung (strength × SFT-wet) muss ≥ 0.15 betragen — darunter ist der Defekt hörbar. |
+| §G72 | **Keine pauschalen Wet-Werte** | Es ist VERBOTEN, SFT-Wet-Werte pauschal für alle Songs zu setzen. Die Wet-Werte sind Sicherheitsnetze für Phasen, die die adaptiv kalibrierte NOVELTY_CRIT-Schwelle überschreiten. Die primäre Steuerung erfolgt über die Schwelle, nicht über die Wet-Werte. |
+| §G73 | **Joint-Calibration Minimum** | Die minimale Phasen-Stärke (min_strength) MUSS ≥ 0.20 betragen. Phasen mit utility ≤ 0.001 (durch Codec-Diskont oder kleine Goal-Gaps) erhalten sonst keine messbare Wirkung. PROTECTED_PHASES MÜSSEN mindestens 0.35 Floor haben. |
+| §G74 | **OneTakeExport-Garantie** | Jeder Export MUSS nach spätestens 5 Auto-Korrektur-Versuchen erfolgreich sein. Der letzte Versuch MUSS eine Gain-Reduktion (−0.5 dB) VOR dem Limiter anwenden, um Inter-Sample-Peaks garantiert zu eliminieren. Ein Export-FAIL wegen True Peak ist VERBOTEN. |
+| §G75 | **Tuple-ndim Recovery** | Wenn eine Phase einen `'tuple' object has no attribute 'ndim'` Fehler wirft (Post-Processing-Typfehler, Phase-Logik war korrekt), MUSS die Phase als executed markiert werden — nicht als skipped. Der Audio-Stand bleibt auf dem Pre-Phase-Wert (Phase-Logik lief ja korrekt). |
+
+## Kategorie X — Kalibrierungs-Dispatch: Zentrales Nervensystem (§G76–§G81)
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G76 | **Zentraler Kalibrierungs-Kontext** | Es MUSS einen einzigen, zentralen `CalibrationContext` geben, der ALLE Pre-Analysis-Messwerte (restorability_score, transfer_chain_depth, material_type, SNR, bandwidth, era_decade, genre, vocal_confidence) in EINEM Objekt bündelt. JEDES Modul, das einen Schwellwert benötigt, MUSS diesen Kontext als Quelle verwenden — NIE eine eigene Konstante. |
+| §G77 | **Kontinuierliche Ableitung** | JEDER Schwellwert MUSS über eine kontinuierliche Funktion aus dem CalibrationContext abgeleitet werden. Die Funktion MUSS für jeden kontinuierlichen Eingabewert einen kontinuierlichen Ausgabewert liefern. Es ist VERBOTEN, diskrete Buckets (`if x > 0.4: ... elif x > 0.25: ...`) oder Lookup-Tabellen (`{1:0.25, 2:0.35}`) zu verwenden. |
+| §G78 | **Vollständigkeit der Kalibrierung** | ALLE Schwellwerte, Caps, Floors und Blend-Faktoren in der gesamten Pipeline MÜSSEN kalibriert sein. Kein Parameter darf auf einem nicht aus dem CalibrationContext abgeleiteten Default verharren. Ausnahme: Physikalische Konstanten (z.B. −60 dBFS = digital black, −0.3 dBTP = ITU-R BS.1770 Ceiling). |
+| §G79 | **Kalibrierungs-Audit** | Jeder kalibrierte Schwellwert MUSS im Log dokumentiert werden: `"§CALIB %s: rs=%.0f depth=%d → %s=%.4f"`. Dies ermöglicht die Rückverfolgbarkeit jeder Entscheidung auf Auriks eigene Messwerte. |
+| §G80 | **Unkalibrierter-Fallback-Warnung** | Wenn ein Schwellwert nicht aus dem CalibrationContext abgeleitet werden kann (z.B. weil die Pre-Analysis noch nicht abgeschlossen ist), MUSS ein Default verwendet werden — aber NUR mit einer WARNING: `"⚠️ uncalibrated fallback: %s=%.4f (reason: %s)"`. Unkalibrierte Fallbacks sind als technische Schuld zu behandeln. |
+| §G81 | **Einzige Quelle der Wahrheit** | Der CalibrationContext ist die EINZIGE Quelle für alle Schwellwerte. Wenn zwei Module unterschiedliche Werte für denselben Parameter berechnen, ist das ein Architekturfehler. Die Kalibrierungs-Matrix (`calibration_matrix.py`) ist der zentrale Berechnungspunkt — Module rufen ab, sie berechnen nicht selbst. |
+
+## Kategorie XI — Laufzeit-Rekalibrierung (§G82–§G86)
+
+> **Prämisse:** Die Pre-Pipeline-Kalibrierung basiert auf Messwerten des DEGRADIERTEN Eingangssignals. Während der Pipeline verbessert sich das Audio jedoch — SNR steigt, Bandbreite wächst, Defekte verschwinden. Eine Kalibrierung, die nach Phase 03 (denoise) noch mit dem ursprünglichen SNR rechnet, ist FALSCH. Die Pipeline MUSS ihre Sicherheitsparameter kontinuierlich an den verbesserten Audio-Zustand anpassen.
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G82 | **Lebendiger CalibrationContext** | Der CalibrationContext ist NICHT statisch. Nach JEDER Phase MUSS Aurik prüfen, ob sich die für die Kalibrierung relevanten Messwerte (SNR, Bandbreite, Noise-Floor, Stereo-Kohärenz) signifikant geändert haben. Bei Änderung > Schwellwert MUSS der CalibrationContext aktualisiert und ALLE davon abhängigen Parameter neu berechnet werden. |
+| §G83 | **NOVELTY_CRIT-Rekalibrierung** | Die NOVELTY_CRIT-Schwelle MUSS nach jeder signifikanten Audio-Verbesserung (SNR +3 dB, Bandbreite +1 kHz) NEU berechnet werden. Ein saubereres Signal rechtfertigt eine NIEDRIGERE Toleranz — was vorher „erwartete Neuheit" war, ist jetzt „verdächtige Veränderung". Die Formel bleibt dieselbe (§v10.41), aber die Eingabewerte (insbesondere restorability_score und effektive Bandbreite) sind die AKTUELLEN, nicht die initialen. |
+| §G84 | **Phasen-Stärke-Drift-Korrektur** | Die Joint-Calibration berechnet Phasen-Stärken aus Goal-Gaps. Nach jeder Phase ändern sich die Goal-Proxies. Die Stärken der VERBLEIBENDEN Phasen MÜSSEN aus den AKTUELLEN Goal-Gaps neu berechnet werden — nicht aus den initialen. Der MidCalibrate-Mechanismus (33%/66%) ist ein MINIMUM — kritische Parameter (NOVELTY_CRIT, ECHO_THRESH) müssen nach JEDER Phase geprüft werden. |
+| §G85 | **Rekalibrierungs-Audit** | Jede Rekalibrierung MUSS im Log dokumentiert werden: `"§RECALIB phase=%s: rs %.1f→%.1f SNR %.1f→%.1f dB → NOVELTY_CRIT %.3f→%.3f"`. Dies macht sichtbar, WIE sich Auriks Sicherheitsparameter während der Pipeline an das zunehmend sauberere Audio anpassen. |
+| §G86 | **Monotonie-Garantie** | Die NOVELTY_CRIT-Schwelle darf während der Pipeline NUR sinken (konservativer werden) oder gleich bleiben — NIE steigen. Ein saubereres Signal rechtfertigt keine LASCHERE Toleranz. Die Monotonie MUSS im CalibrationContext erzwungen werden: `_NOVELTY_CRIT = min(current_calculation, previous_value)`. |
+
 ---
 
 ## Änderungshistorie
 
 | Version | Datum | Änderung |
 |---------|-------|----------|
+| 10.0.10 | 2026-07-19 | §G82–§G86: Laufzeit-Rekalibrierung. Lebendiger CalibrationContext, NOVELTY_CRIT-Nachführung, Monotonie-Garantie. Kategorie XI. |
+| 10.0.9 | 2026-07-19 | §G76–§G81: Kalibrierungs-Dispatch. Zentraler CalibrationContext, kontinuierliche Ableitung aller Schwellwerte, Kalibrierungs-Audit. Kategorie X. |
+| 10.0.8 | 2026-07-19 | §G68–§G75: SFT-Adaptivität, Defekt-Audibilität, Repair-Klassifikation. Kategorie IX. |
 | 10.0.7 | 2026-07-13 | §G60–§G67 + §V27–§V33. Lag-Integritäts-Architektur nach Root-Cause-Analyse (8 Bugs, 13 Commits). Kategorie VII + VIII. |
 | 10.0.6 | 2026-07-13 | §G46–§G59 (Metriken & Qualitätssicherung). Kategorie VI. |
 | 10.0.5 | 2026-07-13 | §G30–§G39 (CD-Rauschprofil & Export, ML-Device, Test-Assertion). §V16–§V24. |

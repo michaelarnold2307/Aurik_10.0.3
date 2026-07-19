@@ -54,7 +54,7 @@ def joint_calibrate(
     panns_singing: float = 0.0,
     codec_avg_discount: float = 1.0,
     terminal_codec: str | None = None,
-    min_strength: float = 0.10,
+    min_strength: float = 0.25,
     default_strength: float = 0.85,
 ) -> dict[str, float]:
     """Berechnet optimale Phasen-Stärken AUSSCHLIESSLICH aus Goal-Gaps.
@@ -131,7 +131,7 @@ def joint_calibrate(
             strength = min_strength
 
         if pid in PROTECTED_PHASES:
-            strength = max(strength, 0.20)
+            strength = max(strength, 0.40)
 
         results[pid] = float(np.clip(strength, min_strength, 1.0))
 

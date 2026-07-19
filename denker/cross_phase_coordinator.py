@@ -206,10 +206,41 @@ BAND_BUDGET_MAX = 1.0
 # Threshold for flagging overlap as "significant" (≥ this fraction of band)
 SIGNIFICANT_OVERLAP = 0.15
 
-# ── Artifact Detection Thresholds ──────────────────────────────────────
-MUSICAL_NOISE_THRESHOLD = 0.30  # NR phase count × avg strength > 0.30 → risk
-METALLIC_RINGING_THRESHOLD = 0.25  # EQ phase overlap > 0.25 → risk
-ROUGHNESS_BUDGET_FLOOR = 0.70  # roughness budget fraction < 0.70 → risk
+# ── Artifact Detection Thresholds (Defaults, kalibriert via calibrate_cross_phase_thresholds) ──
+MUSICAL_NOISE_THRESHOLD = 0.30  # NR phase count × avg strength > threshold → risk
+METALLIC_RINGING_THRESHOLD = 0.25  # EQ phase overlap > threshold → risk
+ROUGHNESS_BUDGET_FLOOR = 0.70  # roughness budget fraction < floor → risk
+
+
+def calibrate_cross_phase_thresholds(
+    *,
+    material_type: str = "unknown",
+    restorability_score: float = 50.0,
+) -> None:
+    """§v10.48 Adaptiv: Cross-Phase-Artifact-Thresholds aus Material + Restorability.
+
+    Tape/Kassette: mehr NR-Phasen erwartet → höhere MUSICAL_NOISE Toleranz.
+    Schlechte Restorability: mehr Verarbeitung nötig → höhere Budget-Toleranz.
+    """
+    global MUSICAL_NOISE_THRESHOLD, METALLIC_RINGING_THRESHOLD, ROUGHNESS_BUDGET_FLOOR
+    _mat_lower = str(material_type).lower()
+    _is_tape = any(t in _mat_lower for t in ("cassette", "reel_tape", "tape"))
+
+    # Tape: mehr NR erwartet → höhere Toleranz vor MUSICAL_NOISE-Warnung
+    MUSICAL_NOISE_THRESHOLD = 0.42 if _is_tape else 0.30
+    # Restorability: schlechter → mehr EQ overlap toleriert
+    _rs_factor = float(np.clip(1.0 + (1.0 - restorability_score / 100.0) * 0.40, 1.0, 1.40))
+    METALLIC_RINGING_THRESHOLD = float(np.clip(0.25 * _rs_factor, 0.20, 0.35))
+    ROUGHNESS_BUDGET_FLOOR = float(np.clip(0.70 / _rs_factor, 0.55, 0.70))
+
+    logger.info(
+        "§v10.48 CPC: mat=%s rs=%.0f → noise=%.2f ring=%.2f rough=%.2f",
+        _mat_lower,
+        restorability_score,
+        MUSICAL_NOISE_THRESHOLD,
+        METALLIC_RINGING_THRESHOLD,
+        ROUGHNESS_BUDGET_FLOOR,
+    )
 
 
 @dataclass

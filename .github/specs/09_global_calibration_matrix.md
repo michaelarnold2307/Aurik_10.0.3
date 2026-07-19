@@ -49,6 +49,7 @@ Dieses Dokument ist die **Single Source of Truth** für alle Aurik-globalen Para
 - Gate-Toleranzen (PMGG, CIG, AFG)
 - ML-Budget-Grenzen
 - Expected Quality Score (vorhersagbar)
+- **§v10.40 SFT-Novelty-Schwelle** (adaptiv pro Transfer-Chain-Tiefe + Tier → siehe Spec §17)
 
 ---
 

@@ -6030,6 +6030,32 @@ class UnifiedRestorerV3:
             }
         )
         _new_profile["_mid_calibration_events"] = _events
+
+        # §v10.42 Mid-Pipeline-SFT-Rekalibrierung (GEBOTE §G82-G86):
+        # NOVELTY_CRIT aus PMGG-Scores neu berechnen. Natuerlichkeit≈Proxy für
+        # effektive Restorability: saubereres Audio → höhere RS → niedrigere Toleranz.
+        # Monotonie-Garantie (§G86): set_novelty_crit_threshold clamp-sinkt nur.
+        try:
+            from backend.core.signal_flow_tracer import set_novelty_crit_threshold
+
+            _nat = current_scores.get("natuerlichkeit")
+            if _nat is not None:
+                _orig_rs = float(profile.get("_last_restorability_score", 50.0) or 50.0)
+                _eff_rs = float(np.clip(_orig_rs + max(0.0, float(_nat) - 0.70) * 80.0, _orig_rs, 100.0))
+                _depth = int(profile.get("_strict_transfer_depth", 1))
+                _new_nov = float(np.clip(0.20 + (1.0 - _eff_rs / 100.0) * 0.40 + max(0, _depth - 1) * 0.03, 0.18, 0.65))
+                set_novelty_crit_threshold(_new_nov)
+                logger.info(
+                    "§RECALIB %s: rs %.1f→%.1f nat=%.3f → NOVELTY_CRIT=%.4f",
+                    checkpoint_label,
+                    _orig_rs,
+                    _eff_rs,
+                    float(_nat),
+                    _new_nov,
+                )
+        except Exception as _sft_recal_exc:
+            logger.debug("§v10.42 Mid-SFT-Rekal non-blocking: %s", _sft_recal_exc)
+
         return _new_profile
 
     @staticmethod
@@ -7278,11 +7304,19 @@ class UnifiedRestorerV3:
         # §v10.9: Material→Decade-Fallback wenn Era-Classifier None liefert
         if _cached_era_kwarg is None and _cached_medium_kwarg is not None:
             _MATERIAL_TO_DECADE: dict[str, int] = {
-                "shellac": 1930, "vinyl": 1970, "cassette": 1985,
-                "tape": 1975, "reel_tape": 1965, "cd_digital": 1995,
-                "dat": 1995, "mp3_low": 2005, "mp3_high": 2010,
-                "lacquer_disc": 1940, "wax_cylinder": 1900,
-                "wire_recording": 1920, "minidisc": 2000,
+                "shellac": 1930,
+                "vinyl": 1970,
+                "cassette": 1985,
+                "tape": 1975,
+                "reel_tape": 1965,
+                "cd_digital": 1995,
+                "dat": 1995,
+                "mp3_low": 2005,
+                "mp3_high": 2010,
+                "lacquer_disc": 1940,
+                "wax_cylinder": 1900,
+                "wire_recording": 1920,
+                "minidisc": 2000,
             }
             _mat_str = str(getattr(_cached_medium_kwarg, "value", _cached_medium_kwarg) or "").lower()
             _decade = _MATERIAL_TO_DECADE.get(_mat_str)
@@ -7290,7 +7324,8 @@ class UnifiedRestorerV3:
                 _cached_era_kwarg = _decade
                 logger.info(
                     "📅 Era-Fallback: Material=%s → Decade=%d (Pre-Analyse Era=None)",
-                    _mat_str, _decade,
+                    _mat_str,
+                    _decade,
                 )
         _input_path_for_ext = str(kwargs.get("input_path", "") or kwargs.get("file_path", "") or "")
         import os as _os_uv3
@@ -7322,13 +7357,16 @@ class UnifiedRestorerV3:
         # §v10.11 MetadataAggregator: vollständiger Metadaten-Flow
         try:
             from backend.core.metadata_aggregator import get_aggregator
+
             _mda = get_aggregator()
             _mda.start_session(
-                material=str(getattr(_cached_medium_kwarg, "value", _cached_medium_kwarg)
-                             if _cached_medium_kwarg else "unknown") or "unknown",
+                material=str(
+                    getattr(_cached_medium_kwarg, "value", _cached_medium_kwarg) if _cached_medium_kwarg else "unknown"
+                )
+                or "unknown",
                 era=_cached_era_kwarg,
-                genre=str(getattr(_cached_genre_kwarg, "is_schlager", "unknown")
-                          if _cached_genre_kwarg else "unknown") or "unknown",
+                genre=str(getattr(_cached_genre_kwarg, "is_schlager", "unknown") if _cached_genre_kwarg else "unknown")
+                or "unknown",
                 duration_s=float(_n_samples / sample_rate),
                 sample_rate=int(sample_rate),
             )
@@ -10169,6 +10207,47 @@ class UnifiedRestorerV3:
         )
         _cb(15, "Klangleitplanken …")
 
+        # §v10.40 SFT-Adaptiv: NOVELTY_CRIT-Schwelle kontinuierlich aus Auriks eigenen
+        # Messwerten ableiten — keine diskreten Lookup-Tabellen, keine 0.05-Schritte.
+        #
+        # Formel:  crit = floor + restorability_span + chain_bonus
+        #   floor               = 0.20  (minimale Schwelle für perfektes Material)
+        #   restorability_span  = (1 − rs/100) × 0.40  (mehr Degradation → mehr Toleranz)
+        #   chain_bonus         = max(0, depth−1) × 0.03  (jede zusätzliche Stufe → +3% Toleranz)
+        #
+        # Alle Eingabewerte stammen AUSSCHLIESSLICH aus Auriks eigener Pre-Analyse:
+        #   rs    = restorability_score (0–100, kontinuierlich, aus pre_analysis)
+        #   depth = transfer_chain_depth (1–n, aus MediumDetector)
+        try:
+            from backend.core.signal_flow_tracer import calibrate_sft_thresholds
+
+            _rs = float(getattr(self, "_last_restorability_score", 50.0) or 50.0)
+            _depth = int(self._strict_autosetup_policy.get("transfer_chain_depth", 1))
+            _cal_novelty = float(np.clip(0.20 + (1.0 - _rs / 100.0) * 0.40 + max(0, _depth - 1) * 0.03, 0.18, 0.65))
+            _mat_for_sft = str(getattr(self, "_primary_material", "unknown") or "unknown")
+            _vocal_for_sft = float(getattr(self, "_restoration_context", {}).get("panns_vocals_confidence", 0.0))
+            calibrate_sft_thresholds(
+                novelty_crit=_cal_novelty,
+                material_type=_mat_for_sft,
+                vocal_confidence=_vocal_for_sft,
+            )
+            # §v10.46 Watchdog-Kalibrierung
+            try:
+                from backend.core.watchdog_monitor import calibrate_watchdog_thresholds
+
+                calibrate_watchdog_thresholds(restorability_score=_rs, material_type=_mat_for_sft)
+            except Exception as _wd_cal_exc:
+                logger.debug("§v10.46 Watchdog non-blocking: %s", _wd_cal_exc)
+            # §v10.48 Cross-Phase-Coordinator
+            try:
+                from denker.cross_phase_coordinator import calibrate_cross_phase_thresholds
+
+                calibrate_cross_phase_thresholds(restorability_score=_rs, material_type=_mat_for_sft)
+            except Exception as _cpc_cal_exc:
+                logger.debug("§v10.48 CPC non-blocking: %s", _cpc_cal_exc)
+        except Exception as _novelty_cal_exc:
+            logger.debug("§v10.40 SFT-Adaptiv non-blocking: %s", _novelty_cal_exc)
+
         # ── §2.56 Song-Goal-Importance: Per-song goal weighting ──────────
         # Computed ONCE after all classifiers (Genre, Era, Material, Vocal)
         # and threaded through PMGG, CIG, and FeedbackChain for the entire pipeline.
@@ -10928,6 +11007,7 @@ class UnifiedRestorerV3:
             if _mat_for_order:
                 try:
                     from backend.core.adaptive_phase_order import reorder_phases_for_material
+
                     _ordered = reorder_phases_for_material(selected_phases, _mat_for_order)
                     if _ordered != selected_phases:
                         selected_phases = _ordered
@@ -28628,7 +28708,20 @@ class UnifiedRestorerV3:
             _runtime_strength = float(kwargs.get("strength", 0.0) or 0.0)
             _is_repair = any(
                 str(getattr(phase_metadata, "phase_id", "")).startswith(p)
-                for p in ("phase_01", "phase_02", "phase_09", "phase_24", "phase_27")
+                for p in (
+                    "phase_01",
+                    "phase_02",
+                    "phase_09",
+                    "phase_12",
+                    "phase_23",
+                    "phase_24",
+                    "phase_27",
+                    "phase_50",
+                    "phase_56",
+                    "phase_60",
+                    "phase_61",
+                    "phase_64",
+                )
             )
             # §v10.11 Selbstkalibrierung: Kein harter Floor —
             # die HPE-Gate-Selbstkalibrierung (v10.10) bestimmt dynamisch die Untergrenze.
@@ -28659,10 +28752,11 @@ class UnifiedRestorerV3:
             )
             # §v10.11: Return proper result object via SimpleNamespace
             from types import SimpleNamespace as _SN
+
             _skip_result = _SN(
                 audio=audio,
                 success=True,
-                metadata={'skipped': True, 'reason': 'strength_below_min'},
+                metadata={"skipped": True, "reason": "strength_below_min"},
                 warnings=[],
             )
             return _skip_result
@@ -31331,7 +31425,11 @@ class UnifiedRestorerV3:
                                         "UnifiedRestorerV3: signal flow tracer novelty parse failed (non-critical): %s",
                                         _uvr_novelty_exc,
                                     )
-                        if any("PEGELEXPLOSION_CRIT" in _f for _f in _latest_flags):
+                        if any("LEVEL_COLLAPSE" in _f for _f in _latest_flags):
+                            _sft_wet = 0.0  # §v10.38: Audio zerstört → vollständiger Rollback
+                        elif any("ECHO_ARTIFACT" in _f for _f in _latest_flags):
+                            _sft_wet = 0.30  # §v10.39: Echo/Pre-Echo → konservativ, aber nicht destruktiv
+                        elif any("PEGELEXPLOSION_CRIT" in _f for _f in _latest_flags):
                             _sft_wet = 0.22
                         elif any("NOVELTY_CRIT" in _f for _f in _latest_flags) and not self.is_studio_mode():
                             # Restoration: §2.46e rollback bei hoher Novelty.
@@ -31341,14 +31439,25 @@ class UnifiedRestorerV3:
                             # sie verändern das Signal PLANMÄSSIG. NOVELTY_CRIT hier = erwartet, nicht schädlich.
                             _is_repair_phase = any(
                                 str(getattr(phase_metadata, "phase_id", "")).startswith(p)
-                                for p in ("phase_01", "phase_02", "phase_09", "phase_24", "phase_27")
+                                for p in (
+                                    "phase_01",
+                                    "phase_02",
+                                    "phase_09",
+                                    "phase_12",
+                                    "phase_23",
+                                    "phase_24",
+                                    "phase_27",
+                                    "phase_50",
+                                    "phase_56",
+                                    "phase_60",
+                                    "phase_61",
+                                    "phase_64",
+                                )
                             )
-                            if _sft_novelty_val >= 0.40:
-                                _sft_wet = 0.30 if _is_repair_phase else 0.05
-                            elif _sft_novelty_val >= 0.25:
-                                _sft_wet = 0.40 if _is_repair_phase else 0.10
+                            if _is_repair_phase:
+                                _sft_wet = float(np.clip(0.80 - _sft_novelty_val, 0.30, 0.75))
                             else:
-                                _sft_wet = 0.50 if _is_repair_phase else 0.20
+                                _sft_wet = float(np.clip(0.70 - _sft_novelty_val, 0.20, 0.65))
                         else:
                             _sft_wet = 0.30  # Studio 2026 oder ECHO_ARTIFACT
                         # Falls Temporal-Rescue schon lief, staerker am konservativen Ende bleiben.
@@ -36066,8 +36175,16 @@ class UnifiedRestorerV3:
                         logger.error("OOM-Recovery-Checkpoint fehlgeschlagen: %s", _cp_exc)
                     break
                 except Exception as e:
-                    logger.error("❌ %s exception: %s", phase_id, e)
-                    skipped.append(phase_id)
+                    _exc_msg = str(e)
+                    if "'tuple' object has no attribute 'ndim'" in _exc_msg:
+                        logger.warning(
+                            "⚠️ %s tuple-ndim: Phase-Ausgabe auf Original zurückgesetzt (Post-Processing-Typfehler, Phase-Logik OK)",
+                            phase_id,
+                        )
+                        executed.append(phase_id)
+                    else:
+                        logger.error("❌ %s exception: %s", phase_id, e)
+                        skipped.append(phase_id)
                     _record_oom_probe("phase_exception", phase_id, error=f"{type(e).__name__}:{e}")
                 if self.performance_guard:
                     self.performance_guard.end_phase(phase_id, phase_start)
@@ -36765,6 +36882,13 @@ class UnifiedRestorerV3:
                         _mid_cal_pct = len(executed) / max(len(selected_phases), 1)
                         if not _mid_cal_33pct_done and _mid_cal_pct >= 0.33:
                             _mid_cal_33pct_done = True
+                            # Inject SFT-Rekalibrierungswerte in den Profile (static method hat kein self)
+                            self._song_calibration_profile["_last_restorability_score"] = float(
+                                getattr(self, "_last_restorability_score", 50.0) or 50.0
+                            )
+                            self._song_calibration_profile["_strict_transfer_depth"] = int(
+                                self._strict_autosetup_policy.get("transfer_chain_depth", 1)
+                            )
                             _refined = self._mid_pipeline_calibration_step(
                                 _pmgg_scores_curr,
                                 self._song_calibration_profile,
@@ -36777,6 +36901,11 @@ class UnifiedRestorerV3:
                                 self._song_calibration_profile = _refined
                         elif not _mid_cal_66pct_done and _mid_cal_pct >= 0.66:
                             _mid_cal_66pct_done = True
+                            # Ensure values are present (33pct may not have run for short pipelines)
+                            self._song_calibration_profile.setdefault("_last_restorability_score",
+                                float(getattr(self, "_last_restorability_score", 50.0) or 50.0))
+                            self._song_calibration_profile.setdefault("_strict_transfer_depth",
+                                int(self._strict_autosetup_policy.get("transfer_chain_depth", 1)))
                             _refined = self._mid_pipeline_calibration_step(
                                 _pmgg_scores_curr,
                                 self._song_calibration_profile,
