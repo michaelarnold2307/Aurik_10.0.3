@@ -7271,6 +7271,8 @@ class UnifiedRestorerV3:
             ):
                 kwargs["cached_restorability_result"] = _pre_analysis.restorability
         _cached_era_kwarg = kwargs.pop("cached_era_result", None)
+        _input_path_for_ext = str(kwargs.get("input_path", "") or kwargs.get("file_path", "") or "")
+        import os as _os_uv3
 
         _file_ext_for_scan = _os_uv3.path.splitext(_input_path_for_ext)[1].lower() if _input_path_for_ext else ""
         self._active_global_plan = _gp_kwarg if _gp_kwarg is not None else self.config.global_plan
