@@ -35,6 +35,13 @@ _LUFS_STUDIO: float = -12.0
 _FATIGUE_HF_CUT_DB: float = -1.0
 _FATIGUE_HF_CUT_FREQ: float = 4000.0
 
+# §v10.9: Adaptiver Fatigue-Cut — je höher die Hörermüdung, desto stärker die Dämpfung
+def _fatigue_cut_db(fatigue_score: float) -> float:
+    if fatigue_score > 0.50: return -3.0
+    if fatigue_score > 0.40: return -2.0
+    if fatigue_score > 0.30: return -1.0
+    return 0.0
+
 
 @dataclass
 class OneTakeResult:
@@ -156,8 +163,10 @@ class OneTakeExport:
                         f"gain({check.integrated_lufs:+.1f}→{lufs_target:+.0f} LUFS, Δ={gain_db:+.1f}dB)"
                     )
 
-            # 3. Fatigue zu hoch → sanfte Höhenabsenkung
-            if check.fatigue_score > 0.4:
+            # 3. Fatigue zu hoch → adaptive Höhenabsenkung
+            # §v10.9: Adaptiver Cut: -1dB@0.35, -2dB@0.40, -3dB@0.50
+            _fatigue_db = _fatigue_cut_db(check.fatigue_score)
+            if _fatigue_db < 0:
                 try:
                     from scipy.signal import butter, sosfilt
 
@@ -167,14 +176,14 @@ class OneTakeExport:
                         btype="highshelf",
                         output="sos",
                     )
-                    sos[:, :3] *= 10.0 ** (_FATIGUE_HF_CUT_DB / 40.0)
+                    sos[:, :3] *= 10.0 ** (_fatigue_db / 40.0)
                     if current.ndim == 2:
                         for ch in range(min(current.shape[0], 2)):
                             current[ch] = sosfiltfilt(sos, current[ch])
                     else:
                         current = sosfiltfilt(sos, current)
                     corrections_this_round.append(
-                        f"hf_cut({_FATIGUE_HF_CUT_DB:+.0f}dB@{_FATIGUE_HF_CUT_FREQ}Hz, fatigue={check.fatigue_score:.2f})"
+                        f"hf_cut({_fatigue_db:+d}dB@{_FATIGUE_HF_CUT_FREQ}Hz, fatigue={check.fatigue_score:.2f})"
                     )
                 except Exception as _e:
                     logger.debug("one_take_export: non-critical exception: %s", _e)

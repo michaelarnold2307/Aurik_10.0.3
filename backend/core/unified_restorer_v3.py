@@ -7271,25 +7271,6 @@ class UnifiedRestorerV3:
             ):
                 kwargs["cached_restorability_result"] = _pre_analysis.restorability
         _cached_era_kwarg = kwargs.pop("cached_era_result", None)
-        _cached_genre_kwarg = kwargs.pop("cached_genre_result", None)
-        _cached_defect_kwarg = kwargs.pop("cached_defect_result", None)
-        _cached_medium_kwarg = kwargs.pop("cached_medium_result", None)
-        _cached_restorability_kwarg = kwargs.pop("cached_restorability_result", None)
-        _audio_update_cb_kwarg = kwargs.pop("audio_update_callback", None)
-        _no_rt_limit = bool(kwargs.pop("no_rt_limit", False))
-        self._song_calibration_profile = {}
-        self._strict_autosetup_policy = {}
-        self._phase_goal_conflict_runtime = {"events": [], "by_phase": {}, "by_family": {}, "total": 0}
-        # §11.7a: reconstruction_context von RekonstruktionsDenker — enthält bereits reparierte Gaps
-        _reconstruction_ctx = kwargs.pop("reconstruction_context", None)
-        # §DEBUG: Debug-Trace aktivieren — schreibt pmgg_log_entries (mit scores_before/after)
-        # in metadata["pmgg_log_entries"] am Ende des Pipeline-Laufs.
-        self._debug_trace_enabled = bool(kwargs.pop("enable_debug_trace", False))
-        # Bug-15-Fix: file_ext aus input_path extrahieren — wird an DefectScanner.scan()
-        # weitergegeben, damit der interne ForensicMediumDetector-Aufruf das Analog-
-        # Posterior-Zeroing anwenden kann (verhindert wax_cylinder-Fehlklassifikation).
-        _input_path_for_ext = str(kwargs.get("input_path", "") or kwargs.get("file_path", "") or "")
-        import os as _os_uv3
 
         _file_ext_for_scan = _os_uv3.path.splitext(_input_path_for_ext)[1].lower() if _input_path_for_ext else ""
         self._active_global_plan = _gp_kwarg if _gp_kwarg is not None else self.config.global_plan
@@ -10898,6 +10879,16 @@ class UnifiedRestorerV3:
                 logger.info("§7.5a Phase-DAG: Phasenplan topologisch korrigiert")
                 if isinstance(getattr(self, "_phase_metadata_accumulator", None), dict):
                     self._phase_metadata_accumulator["dag_sorted_before_execution"] = True
+            # §v10.9: Material-adaptive Phase-Reihenfolge nach DAG-Sort
+            _mat_for_order = str(getattr(self, "_restoration_context", {}).get("primary_material", "") or "").lower()
+            if _mat_for_order:
+                try:
+                    from backend.core.adaptive_phase_order import reorder_phases_for_material
+                    _ordered = reorder_phases_for_material(selected_phases, _mat_for_order)
+                    if _ordered != selected_phases:
+                        selected_phases = _ordered
+                except Exception:
+                    pass  # Non-critical — original order is fine
             _dag_violations = _validate_phase_order(selected_phases)
             if _dag_violations:
                 # §7.5a Transienter Zwischenzustand: §GOAL_BASELINE-Sort (Sort2) korrigiert noch

@@ -558,12 +558,15 @@ class HarmonicRestorationPhase(PhaseInterface):
             params["strength"] = float(params["strength"] * _p07_sat_scale)
             params["blend"] = float(params["blend"] * _p07_sat_scale)
             # §GEBOT-G07: Drive adaptiv aus Crest-Faktor (peak/RMS) ableiten
+            # §v10.9: Drive reduziert (2.5→1.8) — vorherige Werte erzeugten
+            # h2=0.258 bei Kassette, was alle Guards triggert (Pre-Echo, Tilt, Blend).
+            # Neue Range: 0.6–1.8 — natürliche Sättigung ohne Überproduktion.
             try:
                 _crest_p07 = float(np.max(np.abs(_mono_p07)) / max(np.sqrt(np.mean(_mono_p07**2)), 1e-8))
-                _drive_adaptive = float(np.clip(2.5 - _crest_p07 * 0.15, 1.0, 2.5))
+                _drive_adaptive = float(np.clip(1.8 - _crest_p07 * 0.12, 0.6, 1.8))
             except Exception:
-                _drive_adaptive = 1.5
-            params["drive"] = float(np.clip(params.get("drive", _drive_adaptive) * max(_p07_sat_scale, 0.5), 1.0, 2.5))
+                _drive_adaptive = 1.2
+            params["drive"] = float(np.clip(params.get("drive", _drive_adaptive) * max(_p07_sat_scale, 0.5), 0.6, 1.8))
             logger.debug(
                 "Phase 07 soft_saturation guard: severity=%.2f preserve=%s → scale=%.2f "
                 "(strength=%.3f blend=%.3f drive=%.2f)",
