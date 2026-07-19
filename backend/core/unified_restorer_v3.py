@@ -7297,6 +7297,8 @@ class UnifiedRestorerV3:
 
         _audio_update_cb_kwarg = kwargs.pop("audio_update_callback", None)
         _no_rt_limit = bool(kwargs.pop("no_rt_limit", False))
+        _reconstruction_ctx = kwargs.pop("reconstruction_context", None)
+        _enable_debug_trace = kwargs.pop("enable_debug_trace", False)
 
         _file_ext_for_scan = _os_uv3.path.splitext(_input_path_for_ext)[1].lower() if _input_path_for_ext else ""
         self._active_global_plan = _gp_kwarg if _gp_kwarg is not None else self.config.global_plan
