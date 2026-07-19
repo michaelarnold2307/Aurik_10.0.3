@@ -28654,13 +28654,14 @@ class UnifiedRestorerV3:
                 phase_metadata.phase_id,
                 _final_strength,
             )
-            # §v10.11: Return proper result object — raw ndarray crasht post-processing
-            _skip_result = type('_SkipResult', (), {
-                'audio': audio,
-                'success': True,
-                'metadata': {'skipped': True, 'reason': 'strength_below_min'},
-                'warnings': [],
-            })()
+            # §v10.11: Return proper result object via SimpleNamespace
+            from types import SimpleNamespace as _SN
+            _skip_result = _SN(
+                audio=audio,
+                success=True,
+                metadata={'skipped': True, 'reason': 'strength_below_min'},
+                warnings=[],
+            )
             return _skip_result
 
         try:
