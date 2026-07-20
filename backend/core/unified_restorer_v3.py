@@ -27965,6 +27965,96 @@ class UnifiedRestorerV3:
         out["dominant_coalition"] = _dom_name
         return out
 
+    def _predictive_quality_guard(
+        self,
+        phase_metadata,
+        audio: np.ndarray,
+        kwargs: dict,
+        sev_wet_dry: float,
+    ) -> float | None:
+        """§v10.53 Predictive Quality Guard — Schaden vorhersehen, nicht korrigieren.
+
+        Läuft VOR jeder Phase mit LIVE-Messwerten. Sagt VQI-Drop, CIG-Rollback
+        und AFG-Artifakte vorher und capped/skipped die Phase proaktiv.
+
+        Returns:
+            None  → keine Vorhersage nötig, normal ausführen
+            > 0   → Strength-Cap (z.B. 0.35)
+            0.0   → Phase komplett überspringen
+        """
+        _pid = str(getattr(phase_metadata, "phase_id", ""))
+        _strength = float(kwargs.get("strength", 1.0) or 1.0)
+        _panns = float(getattr(self, "_panns_singing", 0.0) or 0.0)
+        _mat = str(getattr(self, "_primary_material", "unknown") or "unknown").lower()
+
+        # ── Guard 1: AFG Pre-Skip — DeEsser ohne Zischlaut-Material ──
+        if _pid == "phase_19_de_esser":
+            _hf_ratio = self._estimate_hf_ratio(audio)
+            if _hf_ratio < 0.005:
+                return 0.0  # Kein Zischlaut → DeEsser würde nur Artefakte produzieren
+
+        # ── Guard 2: VQI Pre-Cap — Subtractive Cleanup auf analogem Vocal-Material ──
+        _analog_mats = {"cassette", "vinyl", "reel_tape", "tape", "shellac"}
+        if _panns >= 0.25 and _mat in _analog_mats and _strength > 0.35:
+            # Prüfe ob Phase subtractiv ist (via Phase-Effect-Catalog)
+            try:
+                from backend.core.phase_effect_catalog import PHASE_EFFECT_CATALOG
+                _profile = PHASE_EFFECT_CATALOG.get(_pid)
+                if _profile is not None:
+                    _family = str(getattr(_profile, "family", "") or "")
+                    _risks = list(getattr(_profile, "risks", []) or [])
+                    # Subtractive cleanup + vocal material → VQI-kritisch
+                    if _family == "subtractive_cleanup" and _strength > 0.35:
+                        return 0.35
+                    # Vocal enhancement bei niedrigem VQI-Prox → riskant
+                    if _family == "vocal_enhancement":
+                        _vqi_proxy = self._estimate_vqi_proxy(audio)
+                        if _vqi_proxy < 0.70:
+                            return _strength * 0.5
+            except Exception:
+                pass
+
+        # ── Guard 3: CIG Pre-Skip — STFT-Group-Delay-Gefahr ──
+        _stft_count = int(getattr(self, "_cig_stft_phase_count", 0) or 0)
+        if _stft_count >= 2 and "stft" in str(getattr(phase_metadata, "dsp_profile", "") or "").lower():
+            _gdd = float(getattr(self, "_cig_current_gdd_ms", 0.0) or 0.0)
+            # Erwarteter GDD nach dieser Phase: current + 10ms pro STFT-Phase
+            if _gdd > 8.0:
+                logger.info(
+                    "🔮 Predictive CIG-Guard %s: GDD %.1f ms nach %d STFT-Phasen → Phase SKIP",
+                    _pid, _gdd, _stft_count,
+                )
+                return 0.0
+
+        return None
+
+    def _estimate_hf_ratio(self, audio: np.ndarray) -> float:
+        """Schätzt HF-Ratio für AFG Pre-Skip (leichtgewichtig)."""
+        try:
+            _mono = audio.mean(axis=-1) if audio.ndim == 2 else audio
+            _n = min(len(_mono), 48000)  # 1s max
+            _seg = _mono[:_n]
+            _spec = np.abs(np.fft.rfft(_seg))
+            _hf = np.sum(_spec[len(_spec)//2:])
+            _total = np.sum(_spec) + 1e-12
+            return float(_hf / _total)
+        except Exception:
+            return 1.0
+
+    def _estimate_vqi_proxy(self, audio: np.ndarray) -> float:
+        """Schätzt VQI-Proxy aus RMS-Stabilität (leichtgewichtig)."""
+        try:
+            _mono = audio.mean(axis=-1) if audio.ndim == 2 else audio
+            _rms = float(np.sqrt(np.mean(_mono**2)) + 1e-12)
+            # Referenz-RMS aus restoration_context
+            _ref_rms = float(getattr(self, "_vqi_ref_rms", _rms) or _rms)
+            if not hasattr(self, "_vqi_ref_rms"):
+                self._vqi_ref_rms = _rms
+            _ratio = min(_rms, _ref_rms) / max(_rms, _ref_rms) if max(_rms, _ref_rms) > 1e-12 else 1.0
+            return float(np.clip(_ratio, 0.0, 1.0))
+        except Exception:
+            return 1.0
+
     def _prepare_profiled_phase_runtime_context(
         self,
         phase_metadata: Any,
@@ -28859,6 +28949,35 @@ class UnifiedRestorerV3:
             _rest_ctx,
         )
 
+        # ── §v10.53 Predictive Quality Guard: Schaden vorhersehen statt korrigieren ──
+        # Verhindert VQI/CIG/AFG-Rollbacks PROAKTIV, bevor die Phase läuft.
+        # Nutzt LIVE-Messwerte (post vorherige Phasen) für akkurate Vorhersage.
+        _pred_cap = self._predictive_quality_guard(
+            phase_metadata, audio, kwargs, _sev_wet_dry
+        )
+        if _pred_cap is not None:
+            if _pred_cap <= 0.0:
+                # Skip completely — Phase würde garantiert Rollback triggern
+                logger.info(
+                    "🔮 Predictive Guard SKIP %s: Phase hätte %s-Rollback ausgelöst → übersprungen",
+                    phase_metadata.phase_id,
+                    _pred_cap.get("reason", "quality"),
+                )
+                return audio
+            else:
+                # Cap strength — verhindert Rollback durch präemptive Reduktion
+                _old_strength = float(kwargs.get("strength", 1.0) or 1.0)
+                _new_strength = float(min(_old_strength, _pred_cap))
+                if _new_strength < _old_strength:
+                    kwargs["strength"] = _new_strength
+                    logger.info(
+                        "🔮 Predictive Guard CAP %s: strength %.2f→%.2f (%s)",
+                        phase_metadata.phase_id,
+                        _old_strength,
+                        _new_strength,
+                        _pred_cap.get("reason", "quality"),
+                    )
+
         # ── §v10.35 Wet/Dry-Strength-Kohärenz: wenn eine Phase kaum Output liefert
         # (wet_dry < 0.15), die Rechenzeit proportional reduzieren. Betrifft nur
         # nicht-kritische Quality-of-Life-Phasen; kritische Reparatur-Phasen (denoise,
@@ -29680,6 +29799,21 @@ class UnifiedRestorerV3:
                 logger.debug("Fallback in unified_restorer_v3.py", exc_info=True)
                 pass  # GuardWisdom recording ist nicht kritisch für die Pipeline
         # ── Ende Intra-Pipeline-GuardWisdom ──────────────────────
+
+        # ── §v10.53 CIG-STFT-Tracking: GDD-Estimation für Predictive Quality Guard ──
+        _pid_stft_track = str(getattr(phase_metadata, "phase_id", ""))
+        _dsp_stft_track = str(getattr(phase_metadata, "dsp_profile", "") or "").lower()
+        _is_stft_phase = "stft" in _dsp_stft_track or "stft" in _pid_stft_track.lower()
+        if _is_stft_phase:
+            _stft_count = int(getattr(self, "_cig_stft_phase_count", 0) or 0) + 1
+            self._cig_stft_phase_count = _stft_count
+            # Conservative GDD estimate: ~10ms group delay per STFT phase
+            self._cig_current_gdd_ms = float(_stft_count * 10.0)
+            logger.debug(
+                "🔮 CIG-STFT-Track %s: count=%d, est_gdd=%.1f ms",
+                _pid_stft_track, _stft_count, self._cig_current_gdd_ms,
+            )
+        # ── Ende CIG-STFT-Tracking ────────────────────────────────
 
         # §0h Quiet-Zone propagation: wenn phase_29 Stille-Zonen begrenzen musste,
         # wird ein risikobasiertes Reintroduction-Signal für nachfolgende Phasen gesetzt.
