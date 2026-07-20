@@ -18868,6 +18868,10 @@ class ModernMainWindow(QMainWindow):
 
         # Start batch processing
         self.batch_thread = BatchProcessingThread(self.batch_queue)
+        # §Fix Live-Preview: _audio_ring muss für Batch-Thread sichtbar sein
+        # (_audio_update_cb läuft im BatchProcessingThread, nicht in ModernWindow)
+        if getattr(self, "_audio_ring", None) is not None:
+            self.batch_thread._audio_ring = self._audio_ring
         self.batch_thread.item_started.connect(self._on_item_started)
         self.batch_thread.item_progress.connect(self._on_item_progress)
         self.batch_thread.item_finished.connect(self._on_item_finished)
