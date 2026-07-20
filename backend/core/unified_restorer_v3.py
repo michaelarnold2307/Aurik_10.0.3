@@ -31732,6 +31732,7 @@ class UnifiedRestorerV3:
                                     "phase_16", "phase_17",               # Tonal
                                     "phase_36", "phase_37", "phase_38",  # Bass/Presence
                                     "phase_39", "phase_41",               # Air-Band/Brilliance
+                                    "phase_10", "phase_26", "phase_40",  # Dynamics/Loudness
                                     "phase_48",                            # Stereo-Enhance
                                 )
                             )
