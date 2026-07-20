@@ -29046,6 +29046,9 @@ class UnifiedRestorerV3:
                     phase_metadata.phase_id,
                     _cap_reason,
                 )
+                # §v10.53: Flag setzen, damit CIG in _execute_pipeline den Skip erkennt
+                # und die Phase NICHT als STFT-Phase tracked (verhindert falschen Rollback).
+                self._last_phase_guard_skipped = True
                 return audio
             else:
                 # Cap strength — verhindert Rollback durch präemptive Reduktion
@@ -36630,11 +36633,15 @@ class UnifiedRestorerV3:
                             logger.debug("TQC mid-pipeline nicht verfügbar: %s", _mtqc_exc)
                 # §2.48 [RELEASE_MUST] Kumulative-Phasen-Interaktions-Guard — after each phase
                 _cig_phase_rolled_back: bool = False  # §2.45a-VII: gate cumulative makeup guard
+                # §v10.53: Predictive Guard-Skip → CIG nicht tracken (Phase wurde nicht ausgeführt)
+                _guard_skipped = getattr(self, '_last_phase_guard_skipped', False)
+                self._last_phase_guard_skipped = False  # Reset für nächste Phase
                 if (
                     _interaction_guard is not None
                     and _interaction_guard_state is not None
                     and phase_id in executed
                     and _pmgg_scores_curr is not None
+                    and not _guard_skipped  # §v10.53: kein CIG-Check nach Guard-Skip
                 ):
                     try:
                         _ig_audio, _ig_rolled_back = _interaction_guard.check_after_phase(
