@@ -1,7 +1,7 @@
 """
 §v10.4 Phase Steering Guard — HPE-gesteuerter Phase-Loop mit SOTA-Workflow.
 
-Wrapped UnifiedRestorerV3._profiled_phase_call mit:
+Wrapped UnifiedRestorerV3._profiled_phase_call per Instance-Level-Hook mit:
 1. HPE-Messung VOR und NACH jeder Phase
 2. Steering-Entscheidungen: CONTINUE | RETRY_LIGHTER | SKIP | ROLLBACK
 3. Cross-Phase Naturalness Consensus (Band-Sättigungs-Tracker)
@@ -9,12 +9,14 @@ Wrapped UnifiedRestorerV3._profiled_phase_call mit:
 5. Safety-Guards: max_retries=3, max_rollbacks=5, kein Infinite-Loop
 6. Stop-Regel: wenn PMGG > 0.92 und HPE > 0.72 über 3 Phasen → STOP
 
-Aktivierung: AURIK_STEERING=1 (opt-in, wie AURIK_EVOLUTION=1)
+Aktivierung: Default-aktiv (kein opt-in nötig).
 
-Architektur:
-- Installation via install_steering() — wrapper wird in running UV3-Instanz injiziert
-- Keine Modifikation an unified_restorer_v3.py nötig
-- Alle Änderungen rückgängig machbar via uninstall_steering()
+Architektur (§v10.53 Refactor):
+- install_steering() → Factory, erzeugt Engine-Singleton
+- wrap_steering(engine, original_fn) → Erzeugt Wrapper-Funktion
+- UV3.__init__() bindet Wrapper per types.MethodType auf self
+- Kein Klassen-Monkeypatch → keine Test-Pollution
+- inspect.getsource(UV3._profiled_phase_call) bleibt intakt
 
 Ref: §v10 Pleasantness-First, §3.0 Cross-Phase Consensus, §2.64 FeedbackChain
 """
@@ -22,10 +24,8 @@ Ref: §v10 Pleasantness-First, §3.0 Cross-Phase Consensus, §2.64 FeedbackChain
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -264,127 +264,110 @@ class PhaseSteeringEngine:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Monkey-Patch Wrapper (inject in UV3._profiled_phase_call)
+# Instance-Level Wrapper (kein Klassen-Monkeypatch)
 # ═══════════════════════════════════════════════════════════════════════════
 
-_original_profiled_phase_call: Callable | None = None
 _engine: PhaseSteeringEngine | None = None
 
 
 def install_steering() -> PhaseSteeringEngine:
-    """Installiert HPE-Steering in UnifiedRestorerV3 als Default-Workflow.
+    """Erzeugt den globalen Steering-Engine-Singleton (Factory).
 
-    Wrapped _profiled_phase_call, sodass jede Phase HPE-gemessen
-    und gesteuert wird. Aktiv nur mit AURIK_STEERING=1 (opt-in).
+    Kein Monkeypatch — die Engine wird per Instance-Level-Hook in
+    UnifiedRestorerV3.__init__() eingebunden (§v10.53 Refactor).
 
     Returns:
-        PhaseSteeringEngine (globaler Singleton)
+        PhaseSteeringEngine (globaler Singleton), immer enabled=True.
     """
-    global _engine, _original_profiled_phase_call
+    global _engine
 
     if _engine is not None:
         return _engine
 
     _engine = PhaseSteeringEngine()
-
-    # §v10.53: Nur aktiv wenn AURIK_STEERING=1 gesetzt ist.
-    # Ohne Env-Variable: Steering-Engine existiert, aber _profiled_phase_call
-    # wird NICHT monkeypatched → keine Test-Pollution, inspect.getsource bleibt intakt.
-    if os.environ.get("AURIK_STEERING", "") != "1":
-        _engine._enabled = False
-        logger.debug("PhaseSteeringGuard: deaktiviert (AURIK_STEERING != 1)")
-        return _engine
-
-    try:
-        from backend.core.unified_restorer_v3 import UnifiedRestorerV3 as _UV3
-
-        _original_profiled_phase_call = _UV3._profiled_phase_call
-
-        def _steered_phase_call(self, phase, audio, **kwargs):
-            """Gesteuerter Phase-Call mit HPE-Messung und Steering."""
-
-            phase_name = str(getattr(phase, "phase_id", getattr(phase, "__name__", "?")))
-            strength = float(kwargs.get("strength", 1.0))
-            sr = int(kwargs.get("sample_rate", 48000) or 48000)
-            _orig_fn = _original_profiled_phase_call
-
-            # HPE vor Phase
-            hpe_before = _engine._compute_hpe(audio, sr)
-
-            # Original-Phase ausführen
-            result = _orig_fn(self, phase, audio, **kwargs)
-            result_audio = result.audio if hasattr(result, "audio") else result
-
-            # HPE nach Phase
-            hpe_after = _engine._compute_hpe(result_audio, sr)
-
-            # Steering-Entscheidung
-            decision = _engine.decide(hpe_before, hpe_after, phase_name, strength)
-            pmgg_after = _engine._compute_pmgg(result_audio, sr)
-
-            if decision.action == SteerAction.CONTINUE:
-                _engine.record_phase(phase_name, result_audio, hpe_after, pmgg_after)
-                return result
-
-            elif decision.action == SteerAction.RETRY_LIGHTER:
-                new_kwargs = dict(kwargs)
-                new_kwargs["strength"] = decision.new_strength
-                logger.info("Steering %s: RETRY_LIGHTER (str %.2f→%.2f)", phase_name, strength, decision.new_strength)
-                result2 = _orig_fn(self, phase, audio, **new_kwargs)
-                result2_audio = result2.audio if hasattr(result2, "audio") else result2
-                hpe2 = _engine._compute_hpe(result2_audio, sr)
-                if hpe2 > hpe_before - 0.02:
-                    _engine.record_phase(
-                        phase_name + "_retry", result2_audio, hpe2, _engine._compute_pmgg(result2_audio, sr)
-                    )
-                    return result2
-                # RETRY half nicht → SKIP
-                _engine.record_phase(phase_name + "_retry_failed", audio, hpe_before, _engine._compute_pmgg(audio, sr))
-                return type(result)(audio=audio) if hasattr(result, "audio") else audio
-
-            elif decision.action == SteerAction.SKIP:
-                logger.info(
-                    "Steering %s: SKIP (HPE %.3f→%.3f Δ%+.3f)", phase_name, hpe_before, hpe_after, decision.delta_hpe
-                )
-                _engine.record_phase(phase_name + "_skipped", audio, hpe_before, _engine._compute_pmgg(audio, sr))
-                return type(result)(audio=audio) if hasattr(result, "audio") else audio
-
-            elif decision.action == SteerAction.ROLLBACK:
-                best = _engine.get_best_audio()
-                if best is not None:
-                    logger.warning("Steering %s: ROLLBACK to best (HPE %.3f)", phase_name, _engine._state.best_hpe)
-                    return type(result)(audio=best) if hasattr(result, "audio") else best
-                _engine.record_phase(phase_name + "_rollback_fallback", audio, hpe_before, pmgg_after)
-                return result
-
-            elif decision.action == SteerAction.STOP_GRACEFUL:
-                logger.info("Steering: STOP_GRACEFUL — %s (HPE %.3f stabil)", phase_name, hpe_after)
-                _engine.record_phase(phase_name, result_audio, hpe_after, pmgg_after)
-                return result
-
-            return result
-
-        _UV3._profiled_phase_call = _steered_phase_call
-        logger.info("PhaseSteeringGuard: INSTALLED — HPE-Steering aktiv (AURIK_STEERING=1)")
-    except Exception as e:
-        logger.warning("PhaseSteeringGuard: Installation fehlgeschlagen: %s", e)
-
+    logger.debug("PhaseSteeringGuard: Engine-Singleton erzeugt (enabled=%s)", _engine.enabled)
     return _engine
 
 
-def uninstall_steering():
-    """Entfernt Steering-Wrapper und stellt Original-Methode wieder her."""
-    global _engine, _original_profiled_phase_call
-    if _original_profiled_phase_call is not None:
-        try:
-            from backend.core.unified_restorer_v3 import UnifiedRestorerV3 as _UV3
+def wrap_steering(engine: PhaseSteeringEngine, original_fn):
+    """Erzeugt eine Wrapper-Funktion, die HPE-Steering um original_fn legt.
 
-            _UV3._profiled_phase_call = _original_profiled_phase_call
-            logger.info("PhaseSteeringGuard: UNINSTALLED")
-        except Exception as e:
-            logger.warning("unknown: %s", e)
-    _engine = None
-    _original_profiled_phase_call = None
+    Die Wrapper-Funktion hat die Signatur (self, phase, audio, **kwargs)
+    und kann per types.MethodType an eine UV3-Instanz gebunden werden.
+
+    Args:
+        engine: Die Steering-Engine (von install_steering()).
+        original_fn: Die originale _profiled_phase_call (ungebundene Methode).
+
+    Returns:
+        Callable mit Signatur (self, phase, audio, **kwargs) → PhaseResult/ndarray.
+    """
+
+    def _steered_phase_call(self, phase, audio, **kwargs):
+        """Gesteuerter Phase-Call mit HPE-Messung und Steering."""
+        import types as _types
+
+        phase_name = str(getattr(phase, "phase_id", getattr(phase, "__name__", "?")))
+        strength = float(kwargs.get("strength", 1.0))
+        sr = int(kwargs.get("sample_rate", 48000) or 48000)
+
+        # HPE vor Phase
+        hpe_before = engine._compute_hpe(audio, sr)
+
+        # Original-Phase ausführen
+        result = original_fn(self, phase, audio, **kwargs)
+        result_audio = result.audio if hasattr(result, "audio") else result
+
+        # HPE nach Phase
+        hpe_after = engine._compute_hpe(result_audio, sr)
+
+        # Steering-Entscheidung
+        decision = engine.decide(hpe_before, hpe_after, phase_name, strength)
+        pmgg_after = engine._compute_pmgg(result_audio, sr)
+
+        if decision.action == SteerAction.CONTINUE:
+            engine.record_phase(phase_name, result_audio, hpe_after, pmgg_after)
+            return result
+
+        elif decision.action == SteerAction.RETRY_LIGHTER:
+            new_kwargs = dict(kwargs)
+            new_kwargs["strength"] = decision.new_strength
+            logger.info("Steering %s: RETRY_LIGHTER (str %.2f→%.2f)", phase_name, strength, decision.new_strength)
+            result2 = original_fn(self, phase, audio, **new_kwargs)
+            result2_audio = result2.audio if hasattr(result2, "audio") else result2
+            hpe2 = engine._compute_hpe(result2_audio, sr)
+            if hpe2 > hpe_before - 0.02:
+                engine.record_phase(
+                    phase_name + "_retry", result2_audio, hpe2, engine._compute_pmgg(result2_audio, sr)
+                )
+                return result2
+            # RETRY half nicht → SKIP
+            engine.record_phase(phase_name + "_retry_failed", audio, hpe_before, engine._compute_pmgg(audio, sr))
+            return type(result)(audio=audio) if hasattr(result, "audio") else audio
+
+        elif decision.action == SteerAction.SKIP:
+            logger.info(
+                "Steering %s: SKIP (HPE %.3f→%.3f Δ%+.3f)", phase_name, hpe_before, hpe_after, decision.delta_hpe
+            )
+            engine.record_phase(phase_name + "_skipped", audio, hpe_before, engine._compute_pmgg(audio, sr))
+            return type(result)(audio=audio) if hasattr(result, "audio") else audio
+
+        elif decision.action == SteerAction.ROLLBACK:
+            best = engine.get_best_audio()
+            if best is not None:
+                logger.warning("Steering %s: ROLLBACK to best (HPE %.3f)", phase_name, engine._state.best_hpe)
+                return type(result)(audio=best) if hasattr(result, "audio") else best
+            engine.record_phase(phase_name + "_rollback_fallback", audio, hpe_before, pmgg_after)
+            return result
+
+        elif decision.action == SteerAction.STOP_GRACEFUL:
+            logger.info("Steering: STOP_GRACEFUL — %s (HPE %.3f stabil)", phase_name, hpe_after)
+            engine.record_phase(phase_name, result_audio, hpe_after, pmgg_after)
+            return result
+
+        return result
+
+    return _steered_phase_call
 
 
 def get_engine() -> PhaseSteeringEngine | None:

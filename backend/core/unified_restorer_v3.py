@@ -1305,15 +1305,25 @@ class UnifiedRestorerV3:
             self.phase_skipper = None  # type: ignore[assignment]
 
         # §v10.4 PhaseSteeringGuard — SOTA-Workflow: HPE-gesteuerter Phase-Loop
+        # §v10.53 Refactor: Instance-Level-Hook statt Klassen-Monkeypatch.
+        # wrap_steering() erzeugt einen Wrapper, der per types.MethodType an
+        # diese Instanz gebunden wird. Kein Klassen-Monkeypatch → keine Test-Pollution.
         self._steering_active: bool = False
         self._steering_engine: object = None
         try:
-            from backend.core.phase_steering_guard import install_steering
+            from backend.core.phase_steering_guard import install_steering, wrap_steering
 
             self._steering_engine = install_steering()
             self._steering_active = getattr(self._steering_engine, "enabled", False)
             if self._steering_active:
-                logger.info("PhaseSteeringGuard: AKTIV — SOTA Phase-Loop")
+                import types
+
+                # Original-Methode von der Klasse holen (ungebunden)
+                _original_fn = type(self)._profiled_phase_call
+                # Wrapper erzeugen und an diese Instanz binden
+                _wrapper = wrap_steering(self._steering_engine, _original_fn)
+                self._profiled_phase_call = types.MethodType(_wrapper, self)
+                logger.info("PhaseSteeringGuard: AKTIV — SOTA Phase-Loop (Instance-Level-Hook)")
         except Exception as _steer_exc:
             logger.warning("⚠️ SOTA PhaseSteeringGuard nicht verfügbar: %s", _steer_exc)
 
