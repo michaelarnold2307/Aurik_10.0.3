@@ -28031,7 +28031,13 @@ class UnifiedRestorerV3:
 
         # ── Guard 3: CIG Pre-Skip — STFT-Group-Delay-Gefahr ──
         _stft_count = int(getattr(self, "_cig_stft_phase_count", 0) or 0)
-        if _stft_count >= 2 and "stft" in str(getattr(phase_metadata, "dsp_profile", "") or "").lower():
+        # STFT-Phasen über CIG-eigenes Frozenset erkennen (dsp_profile existiert nicht auf PhaseMetadata)
+        try:
+            from backend.core.cumulative_interaction_guard import STFT_PHASES as _CIG_STFT_PHASES
+        except ImportError:
+            _CIG_STFT_PHASES = frozenset()
+        _is_stft_phase = _pid in _CIG_STFT_PHASES
+        if _stft_count >= 2 and _is_stft_phase:
             _gdd = float(getattr(self, "_cig_current_gdd_ms", 0.0) or 0.0)
             # Erwarteter GDD nach dieser Phase: current + 10ms pro STFT-Phase
             if _gdd > 8.0:
@@ -29862,8 +29868,12 @@ class UnifiedRestorerV3:
 
         # ── §v10.53 CIG-STFT-Tracking: GDD-Estimation für Predictive Quality Guard ──
         _pid_stft_track = str(getattr(phase_metadata, "phase_id", ""))
-        _dsp_stft_track = str(getattr(phase_metadata, "dsp_profile", "") or "").lower()
-        _is_stft_phase = "stft" in _dsp_stft_track or "stft" in _pid_stft_track.lower()
+        # STFT-Phasen über CIG-eigenes Frozenset erkennen
+        try:
+            from backend.core.cumulative_interaction_guard import STFT_PHASES as _CIG_STFT_PHASES
+        except ImportError:
+            _CIG_STFT_PHASES = frozenset()
+        _is_stft_phase = _pid_stft_track in _CIG_STFT_PHASES
         if _is_stft_phase:
             _stft_count = int(getattr(self, "_cig_stft_phase_count", 0) or 0) + 1
             self._cig_stft_phase_count = _stft_count
