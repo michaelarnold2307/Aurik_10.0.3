@@ -28008,46 +28008,9 @@ class UnifiedRestorerV3:
                 )
                 return 0.0
 
-        # ── Guard 2: VQI Pre-Cap — Subtractive Cleanup auf analogem Vocal-Material ──
-        _analog_mats = {"cassette", "vinyl", "reel_tape", "tape", "shellac"}
-        if _panns >= 0.25 and _mat in _analog_mats and _strength > 0.35:
-            # Prüfe ob Phase subtractiv ist (via Phase-Effect-Catalog)
-            try:
-                from backend.core.phase_effect_catalog import PHASE_EFFECT_CATALOG
-                _profile = PHASE_EFFECT_CATALOG.get(_pid)
-                if _profile is not None:
-                    _family = str(getattr(_profile, "family", "") or "")
-                    _risks = list(getattr(_profile, "risks", []) or [])
-                    # Subtractive cleanup + vocal material → VQI-kritisch
-                    if _family == "subtractive_cleanup" and _strength > 0.35:
-                        return 0.35
-                    # Vocal enhancement bei niedrigem VQI-Prox → riskant
-                    if _family == "vocal_enhancement":
-                        _vqi_proxy = self._estimate_vqi_proxy(audio)
-                        if _vqi_proxy < 0.70:
-                            return _strength * 0.5
-            except Exception:
-                pass
-
-        # ── Guard 3: CIG Pre-Skip — STFT-Group-Delay-Gefahr ──
-        _stft_count = int(getattr(self, "_cig_stft_phase_count", 0) or 0)
-        # STFT-Phasen über CIG-eigenes Frozenset erkennen (dsp_profile existiert nicht auf PhaseMetadata)
-        try:
-            from backend.core.cumulative_interaction_guard import STFT_PHASES as _CIG_STFT_PHASES
-        except ImportError:
-            _CIG_STFT_PHASES = frozenset()
-        _is_stft_phase = _pid in _CIG_STFT_PHASES
-        if _stft_count >= 2 and _is_stft_phase:
-            _gdd = float(getattr(self, "_cig_current_gdd_ms", 0.0) or 0.0)
-            # Erwarteter GDD nach dieser Phase: current + 10ms pro STFT-Phase
-            if _gdd > 8.0:
-                logger.info(
-                    "🔮 Predictive CIG-Guard %s: GDD %.1f ms nach %d STFT-Phasen → Phase SKIP",
-                    _pid, _gdd, _stft_count,
-                )
-                return 0.0
-
-        # ── Guard 4: EPG Denoiser-Cap — ML-Modelle vermeiden wenn DSP reicht ──
+        # ── Guard 2: EPG Denoiser-Cap — ML-Modelle vermeiden wenn DSP reicht ──
+        # MUSS vor Guard 3 (VQI) laufen — VQI capped phase_03 auf 0.35,
+        # aber EPG muss auf 0.195 cappen können (unter DSP-Threshold).
         # Phase 03 hat internen DSP-Threshold: 0.10 + panns × 0.30.
         # Wenn Strength darüber liegt und Vocals vorhanden sind, läuft erst
         # der ML-Pfad (BS-RoFormer + Resemble, ~745s), dessen Ergebnis dann
@@ -28078,6 +28041,45 @@ class UnifiedRestorerV3:
                     _pid, _strength, _dsp_threshold, _panns, _cap,
                 )
                 return _cap
+
+        # ── Guard 3: VQI Pre-Cap — Subtractive Cleanup auf analogem Vocal-Material ──
+        _analog_mats = {"cassette", "vinyl", "reel_tape", "tape", "shellac"}
+        if _panns >= 0.25 and _mat in _analog_mats and _strength > 0.35:
+            # Prüfe ob Phase subtractiv ist (via Phase-Effect-Catalog)
+            try:
+                from backend.core.phase_effect_catalog import PHASE_EFFECT_CATALOG
+                _profile = PHASE_EFFECT_CATALOG.get(_pid)
+                if _profile is not None:
+                    _family = str(getattr(_profile, "family", "") or "")
+                    _risks = list(getattr(_profile, "risks", []) or [])
+                    # Subtractive cleanup + vocal material → VQI-kritisch
+                    if _family == "subtractive_cleanup" and _strength > 0.35:
+                        return 0.35
+                    # Vocal enhancement bei niedrigem VQI-Prox → riskant
+                    if _family == "vocal_enhancement":
+                        _vqi_proxy = self._estimate_vqi_proxy(audio)
+                        if _vqi_proxy < 0.70:
+                            return _strength * 0.5
+            except Exception:
+                pass
+
+        # ── Guard 4: CIG Pre-Skip — STFT-Group-Delay-Gefahr ──
+        _stft_count = int(getattr(self, "_cig_stft_phase_count", 0) or 0)
+        # STFT-Phasen über CIG-eigenes Frozenset erkennen (dsp_profile existiert nicht auf PhaseMetadata)
+        try:
+            from backend.core.cumulative_interaction_guard import STFT_PHASES as _CIG_STFT_PHASES
+        except ImportError:
+            _CIG_STFT_PHASES = frozenset()
+        _is_stft_phase = _pid in _CIG_STFT_PHASES
+        if _stft_count >= 2 and _is_stft_phase:
+            _gdd = float(getattr(self, "_cig_current_gdd_ms", 0.0) or 0.0)
+            # Erwarteter GDD nach dieser Phase: current + 10ms pro STFT-Phase
+            if _gdd > 8.0:
+                logger.info(
+                    "🔮 Predictive CIG-Guard %s: GDD %.1f ms nach %d STFT-Phasen → Phase SKIP",
+                    _pid, _gdd, _stft_count,
+                )
+                return 0.0
 
         return None
 
