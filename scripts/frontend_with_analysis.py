@@ -96,7 +96,7 @@ class FrontendWithAnalysisSupervisor:
 
             self.analyzer_process = subprocess.Popen(
                 [
-                    str(_WORKSPACE_ROOT / ".venv_aurik" / "bin" / "python"),
+                    sys.executable,
                     str(analyzer_script),
                     "--audio",
                     self.audio_path,

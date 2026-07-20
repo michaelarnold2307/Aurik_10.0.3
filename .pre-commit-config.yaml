@@ -282,12 +282,20 @@ repos:
         pass_filenames: true
         files: ^backend/core/(quality_mode|defect_manifest|phase_pruner|safe_dict|periodic_health)\.py$
 
-      # Anti-Regression-Gate (alle 9 Bug-Muster)
+      # Anti-Regression-Gate (alle 12 Bug-Muster)
       - id: aurik-anti-regression
-        name: "Anti-Regression-Gate (alle 9 Bug-Muster)"
+        name: "Anti-Regression-Gate (alle 12 Bug-Muster)"
         entry: .venv_aurik/bin/python scripts/compliance/anti_regression_gate.py
         language: system
         pass_filenames: true
+
+      # §v10.50 Subprocess-Vertrag (§V34): sys.executable in Orchestratoren
+      - id: aurik-sys-executable-guard
+        name: "§v10.50 Subprocess-Vertrag (§V34): sys.executable in Orchestratoren"
+        entry: .venv_aurik/bin/python scripts/compliance/check_sys_executable.py
+        language: system
+        pass_filenames: false
+        files: ^scripts/.*\.py$
 
       # Version-Consistency (kein Aurik 8.0/9.x in Logs)
       - id: aurik-version-consistency

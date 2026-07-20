@@ -3297,10 +3297,10 @@ class BatchProcessingThread(QThread):
                         _ring = getattr(self, "_audio_ring", None)
                         if _ring is not None:
                             _ring.write(phase_audio, int(phase_sr), str(phase_id_str))
-                        # Fallback: Qt-Signal falls SharedMemory nicht verfügbar
-                        else:
-                            _phase_norm = _normalize_audio(phase_audio)
-                            self.waveform_phase_update.emit(_phase_norm, int(phase_sr), str(phase_id_str))
+                        # Dual-Path: auch Qt-Signal senden für Robustheit
+                        # (SharedMemory kann bei Sandboxing/Flatpak fehlschlagen)
+                        _phase_norm = _normalize_audio(phase_audio)
+                        self.waveform_phase_update.emit(_phase_norm, int(phase_sr), str(phase_id_str))
                     except Exception as _e:
                         logger.debug("audio_update_cb failed for %s: %s", phase_id_str, _e)
 
@@ -12551,6 +12551,7 @@ class ModernMainWindow(QMainWindow):
                 sig = getattr(screen, sig_name)
                 sig.connect(self._on_screen_metrics_changed)
             except Exception:
+                logger.debug("modern_window: Screen-Metrics-Connect übersprungen", exc_info=True)
                 continue
 
     def _on_screen_metrics_changed(self, *_args) -> None:
@@ -22437,6 +22438,7 @@ class ModernMainWindow(QMainWindow):
                                 "Die Restaurierung l\u00e4uft im Hintergrund weiter."
                             )
             except Exception:
+                logger.debug("modern_window: Live-Vorschau-Guard übersprungen", exc_info=True)
                 pass
         except Exception as _e:
             logger.debug("_poll_audio_ring Fehler: %s", _e)

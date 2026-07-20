@@ -85,19 +85,35 @@ class RealtimePegelexplosionMonitor:
 
         logger.info(f"Analysiere: {audio_path.name}")
 
-        try:
-            from backend.file_import import load_audio_file
+        # §v10.50 Retry-Loop: transient WAV read errors (race condition beim Schreiben)
+        _max_retries = 3
+        _retry_delay_s = 0.5
+        for _attempt in range(_max_retries):
+            try:
+                from backend.file_import import load_audio_file
 
-            result = load_audio_file(str(audio_path))
-            if result is None or result.get("error"):
-                logger.warning(f"  ✗ Load fehlgeschlagen: {result.get('error') if result else 'None'}")
+                result = load_audio_file(str(audio_path))
+                if result is None or result.get("error"):
+                    _err = result.get("error") if result else "None"
+                    if _attempt < _max_retries - 1 and "unpack" in str(_err).lower():
+                        logger.debug(
+                            "  ⏳ Load retry %d/%d nach transientem Fehler: %s", _attempt + 1, _max_retries, _err
+                        )
+                        time.sleep(_retry_delay_s * (_attempt + 1))
+                        continue
+                    logger.warning(f"  ✗ Load fehlgeschlagen: {_err}")
+                    return
+                audio = result["audio"]
+                sr = result["sr"]
+                logger.debug(f"  Geladen: {len(audio) / sr:.1f}s @ {sr} Hz")
+                break
+            except Exception as e:
+                if _attempt < _max_retries - 1 and "unpack" in str(e).lower():
+                    logger.debug("  ⏳ Load retry %d/%d nach transientem Fehler: %s", _attempt + 1, _max_retries, e)
+                    time.sleep(_retry_delay_s * (_attempt + 1))
+                    continue
+                logger.warning(f"  ✗ Load fehlgeschlagen: {e}")
                 return
-            audio = result["audio"]
-            sr = result["sr"]
-            logger.debug(f"  Geladen: {len(audio) / sr:.1f}s @ {sr} Hz")
-        except Exception as e:
-            logger.warning(f"  ✗ Load fehlgeschlagen: {e}")
-            return
 
         # Pegelexplosion-Analyse
         findings = self.detector.analyze_audio_for_spikes(

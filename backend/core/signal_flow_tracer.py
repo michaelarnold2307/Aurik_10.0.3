@@ -1042,6 +1042,8 @@ def calibrate_sft_thresholds(
     novelty_crit: float | None = None,
     material_type: str = "unknown",
     vocal_confidence: float = 0.0,
+    transfer_chain_depth: int = 1,
+    restorability_score: float = 65.0,
 ) -> None:
     """§v10.43 Zentrale SFT-Schwellwert-Kalibrierung aus CalibrationContext.
 
@@ -1049,9 +1051,22 @@ def calibrate_sft_thresholds(
     Kein Modul darf eigene Konstanten pflegen (§V27, §G81).
     """
     global _ECHO_CORR_THRESH, _HNR_WARN_DB, _HNR_CRIT_DB
+    global _WET_CEILING_NONREPAIR, _WET_CEILING_REPAIR
 
     if novelty_crit is not None:
         set_novelty_crit_threshold(novelty_crit)
+
+    # §G71 Wet-Ceilings: depth-adaptiv für effektive Phasen-Wirkung ≥ 0.15
+    _depth = max(1, int(transfer_chain_depth))
+    _WET_CEILING_NONREPAIR = float(np.clip(0.72 + max(0, _depth - 1) * 0.05, 0.65, 0.90))
+    _WET_CEILING_REPAIR = float(np.clip(0.82 + max(0, _depth - 1) * 0.05, 0.75, 0.95))
+    logger.info(
+        "§G71 SFT-Wet-Ceilings: depth=%d rs=%.0f → nonrepair=%.2f repair=%.2f",
+        _depth,
+        restorability_score,
+        _WET_CEILING_NONREPAIR,
+        _WET_CEILING_REPAIR,
+    )
 
     # Echo: Tape-Medien haben höhere Kanal-Korrelation (Kopf-Übersprechen)
     _mat_lower = str(material_type).lower()
@@ -1067,3 +1082,13 @@ def calibrate_sft_thresholds(
         _HNR_WARN_DB = 3.0
         _HNR_CRIT_DB = 6.0
     logger.info("§v10.43 SFT-HNR: vocal=%.2f → WARN=%.0fdB KRIT=%.0fdB", vocal_confidence, _HNR_WARN_DB, _HNR_CRIT_DB)
+
+
+# §G71 Wet-Ceilings: depth-adaptiv, von calibrate_sft_thresholds() gesetzt
+_WET_CEILING_NONREPAIR: float = 0.70
+_WET_CEILING_REPAIR: float = 0.80
+
+
+def get_sft_wet_ceilings() -> tuple[float, float]:
+    """§G71 Gibt die kalibrierten Wet-Ceilings zurück (non-repair, repair)."""
+    return (_WET_CEILING_NONREPAIR, _WET_CEILING_REPAIR)

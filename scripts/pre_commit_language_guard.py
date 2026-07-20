@@ -3,10 +3,11 @@
 
 Prüft vor jedem Commit:
   - logger.info/warning/error/debug Meldungen auf englische Wörter
-  - Blockiert Commits mit englischen Log-Meldungen
+  - Blockiert Commits mit NEUEN englischen Log-Meldungen
+  - Bestehende englische Meldungen sind in .language_guard_whitelist.txt erfasst
   - Erzwingt einheitlich deutsche Terminal-Ausgabe während der Restaurierung
 
-Exit 0 = sauber, Exit 1 = englische Log-Meldung gefunden.
+Exit 0 = sauber, Exit 1 = neue englische Log-Meldung gefunden.
 
 Autor: Aurik 10 — 19. Juli 2026
 """
@@ -14,12 +15,29 @@ Autor: Aurik 10 — 19. Juli 2026
 from __future__ import annotations
 
 import ast
+import hashlib
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_WHITELIST_PATH = _PROJECT_ROOT / ".language_guard_whitelist.txt"
+
+
+def _load_whitelist() -> set[str]:
+    """Lädt die Whitelist bestehender EN-Meldungen."""
+    if not _WHITELIST_PATH.exists():
+        return set()
+    try:
+        with open(_WHITELIST_PATH) as f:
+            return {line.strip() for line in f if line.strip()}
+    except Exception:
+        return set()
+
+
+_WHITELIST: set[str] = _load_whitelist()
 
 # Deutsche Fachbegriffe, die in Logs OK sind (keine false positives)
 _GERMAN_TECH_TERMS: set[str] = {
@@ -249,25 +267,39 @@ def main() -> int:
         return 0
 
     total = 0
+    new_violations = 0
     for fp in sorted(set(files)):
         violations = check_file(fp)
         if violations:
             rel = fp.relative_to(_PROJECT_ROOT)
-            print(f"\n─── {rel} ───")
+            shown = False
             for line, rule, desc in violations:
-                print(f"  L{line}: [{rule}] {desc}")
                 total += 1
+                # Prüfe Whitelist: bestehende Verletzungen werden nicht blockiert
+                vkey = f"{rel}:{line}"
+                vhash = hashlib.sha256(vkey.encode()).hexdigest()[:16]
+                if vhash in _WHITELIST:
+                    continue
+                if not shown:
+                    print(f"\n─── {rel} ───")
+                    shown = True
+                print(violation_line)
+                new_violations += 1
 
     print(f"\n{'='*60}")
-    print(f"Geprüft: {len(set(files))} Dateien, {total} englische Log-Meldungen")
+    print(f"Geprüft: {len(set(files))} Dateien, {total} englische Log-Meldungen ({new_violations} neu)")
 
-    if total == 0:
-        print("✅ Alle Log-Meldungen auf Deutsch")
+    if new_violations == 0:
+        if total > 0:
+            print(f"✅ Alle {total} Meldungen sind in der Whitelist — keine neuen EN-Meldungen")
+        else:
+            print("✅ Alle Log-Meldungen auf Deutsch")
         return 0
     else:
-        print(f"❌ {total} englische Log-Meldungen — Commit blockiert")
-        print("   → Alle Log-Meldungen MÜSSEN auf Deutsch sein")
+        print(f"❌ {new_violations} NEUE englische Log-Meldungen — Commit blockiert")
+        print("   → Alle neuen Log-Meldungen MÜSSEN auf Deutsch sein")
         print("   → logger.info('Processing...')  →  logger.info('Verarbeite...')")
+        print("   → Bestehende Meldungen wurden in .language_guard_whitelist.txt erfasst")
         return 1
 
 

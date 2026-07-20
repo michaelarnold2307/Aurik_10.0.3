@@ -123,7 +123,7 @@ class QualityMonitoringOrchestrator:
         try:
             proc = subprocess.Popen(
                 [
-                    str(_WORKSPACE_ROOT / ".venv_aurik" / "bin" / "python"),
+                    sys.executable,
                     str(analyzer_script),
                     "--audio",
                     self.config.audio_path,
@@ -151,7 +151,7 @@ class QualityMonitoringOrchestrator:
         try:
             proc = subprocess.Popen(
                 [
-                    str(_WORKSPACE_ROOT / ".venv_aurik" / "bin" / "python"),
+                    sys.executable,
                     str(monitor_script),
                     "--watch-dir",
                     "output_audio",

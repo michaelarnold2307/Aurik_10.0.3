@@ -10230,6 +10230,8 @@ class UnifiedRestorerV3:
                 novelty_crit=_cal_novelty,
                 material_type=_mat_for_sft,
                 vocal_confidence=_vocal_for_sft,
+                transfer_chain_depth=_depth,
+                restorability_score=_rs,
             )
             # §v10.46 Watchdog-Kalibrierung
             try:
@@ -10684,6 +10686,7 @@ class UnifiedRestorerV3:
                         _m2 = re.search(r"discount=([\d.]+)", str(_jn))
                         if _m2:
                             _jcal_discount = float(_m2.group(1))
+                _jcal_rest = float(getattr(self, "_last_restorability_score", 65.0) or 65.0)
                 self._joint_calibration = joint_calibrate(
                     phase_ids=_jcal_phases,
                     goal_proxies=_jcal_proxies,
@@ -10692,6 +10695,7 @@ class UnifiedRestorerV3:
                     panns_singing=_jcal_panns,
                     codec_avg_discount=_jcal_discount,
                     terminal_codec=_jcal_terminal,
+                    restorability_score=_jcal_rest,
                 )
                 if self._joint_calibration:
                     _n_boosted = sum(1 for v in self._joint_calibration.values() if v > 0.50)
@@ -31454,10 +31458,17 @@ class UnifiedRestorerV3:
                                     "phase_64",
                                 )
                             )
+                            # §G71 Dynamische Wet-Ceilings aus CalibrationContext
+                            try:
+                                from backend.core.signal_flow_tracer import get_sft_wet_ceilings
+
+                                _wet_ceil_nonrepair, _wet_ceil_repair = get_sft_wet_ceilings()
+                            except Exception:
+                                _wet_ceil_nonrepair, _wet_ceil_repair = 0.70, 0.80
                             if _is_repair_phase:
-                                _sft_wet = float(np.clip(0.80 - _sft_novelty_val, 0.30, 0.75))
+                                _sft_wet = float(np.clip(_wet_ceil_repair - _sft_novelty_val, 0.30, 0.75))
                             else:
-                                _sft_wet = float(np.clip(0.70 - _sft_novelty_val, 0.20, 0.65))
+                                _sft_wet = float(np.clip(_wet_ceil_nonrepair - _sft_novelty_val, 0.20, 0.65))
                         else:
                             _sft_wet = 0.30  # Studio 2026 oder ECHO_ARTIFACT
                         # Falls Temporal-Rescue schon lief, staerker am konservativen Ende bleiben.
@@ -36902,10 +36913,14 @@ class UnifiedRestorerV3:
                         elif not _mid_cal_66pct_done and _mid_cal_pct >= 0.66:
                             _mid_cal_66pct_done = True
                             # Ensure values are present (33pct may not have run for short pipelines)
-                            self._song_calibration_profile.setdefault("_last_restorability_score",
-                                float(getattr(self, "_last_restorability_score", 50.0) or 50.0))
-                            self._song_calibration_profile.setdefault("_strict_transfer_depth",
-                                int(self._strict_autosetup_policy.get("transfer_chain_depth", 1)))
+                            self._song_calibration_profile.setdefault(
+                                "_last_restorability_score",
+                                float(getattr(self, "_last_restorability_score", 50.0) or 50.0),
+                            )
+                            self._song_calibration_profile.setdefault(
+                                "_strict_transfer_depth",
+                                int(self._strict_autosetup_policy.get("transfer_chain_depth", 1)),
+                            )
                             _refined = self._mid_pipeline_calibration_step(
                                 _pmgg_scores_curr,
                                 self._song_calibration_profile,

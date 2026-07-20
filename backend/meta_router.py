@@ -76,7 +76,12 @@ def _load_audio(path: str) -> tuple[np.ndarray, int]:
     try:
         from scipy.io import wavfile
 
-        sr, data = wavfile.read(path)
+        _wf_result = wavfile.read(path)
+        if isinstance(_wf_result, tuple) and len(_wf_result) >= 2:
+            sr = int(_wf_result[0])
+            data = _wf_result[1]
+        else:
+            raise ValueError(f"wavfile.read returned unexpected type: {type(_wf_result)}")
         if data.ndim > 1:
             data = data.mean(axis=1)
         audio = data.astype(np.float32)

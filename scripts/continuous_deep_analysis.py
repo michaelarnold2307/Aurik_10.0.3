@@ -185,18 +185,30 @@ class ContinuousDeepAnalyzer:
         pre_primary_material: str | None = None
         pre_era_decade: int | None = None
 
-        # 1. Audio laden
-        try:
-            result = load_audio_file(audio_path)
-            if result is None or result.get("error"):
-                self.logger.error("✗ Audio-Import fehlgeschlagen: %s", result.get("error") if result else "None")
-                return {"error": str(result.get("error") if result else "Unknown"), "checkpoints": []}
-            audio = result["audio"]
-            sr_imported = result["sr"]
-            self.logger.info("✓ Audio geladen: %.1fs @ %d Hz", len(audio) / sr_imported, sr_imported)
-        except Exception as e:
-            self.logger.error("✗ Audio-Import fehlgeschlagen: %s", e)
-            return {"error": str(e), "checkpoints": []}
+        # 1. Audio laden (mit Retry bei transienten WAV-Read-Fehlern)
+        _max_load_retries = 3
+        for _load_attempt in range(_max_load_retries):
+            try:
+                result = load_audio_file(audio_path)
+                if result is None or result.get("error"):
+                    _err = result.get("error") if result else "None"
+                    if _load_attempt < _max_load_retries - 1 and "unpack" in str(_err).lower():
+                        self.logger.debug("⏳ Audio-Load retry %d/%d: %s", _load_attempt + 1, _max_load_retries, _err)
+                        time.sleep(0.5 * (_load_attempt + 1))
+                        continue
+                    self.logger.error("✗ Audio-Import fehlgeschlagen: %s", _err)
+                    return {"error": str(_err), "checkpoints": []}
+                audio = result["audio"]
+                sr_imported = result["sr"]
+                self.logger.info("✓ Audio geladen: %.1fs @ %d Hz", len(audio) / sr_imported, sr_imported)
+                break
+            except Exception as e:
+                if _load_attempt < _max_load_retries - 1 and "unpack" in str(e).lower():
+                    self.logger.debug("⏳ Audio-Load retry %d/%d: %s", _load_attempt + 1, _max_load_retries, e)
+                    time.sleep(0.5 * (_load_attempt + 1))
+                    continue
+                self.logger.error("✗ Audio-Import fehlgeschlagen: %s", e)
+                return {"error": str(e), "checkpoints": []}
 
         # 2. Pre-Analyse durchführen
         try:

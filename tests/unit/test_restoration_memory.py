@@ -270,21 +270,21 @@ class TestFixAbcCassetteHissNoveltyFlutter:
         )
 
     def test_uv3_sft_novelty_crit_high_triggers_full_rollback_in_restoration(self):
-        """Fix B: NOVELTY_CRIT >= 0.40 in Restoration → wet=0.0 (vollständiger Rollback).
+        """Fix B / §G71: SFT NOVELTY_CRIT verwendet dynamische Wet-Ceilings aus CalibrationContext.
 
-        Bug: SFT ArtifactRescue verwendete wet=0.30 für alle NOVELTY_CRIT-Fälle,
-        auch bei NOVELTY_CRIT=0.551 (55% Halluzination) → Musical Noise in Output.
-        Fix: novelty>=0.40 → wet=0.0; 0.25-0.40 → wet=0.08; 0.15-0.25 → wet=0.15.
+        §v10.35: NIEMALS wet=0.0 für NOVELTY_CRIT — selbst kritische Novelty behält min. 20% Phase-Output.
+        LEVEL_COLLAPSE löst wet=0.0 aus (Prioritätskette §G70).
+        NOVELTY_CRIT verwendet depth-adaptive Ceilings aus calibrate_sft_thresholds() (§G71).
+        min_strength skaliert mit restorability_score (§G71).
         """
         import pathlib
 
         uv3_path = pathlib.Path(__file__).parent.parent.parent / "backend" / "core" / "unified_restorer_v3.py"
         assert uv3_path.exists(), f"UV3 nicht gefunden: {uv3_path}"
         source = uv3_path.read_text(encoding="utf-8")
-        # Vollständiger Rollback bei hoher Novelty
-        assert "_sft_wet = 0.0" in source, (
-            "Fix B fehlt: _sft_wet = 0.0 nicht in UV3! "
-            "NOVELTY_CRIT >= 0.40 muss vollständig zurückrollen (halluzinierter Inhalt)."
+        # LEVEL_COLLAPSE löst vollständigen Rollback aus (§v10.38)
+        assert "LEVEL_COLLAPSE" in source and "_sft_wet = 0.0" in source, (
+            "§v10.38 fehlt: LEVEL_COLLAPSE muss _sft_wet = 0.0 triggern (Audio zerstört)."
         )
         # Novelty-Wert wird aus Flag-String geparst
         assert "_sft_novelty_val" in source, (
@@ -295,9 +295,16 @@ class TestFixAbcCassetteHissNoveltyFlutter:
             "Fix B fehlt: is_studio_mode()-Check in SFT ArtifactRescue nicht vorhanden! "
             "Restoration-only Rollback muss via not self.is_studio_mode() gesichert sein."
         )
-        # Interpolierte Rollback-Stufen
-        assert "_sft_wet = 0.08" in source, (
-            "Fix B fehlt: _sft_wet = 0.08 nicht in UV3! Novelty 0.25-0.40 → stark geblendet (0.08 wet)."
+        # §G71 Dynamische Wet-Ceilings aus CalibrationContext (nicht mehr hartcodiert 0.80/0.70)
+        assert "get_sft_wet_ceilings" in source, (
+            "§G71 fehlt: get_sft_wet_ceilings() nicht in UV3! "
+            "Wet-Ceilings müssen aus calibrate_sft_thresholds() kommen, nicht hartcodiert 0.70/0.80."
+        )
+        # §G71 min_strength aus Restorability (joint_calibrator)
+        jcal_path = pathlib.Path(__file__).parent.parent.parent / "backend" / "core" / "joint_calibrator.py"
+        jcal_source = jcal_path.read_text(encoding="utf-8") if jcal_path.exists() else ""
+        assert "restorability_score" in jcal_source, (
+            "§G71 fehlt: joint_calibrator muss restorability_score für adaptive min_strength akzeptieren."
         )
 
     def test_phase12_cassette_has_same_confidence_threshold_as_tape(self):

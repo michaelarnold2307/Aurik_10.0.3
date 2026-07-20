@@ -201,6 +201,11 @@ class MicroDynamicsEnvelopeMorphing:
         # Lösung: 5th-Percentile der 400ms-LUFS-Profile (Proxy für Rauschboden) + 8 dB Margin,
         # begrenzt auf [−36, −18] dBFS. Bei vollständig entrauschtem Material (p5 ≈ −65 dBFS)
         # bleibt der Schwellwert bei −36 dBFS. Bei Vinyl-Rauschen (p5 ≈ −35 dBFS) → −27 dBFS.
+        #
+        # §v10.51 HARD_FLOOR_GUARD: ZUSÄTZLICH zum adaptiven Schwellwert ein absoluter
+        # −36 dBFS Hard-Floor. Verhindert positive Gains in echten Stille-Zonen auch dann,
+        # wenn der adaptive Schwellwert durch Vinyl-Rauschboden auf > −36 dBFS angehoben wurde.
+        _HARD_QUIET_FLOOR_DBFS: float = -36.0
         _p5_L = float(np.percentile(L_rest[:n_frames], 5)) if n_frames > 2 else -36.0
         _FADEOUT_QUIET_LUFS = float(np.clip(_p5_L + 8.0, -36.0, -18.0))
         # Moderate quiet zone: 6 dB above quiet zone, min -30 dBFS
@@ -246,7 +251,9 @@ class MicroDynamicsEnvelopeMorphing:
             # §2.30b Guard 1: Adaptive quiet zone — no positive boost.
             # _FADEOUT_QUIET_LUFS is adaptive: p5(L_rest) + 8 dB, capped at [−36, −18] dBFS.
             # This catches vinyl carrier noise at −35 dBFS which bypassed the fixed −36 dBFS.
-            if lr < _FADEOUT_QUIET_LUFS:
+            # §v10.51 HARD_FLOOR_GUARD: Additional absolute −36 dBFS check — blocks positive
+            # gain even when adaptive threshold has been raised by vinyl noise floor.
+            if lr < _FADEOUT_QUIET_LUFS or lr < _HARD_QUIET_FLOOR_DBFS:
                 # Restored is in the quiet zone → no positive boost allowed
                 G[k] = float(np.clip(lo - lr, -_frame_max, 0.0))
                 continue
@@ -282,8 +289,8 @@ class MicroDynamicsEnvelopeMorphing:
             if G_smooth[k] > 0.0:
                 if L_orig[k] < _ORIG_MUSIC_FLOOR:
                     G_smooth[k] = 0.0  # Post-SG: original noise floor — no boost
-                elif L_rest[k] < _FADEOUT_QUIET_LUFS:
-                    G_smooth[k] = 0.0  # Adaptive quiet zone: no boost
+                elif L_rest[k] < _FADEOUT_QUIET_LUFS or L_rest[k] < _HARD_QUIET_FLOOR_DBFS:
+                    G_smooth[k] = 0.0  # Adaptive quiet zone + hard floor: no boost
                 elif L_rest[k] < _MODERATE_QUIET_LUFS and (L_orig[k] - L_rest[k]) > max_gain:
                     G_smooth[k] = 0.0  # Moderate quiet zone post-SG: diff too large
                 elif (L_orig[k] - L_rest[k]) > 2.0 * max_gain:
@@ -316,12 +323,15 @@ class MicroDynamicsEnvelopeMorphing:
         # p5(L_rest) + 8 dB, capped at [−36, −18] dBFS. Catches vinyl carrier noise
         # at −35 dBFS which bypassed the fixed −36 dBFS threshold.
         _quiet_thresh_ps = float(10.0 ** (_FADEOUT_QUIET_LUFS / 20.0))  # adaptive dBFS linear
+        # §v10.51: Hard floor at −36 dBFS — blocks positive gain when adaptive threshold is higher
+        _HARD_QUIET_THRESH_PS = float(10.0 ** (_HARD_QUIET_FLOOR_DBFS / 20.0))
         _ps_frame = 480  # 10 ms @ 48 kHz for fine-grained fade-out detection
         _n_full_ps = n // _ps_frame
         if _n_full_ps > 0:
             _segs_ps = res_mono[: _n_full_ps * _ps_frame].reshape(_n_full_ps, _ps_frame)
             _rms_ps = np.sqrt(np.mean(_segs_ps**2, axis=1) + 1e-12)
-            _quiet_mask = np.repeat(_rms_ps < _quiet_thresh_ps, _ps_frame)
+            # §v10.51: Both adaptive + hard floor thresholds
+            _quiet_mask = np.repeat((_rms_ps < _quiet_thresh_ps) | (_rms_ps < _HARD_QUIET_THRESH_PS), _ps_frame)
             if _n_full_ps * _ps_frame < n:
                 _tail_rms_ps2 = float(np.sqrt(np.mean(res_mono[_n_full_ps * _ps_frame :] ** 2) + 1e-12))
                 _quiet_mask = np.concatenate(
@@ -329,16 +339,17 @@ class MicroDynamicsEnvelopeMorphing:
                         _quiet_mask,
                         np.full(
                             n - _n_full_ps * _ps_frame,
-                            _tail_rms_ps2 < _quiet_thresh_ps,
+                            _tail_rms_ps2 < _quiet_thresh_ps or _tail_rms_ps2 < _HARD_QUIET_THRESH_PS,
                             dtype=bool,
                         ),
                     ]
                 )
         else:
             # n < 480 (sehr kurzes Segment): einfachen Gesamt-RMS als Quiet-Indikator nutzen
+            _tail_rms_short = float(np.sqrt(np.mean(res_mono**2) + 1e-12))
             _quiet_mask = np.full(
                 n,
-                float(np.sqrt(np.mean(res_mono**2) + 1e-12)) < _quiet_thresh_ps,
+                _tail_rms_short < _quiet_thresh_ps or _tail_rms_short < _HARD_QUIET_THRESH_PS,
                 dtype=bool,
             )
         _qmask = _quiet_mask[:n] & (gain_envelope[:n] > 1.0)
@@ -362,7 +373,8 @@ class MicroDynamicsEnvelopeMorphing:
             # §2.30 Tail-Guard: covers both digital silence (<-50 dBFS) and
             # vinyl/tape fade-out noise floor (<-36 dBFS). In both cases do NOT
             # boost — clamp gain to min(last_gain, 1.0) to avoid Pegelexplosion.
-            _tail_in_quiet_zone = _tail_rms_dbfs < -36.0  # vinyl noise floor threshold
+            # §v10.51: Uses HARD floor −36 dBFS, not just adaptive threshold.
+            _tail_in_quiet_zone = _tail_rms_dbfs < -36.0  # §v10.51 hard floor
             if _tail_in_quiet_zone:
                 # Tail is silence or noise floor: cap gain at unity (no boost)
                 _safe_gain = min(_last_gain, 1.0)
@@ -393,6 +405,56 @@ class MicroDynamicsEnvelopeMorphing:
             n_samp = min(n, len(gain_envelope))
             out = res.copy()
             out[:n_samp] = res[:n_samp] * gain_envelope[:n_samp]
+
+        out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=-1.0)
+
+        # §v10.51 Post-MDEM Quiet-Zone Peak Guard (Layer 2 — Defense-in-Depth):
+        # After all gain envelope logic, scan the output for isolated sample-level
+        # spikes in quiet regions (< −36 dBFS RMS). These spikes originate from
+        # Savitzky-Golay edge effects + linspace interpolation at fade-out boundaries
+        # and are too short (1–3 samples) to be caught by the 10ms per-sample guard.
+        #
+        # Algorithm: For each 10ms segment where RMS < −36 dBFS, clamp any sample
+        # exceeding local_RMS + 12 dB back to local_RMS + 6 dB. The 12 dB threshold
+        # discriminates genuine transient attacks (>12 dB above noise floor) from
+        # interpolation artifacts (3–9 dB above noise floor in a silent context).
+        _peak_guard_frame = 480  # 10 ms @ 48 kHz
+        _n_peak_segs = n // _peak_guard_frame
+        if _n_peak_segs > 0:
+            _peak_mono = out if out.ndim == 1 else out.mean(axis=-1) if not res_channel_first else out.mean(axis=0)
+            _peak_segs = _peak_mono[: _n_peak_segs * _peak_guard_frame].reshape(_n_peak_segs, _peak_guard_frame)
+            _peak_rms = np.sqrt(np.mean(_peak_segs**2, axis=1) + 1e-12)
+            _peak_quiet = _peak_rms < float(10.0 ** (-36.0 / 20.0))  # −36 dBFS linear
+            if np.any(_peak_quiet):
+                _quiet_indices = np.where(_peak_quiet)[0]
+                for _qi in _quiet_indices:
+                    _seg_start = _qi * _peak_guard_frame
+                    _seg_end = min(_seg_start + _peak_guard_frame, n)
+                    _seg_rms = float(_peak_rms[_qi])
+                    _clamp_ceiling = _seg_rms * 2.0  # RMS + 6 dB
+                    if is_stereo:
+                        if res_channel_first:
+                            for _ch in range(out.shape[0]):
+                                _ch_seg = out[_ch, _seg_start:_seg_end]
+                                _exceed = np.abs(_ch_seg) > _clamp_ceiling
+                                if np.any(_exceed):
+                                    _ch_seg[_exceed] = np.sign(_ch_seg[_exceed]) * _clamp_ceiling
+                                    out[_ch, _seg_start:_seg_end] = _ch_seg
+                        else:
+                            for _ch in range(out.shape[1]):
+                                _ch_seg = out[_seg_start:_seg_end, _ch]
+                                _exceed = np.abs(_ch_seg) > _clamp_ceiling
+                                if np.any(_exceed):
+                                    _ch_seg[_exceed] = np.sign(_ch_seg[_exceed]) * _clamp_ceiling
+                                    out[_seg_start:_seg_end, _ch] = _ch_seg
+                    else:
+                        _seg = out[_seg_start:_seg_end]
+                        _exceed = np.abs(_seg) > _clamp_ceiling
+                        if np.any(_exceed):
+                            _seg[_exceed] = np.sign(_seg[_exceed]) * _clamp_ceiling
+                            out[_seg_start:_seg_end] = _seg
+                _n_clamped = int(np.sum(_peak_quiet))
+                logger.debug("§v10.51 Post-MDEM Peak Guard: %d stille Segmente geclampt", _n_clamped)
 
         out = np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=-1.0)
         out = np.clip(out, -self.TRUE_PEAK_LIMIT, self.TRUE_PEAK_LIMIT)
@@ -505,8 +567,8 @@ class MicroDynamicsEnvelopeMorphing:
             elif lr < self.MIN_LEVEL_LUFS:
                 # Restored near-silent: suppress positive boost (see morph() §2.30 guard)
                 G[k] = float(np.clip(lo - lr, -max_gain, 0.0))
-            elif lr < _QUIET_LUFS:
-                # §2.30 adaptive quiet-zone guard: catches carrier noise above −36 dBFS.
+            elif lr < _QUIET_LUFS or lr < -36.0:
+                # §2.30 adaptive quiet-zone guard + §v10.51 hard floor: no positive boost
                 # No positive gain allowed in quiet zone.
                 G[k] = float(np.clip(lo - lr, -max_gain, 0.0))
             elif (lo - lr) > 2.0 * max_gain:
@@ -518,8 +580,8 @@ class MicroDynamicsEnvelopeMorphing:
         # §2.30 post-smoothing quiet-zone clamp — uses adaptive _QUIET_LUFS.
         for k in range(n_frames):
             if G_smooth[k] > 0.0:
-                if L_rest[k] < _QUIET_LUFS:
-                    G_smooth[k] = 0.0
+                if L_rest[k] < _QUIET_LUFS or L_rest[k] < -36.0:
+                    G_smooth[k] = 0.0  # §v10.51: adaptive + hard floor
                 elif (L_orig[k] - L_rest[k]) > 2.0 * max_gain:
                     # §2.30b Guard 3 post-smoothing (_morph_internal)
                     G_smooth[k] = 0.0
@@ -573,7 +635,7 @@ class MicroDynamicsEnvelopeMorphing:
             _tail_audio = res_mono[_last_covered:]
             _tail_rms = float(np.sqrt(np.mean(_tail_audio**2) + 1e-12))
             _tail_rms_dbfs = 20.0 * math.log10(_tail_rms + 1e-12)
-            _tail_in_quiet_zone = _tail_rms_dbfs < _QUIET_LUFS
+            _tail_in_quiet_zone = _tail_rms_dbfs < _QUIET_LUFS or _tail_rms_dbfs < -36.0
             if _tail_in_quiet_zone:
                 # §2.30 tail quiet-zone guard: restored tail is vinyl/tape noise floor.
                 # Copy last gain but cap at 1.0 (no positive boost on tail).

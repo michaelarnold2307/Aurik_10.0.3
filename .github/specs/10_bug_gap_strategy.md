@@ -23,10 +23,10 @@ Jede Bug-Erkennungs-Session MUSS alle 5 Ebenen systematisch durchlaufen:
 Für jede `phase_*.py` mit additiver oder NR-Funktion prüfen:
 
 ```
-[ ] V38: per-Event-Strength-Oracle (_compute_<defect>_local_strength) bei Event-Schleifen
+[x] V38: per-Event-Strength-Oracle (_compute_<defect>_local_strength) bei Event-Schleifen  ← ERLEDIGT (8 Phasen)
 [x] V41: ForwardMaskingGuard bei additiven Phasen mit panns_singing >= 0.25  ← ERLEDIGT commit 0c9a069
-[ ] V33: Alle dict[MaterialType, ...] enthalten CASSETTE-Key
-[ ] V42: check_roughness_regression() nach NR in phase_03/phase_29
+[x] V33: Alle dict[MaterialType, ...] enthalten CASSETTE-Key  ← ERLEDIGT (V34-Linter)
+[x] V42: check_roughness_regression() nach NR in phase_03/phase_29  ← ERLEDIGT (ZwickerMetrics)
 [ ] V40: compute_nmr_score() wenn FeedbackChain aktiv
 [ ] §2.63: Reflect-Padding VOR STFT, deterministischer Strip danach
 [ ] §0a: phase_21/35/42 nie in CAUSE_TO_PHASES für Restoration-Cause

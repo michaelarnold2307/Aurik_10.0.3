@@ -54,7 +54,8 @@ def joint_calibrate(
     panns_singing: float = 0.0,
     codec_avg_discount: float = 1.0,
     terminal_codec: str | None = None,
-    min_strength: float = 0.25,
+    min_strength: float | None = None,
+    restorability_score: float = 65.0,
     default_strength: float = 0.85,
 ) -> dict[str, float]:
     """Berechnet optimale Phasen-Stärken AUSSCHLIESSLICH aus Goal-Gaps.
@@ -70,13 +71,26 @@ def joint_calibrate(
         panns_singing: PANNs Singing-Konfidenz
         codec_avg_discount: ∅ Diskont-Faktor aus Codec-Kette
         terminal_codec: Terminal-Codec-Typ oder None
-        min_strength: Minimale Phasen-Stärke
+        min_strength: Minimale Phasen-Stärke (None = auto aus restorability_score)
+        restorability_score: Restorability 0-100 für adaptive min_strength (§G71)
         default_strength: Standard wenn kein Profil
 
     Returns:
         {phase_id: calibrated_strength}
     """
     from backend.core.phase_effect_catalog import PHASE_EFFECT_CATALOG
+
+    # §G71 Adaptive min_strength aus Restorability
+    if min_strength is None:
+        _rs = float(np.clip(restorability_score, 0.0, 100.0))
+        if _rs >= 90:
+            min_strength = 0.20
+        elif _rs >= 60:
+            min_strength = 0.35
+        elif _rs >= 30:
+            min_strength = 0.40
+        else:
+            min_strength = 0.45
 
     # ── 1. Goal-Gaps ───────────────────────────────────────────
     gaps: dict[str, float] = {}

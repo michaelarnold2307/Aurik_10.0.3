@@ -45,9 +45,9 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
-    py = repo_root / ".venv_aurik/bin/python"
-    if not py.exists():
-        raise SystemExit("Python-Venv fehlt: .venv_aurik/bin/python")
+    py = sys.executable
+    if not Path(py).exists():
+        raise SystemExit(f"Python-Interpreter fehlt: {py}")
 
     reval_base = (repo_root / args.revalidation_out).resolve()
 

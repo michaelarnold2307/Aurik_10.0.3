@@ -16,6 +16,10 @@ Bug-Abdeckung:
   Bug 7: source_fidelity_bandwidth_hz (falsches Feld) → dieser Check
   Bug 8: QualityModeConfig fehlt → check_import_breaking.py
   Bug 9: except Exception: pass → dieser Check
+  Bug 10: Hartcodiertes .venv_aurik in subprocess → dieser Check
+  Bug 11: Fehlende Retry-Logik in WAV-Loadern → dieser Check
+  Bug 12: Unsicheres Tuple-Unpack von wavfile.read() → dieser Check
+  Bug 13: Audio-Callback ohne Dual-Path (fehlendes Qt-Signal) → dieser Check
 """
 
 import logging
@@ -252,6 +256,111 @@ def check_surgical_architecture(filepath: str) -> list[str]:
     return issues
 
 
+def check_hardcoded_venv_in_subprocess(filepath: str) -> list[str]:
+    """Bug 10: Hartcodiertes .venv_aurik in subprocess.Popen-Aufrufen."""
+    issues: list[str] = []
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    # Prüfe auf .venv_aurik in subprocess-Kontext
+    if ".venv_aurik" not in content:
+        return issues
+    lines = content.split("\n")
+    in_subprocess_block = False
+    for i, line in enumerate(lines):
+        if "subprocess.Popen" in line or "subprocess.run" in line:
+            in_subprocess_block = True
+        if in_subprocess_block and ".venv_aurik" in line:
+            issues.append(
+                f"{filepath}:{i + 1}: Hartcodiertes .venv_aurik in subprocess-Aufruf — "
+                "muss sys.executable sein (Bug 10, §V34)"
+            )
+        if in_subprocess_block and ("]" in line or ")" in line):
+            # Check if this line closes the Popen arg list
+            if line.strip().startswith("]") or line.strip().startswith(")"):
+                in_subprocess_block = False
+    return issues
+
+
+def check_missing_wav_retry(filepath: str) -> list[str]:
+    """Bug 11: Fehlende Retry-Logik in WAV-Loadern (§V35)."""
+    issues: list[str] = []
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    # Nur relevant für Monitoring-/Analyzer-Scripts die load_audio_file aufrufen
+    if "load_audio_file" not in content:
+        return issues
+    # Nicht relevant für low-level utility modules (haben eigene Cascade)
+    if "meta_router" in filepath and "def _load_audio" in content:
+        return issues
+    if "file_import" in filepath:
+        return issues
+    if "modern_window" in filepath:
+        return issues  # GUI-File, kein Monitoring-Script
+    # Prüfe ob Retry-Loop vorhanden
+    if "_max_retries" not in content and "_max_load_retries" not in content:
+        for i, line in enumerate(content.split("\n"), 1):
+            if "load_audio_file" in line:
+                issues.append(
+                    f"{filepath}:{i}: load_audio_file() ohne Retry-Loop — "
+                    "3× Retry bei transienten WAV-Fehlern erforderlich (Bug 11, §V35)"
+                )
+                break  # Nur einmal pro Datei melden
+    return issues
+
+
+def check_unsafe_wavfile_unpack(filepath: str) -> list[str]:
+    """Bug 12: Unsicheres Tuple-Unpack von scipy.io.wavfile.read() (§V36)."""
+    issues: list[str] = []
+    try:
+        with open(filepath) as f:
+            lines = f.readlines()
+    except Exception:
+        return issues
+    for i, line in enumerate(lines):
+        if "wavfile.read(" in line and "," in line.split("=")[0] if "=" in line else False:
+            # Tuple destructuring: sr, data = wavfile.read(...)
+            lhs = line.split("=")[0].strip()
+            if "," in lhs and "wavfile.read" in line:
+                issues.append(
+                    f"{filepath}:{i + 1}: Unsicheres Tuple-Unpack von wavfile.read() — "
+                    "muss index-basierte Entpackung mit isinstance-Prüfung sein (Bug 12, §V36)"
+                )
+    return issues
+
+
+def check_dual_path_audio_callback(filepath: str) -> list[str]:
+    """Bug 13: Audio-Callback muss Dual-Path (SharedMemory + Qt-Signal) verwenden."""
+    issues: list[str] = []
+    if "modern_window" not in filepath:
+        return issues
+    try:
+        with open(filepath) as f:
+            content = f.read()
+    except Exception:
+        return issues
+    if "_audio_update_cb" in content and "waveform_phase_update.emit" in content:
+        lines = content.split("\n")
+        in_cb = False
+        for i, line in enumerate(lines):
+            if "def _audio_update_cb" in line:
+                in_cb = True
+            if in_cb and "waveform_phase_update.emit" in line:
+                prev_lines = lines[max(0, i - 3) : i]
+                if any("else:" in pl for pl in prev_lines):
+                    issues.append(
+                        f"{filepath}:{i + 1}: emit() nur im else-Fallback — "
+                        "muss IMMER emittiert werden (Dual-Path, Bug 13)"
+                    )
+                break
+    return issues
+
+
 def check_name_error_risk(filepath: str) -> list[str]:
     import py_compile
 
@@ -282,6 +391,10 @@ def main() -> None:
         all_issues.extend(check_absolute_bw_loss(fp))
         all_issues.extend(check_defect_classification(fp))
         all_issues.extend(check_surgical_architecture(fp))
+        all_issues.extend(check_hardcoded_venv_in_subprocess(fp))
+        all_issues.extend(check_missing_wav_retry(fp))
+        all_issues.extend(check_unsafe_wavfile_unpack(fp))
+        all_issues.extend(check_dual_path_audio_callback(fp))
         all_issues.extend(check_name_error_risk(fp))
 
     if all_issues:

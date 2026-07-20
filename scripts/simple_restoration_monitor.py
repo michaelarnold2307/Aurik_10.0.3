@@ -160,7 +160,7 @@ class SimpleRestorationMonitor:
         try:
             self.monitor_process = subprocess.Popen(
                 [
-                    str(_WORKSPACE_ROOT / ".venv_aurik" / "bin" / "python"),
+                    sys.executable,
                     str(monitor_script),
                     "--watch-dir",
                     "output_audio",
