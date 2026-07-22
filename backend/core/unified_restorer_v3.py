@@ -30395,6 +30395,23 @@ class UnifiedRestorerV3:
                         (_audio_before_phase + _sev_wet_dry * (_pa - _audio_before_phase)).astype(np.float32),
                         -1.0, 1.0,
                     )
+                                # §v10.101 Live-Preview: Schreibe aktuelles Audio für Frontend-Player
+                try:
+                    import tempfile, os
+                    _preview_path = os.path.join(tempfile.gettempdir(), 'aurik_live_preview.wav')
+                    import soundfile as sf
+                    _preview_audio = result.audio
+                    if _preview_audio.ndim == 2 and _preview_audio.shape[0] == 2:
+                        _preview_audio = _preview_audio.T  # channels-last for WAV
+                    sf.write(_preview_path, _preview_audio, sample_rate, subtype='PCM_16')
+                    # Update progress context with live preview info
+                    if isinstance(getattr(self, '_restoration_context', None), dict):
+                        self._restoration_context['live_preview_path'] = _preview_path
+                        self._restoration_context['live_preview_phase'] = str(phase_metadata.phase_id)
+                        self._restoration_context['live_preview_duration_s'] = float(len(_preview_audio) / sample_rate)
+                except Exception:
+                    pass  # Non-blocking — Preview ist optional
+
                 logger.debug(
                     "🎵 DefectSeverity Wet/Dry %s: factor=%.2f",
                     phase_metadata.phase_id,

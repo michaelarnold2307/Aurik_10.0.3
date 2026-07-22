@@ -3007,3 +3007,37 @@ def get_phase_display_formatter_fns() -> dict[str, object]:
     except Exception:
         logger.warning("bridge.py::get_phase_display_formatter_fns fallback", exc_info=True)
         return {}
+
+def get_live_preview(seek_s: float = 0.0, duration_s: float = 5.0) -> dict | None:
+    """§v10.101 Live-Preview: Aktuelles Pipeline-Audio an beliebiger Position.
+
+    Der User kann waehrend der Restaurierung an JEDE Stelle springen
+    und hoeren, wie der aktuelle Stand klingt.
+    """
+    try:
+        import base64, io, os, tempfile, numpy as np, soundfile as sf
+
+        _path = os.path.join(tempfile.gettempdir(), 'aurik_live_preview.wav')
+        if not os.path.exists(_path):
+            return None
+
+        audio, sr = sf.read(_path)
+        n_total = len(audio)
+        start = max(0, min(int(seek_s * sr), n_total - 1))
+        end = min(start + int(duration_s * sr), n_total)
+        snippet = audio[start:end]
+
+        buf = io.BytesIO()
+        sf.write(buf, snippet, sr, format='WAV', subtype='PCM_16')
+        buf.seek(0)
+
+        return {
+            'audio_b64': base64.b64encode(buf.read()).decode('ascii'),
+            'sample_rate': sr,
+            'duration_s': float(len(snippet) / sr),
+            'seek_s': float(seek_s),
+            'total_s': float(n_total / sr),
+        }
+    except Exception:
+        return None
+
