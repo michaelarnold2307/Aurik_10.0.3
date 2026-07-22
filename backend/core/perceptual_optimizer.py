@@ -340,7 +340,9 @@ class PerceptualOptimizer:
         mono = np.asarray(audio, dtype=np.float32).flatten()
         n = len(mono)
         if n < sr // 4:
-            return 0.5
+            # §v10.93: < 250ms — RMS-basierter Perceptual-Proxy
+            _rms = float(np.sqrt(np.mean(mono.astype(np.float64)**2) + 1e-12))
+            return float(np.clip(_rms * 5.0, 0.30, 0.70))
 
         # 1. Brightness (HF-Energie)
         n_fft = min(4096, n)

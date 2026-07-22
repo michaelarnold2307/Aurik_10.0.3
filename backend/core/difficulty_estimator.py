@@ -46,7 +46,9 @@ def estimate(
     spec = np.abs(np.fft.rfft(mono[: n_fft * 8], n=n_fft))
     log_mean = np.exp(np.mean(np.log(spec + 1e-10)))
     arith_mean = np.mean(spec)
-    noise_ratio = log_mean / max(arith_mean, 1e-10)  # >0.5 = noisy
+    # §v10.93: Epsilon-Differenzierung — 1e-8 im Nenner vs 1e-10 im spec verhindert
+    # Kollision bei Stille (sonst noise_ratio ≈ 1.0, falsch-positiv als "noisy").
+    noise_ratio = log_mean / max(arith_mean, 1e-8)  # >0.5 = noisy
 
     clipped_pct = float(np.mean(np.abs(mono) > 0.95)) * 100
 

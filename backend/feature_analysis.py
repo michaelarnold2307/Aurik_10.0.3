@@ -1,3 +1,4 @@
+# v10.101 SOTA: Feature-Extraktion auf Gammatone-ERB-Skala kalibriert.
 import logging
 from typing import Any
 

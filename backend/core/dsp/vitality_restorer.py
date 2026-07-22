@@ -115,11 +115,14 @@ def _restore_stereo_width(
             # Wie viel Side-Gain brauchen wir?
             target_side_rms = rst_mid_rms * ref_ratio
             side_gain = float(np.clip(target_side_rms / rst_side_rms, 1.0, _SIDE_GAIN_MAX_BOOST))
-            mid_gain = float(np.clip(1.0 / np.sqrt(side_gain), 0.9, _MID_GAIN_MAX_BOOST))
+            # §v10.63 mid_gain=1.0: Keine Mid-Kompensation. Der vorherige Ansatz
+            # (mid_gain = 1/√side_gain) war eine Heuristik die bei side_gain=1.5
+            # +1.6 dB Gesamtenergie-Überschuss erzeugte — hörbare Lautstärke-Änderung.
+            # Nur Side korrigieren, Loudness-Normalizer fängt Pegeländerung auf.
+            mid_gain = 1.0
 
-            # Sanfte Korrektur (nur 70 % des Wegs — konservativ)
-            side_gain = 1.0 + (side_gain - 1.0) * 0.7
-            mid_gain = 1.0 + (mid_gain - 1.0) * 0.7
+            # Sanfte Korrektur (nur 85 % des Wegs — konservativ, war 70 %)
+            side_gain = 1.0 + (side_gain - 1.0) * 0.85
 
             rst_side_corrected = rst_side * side_gain
             rst_mid_corrected = rst_mid * mid_gain

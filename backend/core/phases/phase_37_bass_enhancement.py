@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 37: Bass Enhancement v2.0 - Professional
 Harmonic bass synthesis and sub-bass generation.
 
@@ -232,6 +233,24 @@ class BassEnhancement(PhaseInterface):
         config = dict(self.ENHANCEMENT_CONFIG.get(material, self.ENHANCEMENT_CONFIG[MaterialType.CD_DIGITAL]))
         config["harmonic_2_gain"] = float(config["harmonic_2_gain"] * _effective_strength)
         config["harmonic_3_gain"] = float(config["harmonic_3_gain"] * _effective_strength)
+
+        # §v10.94 Non-Plus-Ultra: Hum-Notch-Frequenzen aus P02 vermeiden.
+        # P02 notched 50/60 Hz + Harmonische (bis 480 Hz). Synthese von
+        # Sub-Harmonischen in diesen Bändern würde residuale Comb-Artefakte
+        # verstärken. Reduziere sub_harmonic_gain proportional zur Überlappung.
+        _hum_freqs: list[int] = list(kwargs.get("hum_notch_freqs", []) or [])
+        if _hum_freqs:
+            _bass_lo = 20.0  # Bass-Synthese-Minimum (Hz)
+            _bass_hi = 250.0  # Bass-Synthese-Maximum (Hz)
+            _overlap_count = sum(1 for _f in _hum_freqs if _bass_lo <= float(_f) * 2 <= _bass_hi)
+            if _overlap_count > 0:
+                # Reduziere sub-harmonic gain: −20 % pro überlappendem Hum-Fundamental
+                _hum_damp = float(np.clip(1.0 - 0.20 * _overlap_count, 0.30, 1.0))
+                config["sub_harmonic_gain"] = float(config["sub_harmonic_gain"] * _hum_damp)
+                logger.debug(
+                    "P37: hum_notch_freqs=%s → sub_harmonic_gain damped by %.0f%%",
+                    _hum_freqs, (1.0 - _hum_damp) * 100,
+                )
         config["sub_harmonic_gain"] = float(config["sub_harmonic_gain"] * _effective_strength)
         config["saturation_drive"] = float(config["saturation_drive"] * _effective_strength)
         config["mix"] = float(config["mix"] * _effective_strength)

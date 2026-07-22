@@ -289,9 +289,9 @@ repos:
         language: system
         pass_filenames: true
 
-      # §v10.50 Subprocess-Vertrag (§V34): sys.executable in Orchestratoren
+      # §v10.50 Subprocess-Vertrag: sys.executable in Orchestratoren
       - id: aurik-sys-executable-guard
-        name: "§v10.50 Subprocess-Vertrag (§V34): sys.executable in Orchestratoren"
+        name: "§v10.50 Subprocess-Vertrag: sys.executable in Orchestratoren"
         entry: .venv_aurik/bin/python scripts/compliance/check_sys_executable.py
         language: system
         pass_filenames: false
@@ -328,6 +328,14 @@ repos:
         language: system
         pass_filenames: false
         files: ^(backend|denker|Aurik10)/.*\.py$
+
+      # §v10.101 Perceptual-Guard: Bark/LUFS/JND-Konsistenz
+      - id: aurik-perceptual-guard
+        name: "§v10.101 Perceptual-Guard (Bark/LUFS/JND im Code)"
+        entry: .venv_aurik/bin/python scripts/compliance/check_perceptual_consistency.py
+        language: system
+        pass_filenames: false
+        always_run: true
 
       # Conventional Commits Message Validation
       - id: conventional-commit-msg

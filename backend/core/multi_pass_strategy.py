@@ -544,10 +544,10 @@ class ObjectiveScorer:
             _mg_loaded = False
             try:
                 from backend.core.musical_goals.musical_goals_metrics import (  # pylint: disable=import-outside-toplevel
-                    MusicalGoalsChecker,
+                    get_checker,
                 )
 
-                checker = MusicalGoalsChecker()
+                checker = get_checker()  # §v10.101: Singleton → Cache wirkt
                 goals_scores = checker.measure_all(audio, sample_rate)
 
                 if goals_scores:

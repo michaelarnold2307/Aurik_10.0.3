@@ -45,7 +45,7 @@ resampy==0.4.3
 audioread==3.1.0
 pyloudnorm==0.2.0
 webrtcvad==2.0.10         # Abhängigkeit von models/rezemblyzer (Resemblyzer VAD — §2.35c Singer-Identity)
-# resemblyzer — LOKAL: pip install models/rezemblyzer/  (§2.35c Singer-Identity d-Vector 256-dim, pretrained.pt gebündelt)
+# resemblyzer==0.1.4      # LOKAL via: pip install -e models/rezemblyzer/  (§2.35c Singer-Identity)t)
 pyFFTW>=0.15.0            # Benötigt libfftw3 (apt: libfftw3-dev); Fallback: numpy.fft (automatisch wenn nicht installiert)
 
 # --- ONNX-Runtime (GPU-Variante je Plattform wählen — mutually exclusive!) ---
@@ -242,7 +242,7 @@ scikit-image>=0.22.0      # Bildverarbeitung für Spektrogramme
 importlib-resources>=6.0.0 # Ressourcen-Management (Python 3.9+)
 msgpack>=1.0.0             # Serialisierung für Caching
 torchlibrosa>=0.1.0        # Librosa-kompatible Spektrogramme in Torch
-madmom>=0.17.0             # Beat-Tracking / Tempo-Erkennung
+madmom>=0.16.0             # Beat-Tracking / Tempo-Erkennung (§v10.101: 0.17.dev0 lokal installiert)
 
 # --- Audio-Effekte ---
 pedalboard>=0.9.0         # Spotify Audio Effects (Limiters, EQ, Reverb, etc.)

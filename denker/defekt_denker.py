@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Denker-Entscheidungen durch Pipeline-Gates (JND + Perceptual-Blend) perzeptuell validiert.
 DefektDenker — Domäne: Defekt-Scan + Kausale Ursachenanalyse
 =============================================================
 

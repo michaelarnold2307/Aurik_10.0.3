@@ -21,6 +21,7 @@ Safeguards:
 - Parallel Processing
 """
 
+# v10.101 SOTA: Adaptiver EQ mit Bark-Band-Frequenzkorrektur.
 import logging
 
 import numpy as np

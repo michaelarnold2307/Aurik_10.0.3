@@ -1427,3 +1427,59 @@ Fuer psychoakustische Kern-Changes ist die konsolidierte Engineering-Basis in
 - 37 neue v10-Tests in `test_v10_worldclass_modules.py`
 - Bridge-Compliance: 0 Bypasses in CLI und Batch
 - ML-Fallback-Audit: 54 Module, 3 Silent-Failures behoben
+
+
+## §7.10 — Perzeptuelle Qualitätssicherung (§v10.101)
+
+### §7.10.1 Perzeptuelle Qualitätsgewichtung
+
+Der QualityAnalyzer gewichtet ab v10.101 perzeptuell:
+
+| Metrik | Gewicht (mit MUSHRA) | Gewicht (ohne MUSHRA) |
+|--------|---------------------|----------------------|
+| MUSHRA/OQS | 35% | — |
+| Naturalness | 20% | 20% |
+| Warmth | 15% | 15% |
+| Clarity | 15% | 20% |
+| SNR | 5% | 20% |
+| Dynamic Range | 5% | 15% |
+| THD | 5% | 10% |
+
+### §7.10.2 Perzeptuelles Monitoring
+
+Die Final-Summary zeigt DREI perzeptuelle Dimensionen (§G112):
+- 📊 Signalqualität (technische Analyse)
+- 🎧 Hörerlebnis (MUSHRA/OQS, simuliertes Hörerpanel)
+- 🧠 Restaurations-Index (HPI, ganzheitlich)
+
+### §7.10.3 ABX-Validierung
+
+Der ABX-Test (`test_harness.py`) vergleicht nicht nur Pegel, sondern
+Bark-Band-Energien und MUSHRA-Scores. Signifikanz: Binomialtest mit α=0.05.
+
+### §7.10.4 v10.101 Fix-Changelog
+
+Die folgenden 20 Fixes wurden in v10.101 implementiert und sind
+Teil der perzeptuellen Architektur:
+
+| Fix | Beschreibung | Spec-Referenz |
+|-----|-------------|--------------|
+| F5 | _hpi_era UnboundLocalError | §G90 Blind-Referenz-Vektor |
+| F6 | measure_all STFT-Cache | §4.10.7 |
+| F7 | DTW Sakoe-Chiba-Radius-Fix | §G100 Hörbarkeit |
+| F8 | DoNoHarmGuardian Crest-Faktor | §G107 Ermüdungsfreiheit |
+| F9 | phase_26 np-Import-Fix | §G24 NaN/Inf-Schutz |
+| F10 | ExcellenceOptimizer Cache-Singleton | §G101 Perzeptueller Blend |
+| F12 | GOAL_BASELINE Preflight-Key-Fix | §G104 JND-Gate |
+| F13 | QualityAnalyzer relative Schwelle | §G106 Qualitätsgewichtung |
+| F14 | Artifact-Schwelle 0.95→0.90 | §G101 Perzeptueller Blend |
+| F16 | Final-Export af=0.000 Guard | §G101 Perzeptueller Blend |
+| F17 | Phase_40 fftconvolve-Optimierung | §G103 LUFS-Lautheit |
+| F20 | MUSHRA+HPI in Final-Summary | §G112 Perzeptuelles Monitoring |
+| F21 | STFT-Cache (Bass/Brillianz/Waerme) | §G106 Qualitätsgewichtung |
+| F23 | PredictivePreflight adaptiv | §G104 JND-Gate |
+| P1 | Perceptual-Blend in Wet/Dry | §G101, §V34 |
+| P2 | Bark/LUFS-Utility | §G102, §G103 |
+| P3 | JND-Gate in ProfiledPhaseCall | §G104, §V37 |
+| P4 | Perzeptuelle Konsistenz | §G100–§G112 |
+

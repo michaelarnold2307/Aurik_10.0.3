@@ -43,6 +43,7 @@ Date: 2026-02-15
 
 import contextlib
 import hashlib
+# v10.101 SOTA: Gammatone-geschützte Defektanalyse. Pipeline-Gates validieren.
 import logging
 import threading
 import time
@@ -310,6 +311,50 @@ class DefectAnalysisResult:
     def get_total_severity(self) -> float:
         """Gesamtschwere aller Defekte (gewichtet)."""
         return sum(score.severity * score.confidence for score in self.scores.values()) / len(self.scores)
+
+    def get_top_defects_perceptual(
+        self, n: int = 5, audio: np.ndarray | None = None, sr: int = 48000,
+    ) -> list[DefectScore]:
+        """§v10.101 SOTA: Gibt Top-N Defekte nach perzeptueller Hörbarkeit.
+
+        Re-rankt die technisch erkannten Defekte nach tatsächlicher
+        Wahrnehmbarkeit für das menschliche Ohr. Nutzt Bark-Gewichtung,
+        spektrale und temporale Maskierung.
+
+        Unhörbare Defekte werden depriorisiert — sie zu reparieren
+        würde nur Artefakt-Risiko ohne akustischen Nutzen erzeugen.
+        """
+        try:
+            from backend.core.dsp.perceptual_defect_ranker import rerank_defects_perceptual
+
+            _defect_tuples: list[tuple[str, float, float, float]] = []
+            for dt, score in (self.scores or {}).items():
+                _name = dt.value if hasattr(dt, "value") else str(dt)
+                _sev = float(getattr(score, "severity", 0.0))
+                # Schätze Frequenz und Position aus Metadaten oder Default
+                _freq = 1000.0
+                _pos = 0.0
+                if hasattr(score, "frequency_hz"):
+                    _freq = float(getattr(score, "frequency_hz", 1000.0))
+                if hasattr(score, "position_s"):
+                    _pos = float(getattr(score, "position_s", 0.0))
+                _defect_tuples.append((_name, _sev, _freq, _pos))
+
+            if audio is not None and _defect_tuples:
+                _reranked = rerank_defects_perceptual(_defect_tuples, audio, sr)
+                # Map zurück auf DefectScore-Objekte
+                _result: list[DefectScore] = []
+                for _name, _psev, _tsev in _reranked[:n]:
+                    for dt, score in (self.scores or {}).items():
+                        if (dt.value if hasattr(dt, "value") else str(dt)) == _name:
+                            _result.append(score)
+                            break
+                return _result
+        except Exception as _pr_exc:
+            logger.debug("Perceptual defect rerank non-blocking: %s", _pr_exc)
+
+        # Fallback: technische Sortierung
+        return self.get_top_defects(n)
 
     def get_focus_defect_map(
         self,

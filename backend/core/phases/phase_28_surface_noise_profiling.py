@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 28: Surface Noise Profiling v3.0 - Über-SOTA OMLSA/IMCRA
 Adaptive spectral noise profiling via IMCRA minimum statistics
 und OMLSA-Gain (Optimally Modified Log-Spectral Amplitude).
@@ -303,6 +304,19 @@ class SurfaceNoiseProfiling(PhaseInterface):
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
         _goal_hint_scalar = self._goal_hint_strength_scalar(kwargs)
         _effective_strength = float(np.clip(_effective_strength * _goal_hint_scalar, 0.0, 1.0))
+
+        # §v10.96 Defekt-basiertes Skip-Gate: Surface-Noise nur auf analogen Trägern.
+        # Digitales Material (CD/DAT/Streaming) hat physikalisch kein Oberflächenrauschen.
+        # SNR > 40 dB → Rauschboden bereits unterhalb psychoakustischer Wahrnehmbarkeit.
+        _mat_str = str(getattr(material, "value", material) or "").lower()
+        _digital_mats = {"cd_digital", "cd", "dat", "streaming", "digital"}
+        _snr_28 = float(kwargs.get("snr_db", kwargs.get("snr", 0.0)) or 0.0)
+        if _mat_str in _digital_mats or _snr_28 > 40.0:
+            _reason = f"digital_material={_mat_str}" if _mat_str in _digital_mats else f"snr={_snr_28:.0f}dB"
+            logger.info(
+                "§v10.96 Surface-Noise-Skip: %s → surface noise profiling skipped", _reason,
+            )
+            _effective_strength = 0.0
 
         # §V40 NMR-Feedback: NR-Stärke adaptiv anpassen (FeedbackChain-aware).
         try:

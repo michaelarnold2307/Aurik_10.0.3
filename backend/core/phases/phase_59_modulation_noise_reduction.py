@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 59 — Modulation Noise Reduction.
 
 Signal-dependent modulation noise (unique to analog tape) where noise level

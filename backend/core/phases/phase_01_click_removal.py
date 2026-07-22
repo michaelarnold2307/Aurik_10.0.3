@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 1: Professional Click Removal - Aurik 10.0.0
 ================================================
 

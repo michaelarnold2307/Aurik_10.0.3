@@ -1,6 +1,6 @@
 # Aurik 10 — VERBOTE (Normativer Katalog)
 
-> **Status:** Normativ | **Version:** 10.0.8 | **Stand:** 13. Juli 2026
+> **Status:** Normativ | **Version:** 10.0.10 | **Stand:** 10. August 2026
 >
 > Dieser Katalog definiert alle unverhandelbaren VERBOTE — Handlungen, die Aurik
 > **niemals** ausführen darf. Jedes Verbot hat eine eindeutige ID (§V1, §V2 usw.).
@@ -62,27 +62,6 @@
 
 ---
 
-## Zusammenfassung: Alle VERBOTE auf einen Blick
-
-```
-§V1   Gesangsverzerrung         §V13  Spektrale Verfärbung
-§V2   Ghost-Echo                §V14  Modus-Ignoranz
-§V3   Hard-Clamp                §V15  Nicht-deterministisches Rauschen
-§V4   Truncation ohne Dither    §V16  Übersteuerndes Rauschen
-§V5   Dither-Doppelung          §V17  Quellmaterial-Extraktion
-§V6   Silent-Failure            §V18  Bridge-Bypass
-§V7   Toter Guard-Code          §V19  Nicht-atomarer Export
-§V8   Globaler Phasen-Zustand   §V20  True-Peak-Überschreitung
-§V9   Workarounds               §V21  ML-Device-Fehlgriff
-§V10  Phasen-Individuelle Werte §V22  ML-Recovery-Signaturbruch
-§V11  Rauschprofil-Flächendeckung §V23 Diffusionsmodell-Rauschen
-§V12  Stille-Verfälschung       §V24  Falsche Test-Toleranzen
-§V13  Dither-Reduktion          §V25  Hartcodierte Schwellwerte
-§V14  Unbegründeter Rauschfloor §V26  Diskrete Stützstellen
-```
-
----
-
 ## Kategorie E — Kalibrierungs-Hoheit (§V25–§V28)
 
 | ID | Verbot | Begründung / Spezifikation |
@@ -94,9 +73,43 @@
 
 ---
 
+## Kategorie F — Non-Plus-Ultra: Strukturelle Qualitäts-Deckel (§V29–§V35)
+
+| ID | Verbot | Begründung / Spezifikation |
+|----|--------|---------------------------|
+| §V29 | **Degraded-Input-Referenz** | Es ist VERBOTEN, `reference_audio=None` im HPI still auf `original` (degraded_input) zurückfallen zu lassen. Der HPI MUSS vor diesem Fallback den blinden Referenz-Vektor (`_compute_blind_reference_vector`) versuchen. (§v10.91, §G90) |
+| §V30 | **5s-Audio-Slice-als-Referenz** | Es ist VERBOTEN, einen 5-Sekunden-Audio-Slice aus BlindInternalReference als `reference_audio` für direkten Audio-Vergleich (Mel-Cosinus, Spektral-Proxy) zu verwenden. Die Referenz MUSS als Embedding-Vektor verwendet werden. (§v10.91, §G91) |
+| §V31 | **Harter-0.95-Confidence-Deckel** | Es ist VERBOTEN, `confidence = clip(restorability/100, 0.05, 0.95)` ohne Material-Adaption zu verwenden. Die Confidence MUSS via `predict_quality_score()` das materialspezifische Ceiling berücksichtigen. (§v10.92, §G92) |
+| §V32 | **Stummer-return-0.5-Fallback** | Es ist VERBOTEN, in Quality-Scoring-Funktionen `return 0.5` ohne `logger.warning(...)` mit `exc_info=True` zu verwenden. Jeder Exception-Fallback MUSS einen Zeitdomain-Proxy als informierte Schätzung liefern. (§v10.92, §G93) |
+| §V33 | **Cross-Phase-Blindheit** | Es ist VERBOTEN, dass P10 (Compression) und P26 (Expansion) auf denselben Crossover-Bändern (150/800/5k Hz) ohne Metadata-Austausch operieren. P10 MUSS `per_band_gain_db` via `_restoration_context` teilen; P26 MUSS diese vor der Expansion lesen. (§v10.94, §G94) |
+| §V34 | **Hum-vor-Denoise-Verstoß** | Es ist VERBOTEN, P03 (ML-Denoising) vor P02 (Hum-Removal) laufen zu lassen. Der Phase-DAG MUSS `HARD_BEFORE(phase_02, phase_03)` enthalten. (§v10.94, §G95) |
+| §V35 | **max(nan,0.5)-Bug** | Es ist VERBOTEN, `max(float(x), 0.5)` ohne vorheriges `np.nan_to_num(x, nan=0.5)` zu verwenden, da `max(nan, 0.5) == nan` in Python. (§v10.93, §G96) |
+
+---
+
+## Zusammenfassung: Alle VERBOTE auf einen Blick
+
+```
+§V1   Gesangsverzerrung         §V13  Spektrale Verfärbung        §V25  Hartcodierte Schwellwerte
+§V2   Ghost-Echo                §V14  Modus-Ignoranz              §V26  Diskrete Stützstellen
+§V3   Hard-Clamp                §V15  Nicht-determ. Rauschen      §V27  Kalibrierungs-Silo
+§V4   Truncation ohne Dither    §V16  Übersteuerndes Rauschen     §V28  Unkalibrierter Default
+§V5   Dither-Doppelung          §V17  Quellmaterial-Extraktion    §V29  Degraded-Input-Referenz
+§V6   Silent-Failure            §V18  Bridge-Bypass               §V30  5s-Slice-als-Referenz
+§V7   Toter Guard-Code          §V19  Nicht-atomarer Export       §V31  Harter-0.95-Deckel
+§V8   Globaler Phasen-Zustand   §V20  True-Peak-Überschreitung    §V32  Stummer-return-0.5
+§V9   Workarounds               §V21  ML-Device-Fehlgriff         §V33  Cross-Phase-Blindheit
+§V10  Phasen-Individuelle Werte §V22  ML-Recovery-Signaturbruch   §V34  Hum-vor-Denoise-Verstoß
+§V11  Rauschprofil-Flächendeck. §V23  Diffusionsmodell-Rauschen   §V35  max(nan,0.5)-Bug
+§V12  Stille-Verfälschung       §V24  Falsche Test-Toleranzen
+```
+
+---
+
 ## Änderungshistorie
 
 | Version | Datum | Änderung |
 |---------|-------|----------|
+| 10.0.10 | 2026-08-10 | §V29–§V35: Non-Plus-Ultra. Degraded-Input-Referenz, 5s-Slice-Verbot, Confidence-Deckel, Exception-Proxies, Cross-Phase-Blindheit, Hum-DAG, NaN-max-Bug. Kategorie F. |
 | 10.0.9 | 2026-07-19 | §V25–§V28: Kalibrierungs-Hoheit. Verbot hartcodierter Schwellwerte und diskreter Stützstellen. Kategorie E. |
 | 10.0.4 | 2026-07-13 | Initiale Formalisierung §V1–§V15. |

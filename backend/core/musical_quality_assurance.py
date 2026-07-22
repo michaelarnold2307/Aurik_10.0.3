@@ -1191,7 +1191,13 @@ class MusicalQualityAssurance:
         # For severely degraded sources (restorability < 40) a 0% improvement
         # with gates-all-passing means the pipeline ran but added nothing — never
         # "excellence".  Require at least 1% absolute improvement.
-        _minimal_improvement = (output_quality.overall_score - input_quality.overall_score) >= 1.0
+        # §v10.101: Use relative improvement (output/input ≥ 1.02) instead of
+        # absolute (output−input ≥ 1.0). For low-quality sources (score ~40),
+        # a 2% relative gain (~0.8 points) is already significant. The absolute
+        # 1.0-point threshold was too strict for heavily degraded material.
+        _input_score = max(float(input_quality.overall_score), 0.1)
+        _output_score = float(output_quality.overall_score)
+        _minimal_improvement = (_output_score / _input_score) >= 1.02
 
         quality_guaranteed = (
             gate_passed

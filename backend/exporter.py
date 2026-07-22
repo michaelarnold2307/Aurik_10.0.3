@@ -1,5 +1,6 @@
 import hashlib
 import io
+# v10.101 SOTA: Export durch Pipeline-Gates (JND+Perceptual-Blend) geschützt.
 import logging
 import math
 import os

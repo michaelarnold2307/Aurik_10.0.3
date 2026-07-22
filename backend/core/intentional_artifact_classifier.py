@@ -76,10 +76,78 @@ AUTHENTIC_CHARACTER: dict[str, dict[str, _Classification]] = {
         "severe_pre_echo": "REPAIR",  # starkes Pre-Echo > 40 ms ist echter Defekt (phase_50)
         "metallic_ringing": "REPAIR",  # metallisches Klingen ist echter Defekt
     },
+    "mp3_high": {
+        # §v10.95: mp3 320kbps — nah-transparent, nur minimale Artefakte
+        "psychoacoustic_coding_mild": "PRESERVE",  # MP3 320kbps ist nah-transparent
+        "pre_echo_minor": "PRESERVE",  # minimales Pre-Echo bei hoher Bitrate: Format-Charakter
+        "severe_pre_echo": "REPAIR",  # starkes Pre-Echo: Defekt
+        "metallic_ringing": "REPAIR",  # metallisches Klingen: Defekt
+    },
     "lacquer_disc": {
         "substrate_texture": "PRESERVE",  # Acetat-Substrat-Textur ist Materialcharakter
         "light_surface_clicks": "PRESERVE",  # leichte Oberflächenklicker ≤ 3 ms: Epoche
         "deep_crack_clicks": "REPAIR",  # tiefe Rissklicker > 5 ms: echter Defekt
+    },
+    # §v10.92: Bisher fehlende Material-Einträge — jedes Material braucht
+    # authentische Charakter-Profile, sonst return 1.0 (keine Preservation).
+    "cassette": {
+        "tape_hiss_floor": "PRESERVE",  # Kassetten-Hiss ≤ -45 dBFS ist Format-Charakter
+        "hf_rolloff_12khz": "PRESERVE",  # Typ-I-Band rolliert ab ~12 kHz physikalisch
+        "dolby_breathing": "PRESERVE",  # leichtes Dolby-Atmen ≤ -3 dB ist Epochenmerkmal
+        "wow_flutter_mild": "PRESERVE",  # Gleichlaufschwankung < 0.2 % ist Capstan-Physik
+        "azimuth_misalign_minor": "PRESERVE",  # leichte Azimuth-Fehler ≤ 5° sind normal
+        "severe_wow": "REPAIR",  # starke Gleichlaufschwankung > 0.5 % ist Defekt
+        "deep_azimuth_error": "REPAIR",  # Azimuth-Fehler > 10° zerstört Stereobild
+    },
+    "kassette": {
+        # Alias für cassette (deutsche Schreibweise) — identische Physik
+        "tape_hiss_floor": "PRESERVE",
+        "hf_rolloff_12khz": "PRESERVE",
+        "dolby_breathing": "PRESERVE",
+        "wow_flutter_mild": "PRESERVE",
+        "azimuth_misalign_minor": "PRESERVE",
+        "severe_wow": "REPAIR",
+        "deep_azimuth_error": "REPAIR",
+    },
+    "wire_recording": {
+        "bandlimit_4khz": "PRESERVE",  # Magnetdraht: BW ≤ 4−6 kHz physikalisch
+        "mechanical_flutter": "PRESERVE",  # Drahtzug-Mechanik: inhärente Flutter
+        "high_noise_floor": "PRESERVE",  # Draht-Rauschboden ~-35 dBFS: Epoche
+        "mono_source": "PRESERVE",  # alle Drahtaufnahmen sind Mono
+    },
+    "minidisc": {
+        "atrac_spectral_banding": "PRESERVE",  # ATRAC-Codec-Spektralstruktur ist Format-Charakter
+        "bw_ceiling_16khz": "PRESERVE",  # ATRAC-Bandbreite ≤ 16 kHz
+        "mild_pre_echo": "PRESERVE",  # leichtes Pre-Echo bei Transienten: Codec-Artefakt
+        "severe_pre_echo": "REPAIR",  # starkes Pre-Echo > 30 ms: Defekt
+    },
+    "dat": {
+        "16bit_dither": "PRESERVE",  # 16-bit-Dithering ist Format-Charakter
+        "tape_transport_jitter": "PRESERVE",  # minimale Transport-Jitter sind normal
+        "dropout_short": "REPAIR",  # kurze Dropouts sind Defekte
+    },
+    "aac": {
+        "psychoacoustic_coding_mild": "PRESERVE",  # AAC 256kbps+ ist nah-transparent
+        "sbr_signature": "PRESERVE",  # SBR-Signatur bei HE-AAC: Format-Charakter
+        "pre_echo_minor": "PRESERVE",  # minimales Pre-Echo ist Codec-normal
+        "severe_pre_echo": "REPAIR",  # starkes Pre-Echo: Defekt
+        "metallic_ringing": "REPAIR",  # metallisches Klingen bei niedriger Bitrate: Defekt
+    },
+    "streaming": {
+        # Streaming (Spotify AAC 256 / Apple 256) ≈ AAC High-Quality
+        "psychoacoustic_coding_mild": "PRESERVE",
+        "loudness_normalization": "PRESERVE",  # LUFS-Normalisierung ist Plattform-Charakter
+        "pre_echo_minor": "PRESERVE",
+        "severe_pre_echo": "REPAIR",
+        "metallic_ringing": "REPAIR",
+    },
+    "lp": {
+        # LP = Vinyl-Langspielplatte — identische Physik wie vinyl
+        "groove_distortion_low": "PRESERVE",
+        "interlabel_noise_texture": "PRESERVE",
+        "riaa_warmth_curve": "PRESERVE",
+        "inner_groove_compression": "PRESERVE",
+        "low_level_wow_sub1hz": "PRESERVE",
     },
 }
 

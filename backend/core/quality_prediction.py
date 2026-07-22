@@ -146,15 +146,17 @@ class QualityAnalyzer:
     """
 
     def analyze_quality(
-        self, audio: np.ndarray, sample_rate: int, reference: np.ndarray | None = None
+        self, audio: np.ndarray, sample_rate: int, reference: np.ndarray | None = None,
+        *, perceptual_score: float | None = None,
     ) -> QualityEstimate:
         """
-        Analysiert die Audioqualität.
+        Analysiert die Audioqualität — perzeptuell gewichtet für menschliches Hören.
 
         Args:
             audio: Audio signal
             sample_rate: Sample rate
             reference: Optional reference signal for comparison
+            perceptual_score: Optional MUSHRA/OQS-Score (0-100) für perzeptuelle Gewichtung
 
         Returns:
             QualityEstimate with comprehensive metrics
@@ -181,9 +183,10 @@ class QualityAnalyzer:
         # Artifacts
         has_artifacts, artifact_types = self._detect_artifacts(audio, sample_rate)
 
-        # Overall score (weighted combination)
+        # Overall score (perzeptuell gewichtet, §v10.101)
         overall_score = self._calculate_overall_score(
-            snr_db, dynamic_range_db, thd_percent, clarity, warmth, brightness, naturalness
+            snr_db, dynamic_range_db, thd_percent, clarity, warmth, brightness, naturalness,
+            perceptual_score=perceptual_score,
         )
 
         # Quality level
@@ -510,35 +513,55 @@ class QualityAnalyzer:
     # === Helper Methods ===
 
     def _calculate_overall_score(
-        self, snr: float, dr: float, thd: float, clarity: float, warmth: float, brightness: float, naturalness: float
+        self, snr: float, dr: float, thd: float, clarity: float, warmth: float, brightness: float, naturalness: float,
+        *, perceptual_score: float | None = None,
     ) -> float:
         """
-        Calculate overall quality score (0-100).
+        Calculate overall quality score (0-100) — perzeptuell gewichtet.
 
-        Weights:
-        - SNR: 25%
-        - Dynamic Range: 20%
-        - THD: 15%
-        - Clarity: 15%
-        - Warmth: 10%
-        - Brightness: 5%
-        - Naturalness: 10%
+        §v10.101: Das menschliche Ohr priorisiert Natürlichkeit, Wärme und Klarheit
+        über technische Messwerte. SNR und THD sind unterhalb der Hörschwelle irrelevant.
+        Wenn ein MUSHRA/OQS-Perceptual-Score verfügbar ist, wird dieser als
+        direktes Hörer-Modell mit 35% gewichtet.
+
+        Gewichte (Perceptual Mode, mit MUSHRA):
+        - MUSHRA/OQS:      35%  ← direktes menschliches Hörmodell
+        - Naturalness:     20%  ← Unnatürlichkeit wird sofort wahrgenommen
+        - Warmth:          15%  ← "musikalisch, kraftvoll"
+        - Clarity:         15%  ← Sprach-/Gesangsverständlichkeit
+        - SNR:              5%  ← nur bei extrem schlechtem Rauschabstand relevant
+        - Dynamic Range:    5%  ← Crest-Faktor ist perzeptuell relevanter
+        - THD:              5%  ← unter ~1% unhörbar
+
+        Gewichte (Technical Fallback, ohne MUSHRA):
+        - SNR: 20%, DR: 15%, THD: 10%, Clarity: 20%, Warmth: 15%, Naturalness: 20%
         """
-        # Normalize metrics to 0-1
-        snr_norm = min(snr / 80, 1.0)  # 80 dB = perfect
-        dr_norm = min(dr / 90, 1.0)  # 90 dB = perfect
-        thd_norm = 1.0 - min(thd / 5.0, 1.0)  # 0% = perfect
+        snr_norm = min(snr / 80, 1.0)
+        dr_norm = min(dr / 90, 1.0)
+        thd_norm = 1.0 - min(thd / 5.0, 1.0)
 
-        # Weighted sum
-        score = (
-            0.25 * snr_norm
-            + 0.20 * dr_norm
-            + 0.15 * thd_norm
-            + 0.15 * clarity
-            + 0.10 * warmth
-            + 0.05 * brightness
-            + 0.10 * naturalness
-        )
+        if perceptual_score is not None and perceptual_score > 0:
+            # Perceptual Mode: MUSHRA als Ground Truth
+            _mushra_norm = float(np.clip(perceptual_score / 100.0, 0.0, 1.0))
+            score = (
+                0.35 * _mushra_norm
+                + 0.20 * naturalness
+                + 0.15 * warmth
+                + 0.15 * clarity
+                + 0.05 * snr_norm
+                + 0.05 * dr_norm
+                + 0.05 * thd_norm
+            )
+        else:
+            # Technical Fallback: reduziert technische, erhöht perzeptuelle Anteile
+            score = (
+                0.20 * snr_norm
+                + 0.15 * dr_norm
+                + 0.10 * thd_norm
+                + 0.20 * clarity
+                + 0.15 * warmth
+                + 0.20 * naturalness
+            )
 
         return float(score * 100)
 

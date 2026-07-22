@@ -172,4 +172,4 @@ Das CD-Rauschprofil simuliert das thermische Rauschen eines 16-bit CD-Wandlers:
 
 ---
 
-*Letzte Änderung: 2026-07-13 — v10.0.5: Initial GEBOTE/VERBOTE-Katalog + CD-Rauschprofil-Spec*
+*Letzte Änderung: 2026-08-03 — v10.0.12: §G88 Defektbehebungs-Module (Phase_07/19/23/43) Depth-adaptive DSP-Fallbacks (§v10.60) + §G87 Per-Band-Noise-Floor-Guard Phase_26 (§v10.61)*

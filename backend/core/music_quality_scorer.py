@@ -110,9 +110,9 @@ def _harmonicity(frames: np.ndarray) -> float:
         scores.append(harmonic_energy / total_energy)
 
     result = float(np.mean(scores)) if scores else 0.3
-    # NaN/Inf-Guard (§3.1)
-    result = float(np.nan_to_num(result, nan=0.3, posinf=1.0, neginf=0.0))
-    return float(np.clip(result, 0.0, 1.0))
+    # §v10.93 NaN-Guard: np.mean([]) → nan bereits durch else 0.3 abgefangen.
+    # nan_to_num hier defensiv gegen hypothetisches NaN in scores (kein bekannter Pfad).
+    return float(np.clip(np.nan_to_num(result, nan=0.3, posinf=1.0, neginf=0.0), 0.0, 1.0))
 
 
 def _noise_floor_db(audio: np.ndarray) -> float:
@@ -214,9 +214,6 @@ def _spectral_flux_continuity(frames: np.ndarray) -> float:
     # NaN/Inf-Guard (§3.1)
     result = np.nan_to_num(result, nan=0.7, posinf=1.0, neginf=0.0)
     return float(np.clip(result, 0.0, 1.0))
-    # NaN/Inf-Guard (§3.1)
-    result = np.nan_to_num(result, nan=0.7, posinf=1.0, neginf=0.0)
-    return float(np.clip(result, 0.0, 1.0))
 
 
 def _micro_dynamic_variation(audio: np.ndarray) -> float:
@@ -261,9 +258,6 @@ def _micro_dynamic_variation(audio: np.ndarray) -> float:
         return float(np.clip(result, 0.0, 1.0))
     else:
         result = float(max(0.0, 1.0 - (cv - 0.20) / 0.30))  # Zu variabel → 1→0
-        # NaN/Inf-Guard (§3.1)
-        result = np.nan_to_num(result, nan=0.7, posinf=1.0, neginf=0.0)
-        return float(np.clip(result, 0.0, 1.0))
         # NaN/Inf-Guard (§3.1)
         result = np.nan_to_num(result, nan=0.7, posinf=1.0, neginf=0.0)
         return float(np.clip(result, 0.0, 1.0))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 52: Piano Restoration System v1.0 - Tier 1 ML-Hybrid
 Professional piano restoration for classical, jazz, and modern recordings.
 

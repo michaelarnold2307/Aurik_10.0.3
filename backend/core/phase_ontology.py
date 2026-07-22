@@ -257,6 +257,14 @@ CONFLICT_REGISTRY: dict[str, frozenset[str]] = {
     # Broadband-Denoise → nachfolgende Harmonic/Freq-Restaurierung konservativ (§2.46 Invariante:
     # subtraktiv vor additiv; eine zweite Denoise-Runde nach Harmonik-Enhancement ist ein Konflikt)
     "phase_03": frozenset({"phase_29"}),
+    # §v10.62 Exciter synthetisiert Harmonische → Denoiser entfernt sie als "Rauschen"
+    # (F10: stumme Auslöschung — Phase_21-Arbeit wird von Phase_03/29 komplett vernichtet)
+    "phase_21": frozenset({"phase_03", "phase_29"}),
+    # §v10.62 Air-Band-Enhancement addiert 10–20 kHz → Tape-Hiss-Removal entfernt es
+    # (F11: synthetisierte Luft wird von Phase_29 als "Hiss" erkannt und gelöscht)
+    "phase_39": frozenset({"phase_29"}),
+    # §v10.62 Bass-Enhancement addiert Subharmonische → Rumble-Filter könnte sie entfernen
+    "phase_37": frozenset({"phase_05"}),
 }
 
 

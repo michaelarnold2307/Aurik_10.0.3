@@ -79,7 +79,8 @@ class LimitingPhase(PhaseInterface):
     """
 
     # Crossover-Frequenzen für 4-Band Splitting (Linkwitz-Riley 4th Order)
-    CROSSOVER_FREQS = [150, 800, 5000]  # Hz
+    # §v10.101 SOTA: Bark-basierte Crossover-Frequenzen (Zwicker 1961 → 4 Gruppen)
+    CROSSOVER_FREQS = [400, 2000, 6400]  # Bark: Bass 0-400, Low-Mid 400-2000, Mid-High 2000-6400, High 6400-15500
 
     # Material-adaptive Ceiling (Maximum erlaubter True Peak)
     # Format: [ceiling_db, oversample_factor]

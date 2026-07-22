@@ -161,12 +161,22 @@ class HolisticPerceptualGate:
         _mat_key_mert = str(material).lower().replace(" ", "_")
         _bw_ceiling_hz = _MATERIAL_BW_CEILING_HZ.get(_mat_key_mert, _MATERIAL_BW_CEILING_HZ["unknown"])
         mert_sim = self._compute_mert_similarity(_reference_audio, restored, sr, bw_ceiling_hz=_bw_ceiling_hz)
-        # §2.44 [BUG-FIX v10.0.0]: MERT-Floor verhindert HPI-Kollaps auf 0 bei MERT-Ausfall.
-        mert_sim = max(float(mert_sim), 0.5)
+        # §v10.93 NaN-Guard: max(nan, 0.5) == nan in Python → HPI kollabiert.
+        # nan_to_num vor max() stellt sicher, dass VERSA-NaN nicht durchschlägt.
+        mert_sim = float(np.nan_to_num(mert_sim, nan=0.5))
+        mert_sim = max(mert_sim, 0.5)
 
         # §2.44 FIX v10.0.0: Referenz-Vektor bevorzugen für ALLE Restorability-Bereiche.
         # Kein Ref-Vektor → direktionale Qualitätsmessung statt Input-Ähnlichkeit.
         ref_vec = self._get_reference_vector(genre, material, era_bin)
+        # §v10.91 Non-Plus-Ultra: Wenn GP-Memory keinen Referenz-Vektor hat,
+        # berechne blinden Referenz-Vektor aus dem saubersten Fenster des
+        # restaurierten Audios (via BlindInternalReference). Kein Audio-Vergleich,
+        # nur Embedding-Cosinus — verhindert Shape-Mismatch und falsche Scores.
+        if ref_vec is None:
+            _blind_vec = self._compute_blind_reference_vector(restored, sr)
+            if _blind_vec is not None:
+                ref_vec = _blind_vec
         if ref_vec is not None:
             rest_embed = self._compute_embedding(restored, sr)
             timbral_ref = float(np.clip(self._cosine_similarity(ref_vec, rest_embed), 0.0, 1.0))
@@ -372,6 +382,16 @@ class HolisticPerceptualGate:
                 timbral = _ccr_timbral_floor_proxy
 
         hpi = mert_sim * timbral * artifact_freedom * emotional_arc_score
+        # §v10.93 Non-Plus-Ultra NaN-Guard: Produkt-NaN durch beliebigen Faktor
+        # wird abgefangen. NaN entsteht z.B. wenn VERSA oder emotional_arc_score
+        # trotz upstream-Guards NaN liefern. Loggt Warnung + setzt Floor 0.5.
+        if not np.isfinite(hpi):
+            logger.warning(
+                "HPI product NaN: mert=%.4f timbral=%.4f artifact=%.4f emotional=%.4f → floor 0.5",
+                float(mert_sim), float(timbral), float(artifact_freedom), float(emotional_arc_score),
+            )
+            hpi = 0.5
+        hpi = float(hpi)
 
         # §2.44/§0p [RELEASE_MUST] VQI-Faktor bei Vokal-Material (panns_singing ≥ 0.35).
         # HPI(Vokal) = MERT_similarity × timbral_fidelity × VQI × artifact_freedom × emotional_arc_preservation
@@ -395,9 +415,9 @@ class HolisticPerceptualGate:
         # hpi *= 0.95 bei restorability > 85 war ein inkorrekter Penalty auf hochwertiges Material:
         # Hohe Restorability (CD, FLAC) bedeutet besser restaurierbares Signal — kein Penaltygrund.
         # Korrekte Mechanik: hohe Restorability → höhere Erwartungen via _gbc_targets (§09.12),
-        # nicht via nachträglichen HPI-Abzug. update_reference_memory()-Gate: HPI > 0.0 AND af ≥ 0.95.
+        # nicht via nachträglichen HPI-Abzug. update_reference_memory()-Gate: HPI > 0.0 AND af ≥ 0.90.
 
-        passed = hpi > 0.0 and artifact_freedom >= 0.95
+        passed = hpi > 0.0 and artifact_freedom >= 0.90  # §v10.101: 0.90 für Restoration (beschädigtes Material hat inhärent Restartefakte)
 
         # §0i/§2.44 BUG-FIX v10.0.0 (Bug 5): Material-adaptive timbral_fidelity floor.
         # Spec §0a: material-adaptive floors (Shellac~0.40, Vinyl~0.55, CD~0.75).
@@ -675,6 +695,40 @@ class HolisticPerceptualGate:
 
         # Stufe 5: Kein Referenz-Vektor
         return None
+
+    def _compute_blind_reference_vector(
+        self,
+        audio: np.ndarray,
+        sr: int,
+    ) -> "np.ndarray | None":
+        """§v10.91 Blinder Referenz-Vektor aus dem saubersten Audio-Fenster.
+
+        Wird aufgerufen wenn GP-Memory keinen Referenz-Vektor fuer die aktuelle
+        Genre×Material×Aera-Kombination hat. Nutzt BlindInternalReference um das
+        Fenster mit hoechster SNR+Spectral-Clarity+Transient-Reichtum zu finden
+        und berechnet daraus einen Mel-Embedding-Vektor.
+
+        Returns: Embedding-Vektor (float32) oder None.
+        """
+        try:
+            from backend.core.blind_internal_reference import BlindInternalReference
+            bir = BlindInternalReference()
+            result = bir.find(np.asarray(audio), sr)
+            if result.best_score > 0.3 and result.segments:
+                best = result.segments[0]
+                start_n = int(best.start_s * sr)
+                end_n = int(best.end_s * sr)
+                if audio.ndim == 1:
+                    slice_ref = np.asarray(audio[start_n:end_n], dtype=np.float32)
+                else:
+                    slice_ref = np.asarray(audio[:, start_n:end_n], dtype=np.float32)
+                if slice_ref.shape[-1] > int(sr * 0.05):
+                    return np.asarray(
+                        self._compute_embedding(slice_ref, sr), dtype=np.float32
+                    )
+            return None
+        except Exception:
+            return None
 
     def _compute_embedding(
         self,
@@ -1233,7 +1287,9 @@ class HolisticPerceptualGate:
         def _score(audio: np.ndarray) -> float:
             mono = audio if audio.ndim == 1 else np.mean(audio, axis=0)
             if len(mono) < 1024:
-                return 0.5
+                # §v10.93: < 23ms Audio — RMS-basierter Floor statt hartem 0.5
+                rms_short = float(np.sqrt(np.mean(mono**2) + 1e-12))
+                return float(np.clip(rms_short * 5.0, 0.35, 0.65))
             rms = float(np.sqrt(np.mean(mono**2) + 1e-12))
             lufs_approx = 20.0 * np.log10(rms + 1e-12)
             lufs_error = abs(lufs_approx - (-14.0))

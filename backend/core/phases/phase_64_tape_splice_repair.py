@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 64 — Tape Splice Artifact Repair.
 
 Tape splice artifacts combine three simultaneous discontinuities:

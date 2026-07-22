@@ -18,6 +18,49 @@ JEDER Phase angewendet wenn die Sharpness im 2–5 kHz-Bereich >12% beträgt.
 Implementiert in `backend/core/comfort_guard.py`, integriert in
 `PhaseInterface._safe_process()`.
 
+
+## §4.10 — Perzeptuelle DSP-Standards (§v10.101)
+
+### §4.10.1 Bark-Band-Verarbeitungspflicht
+
+Jede frequenzabhängige DSP-Operation MUSS in 24 kritischen Bark-Bändern
+(Zwicker 1961, 0-15500 Hz) arbeiten. Lineare Hz-Bänder sind ab v10.101
+deprecated und werden schrittweise migriert.
+
+Referenz-Implementierung: `backend.core.dsp.bark_lufs_util.split_into_bark_bands()`
+
+### §4.10.2 LUFS-Lautheitsmessung
+
+Dynamik-Entscheidungen MÜSSEN ITU-R BS.1770-4 LUFS verwenden.
+RMS ist als Lautheits-Proxy ab v10.101 VERBOTEN (§V36).
+
+Referenz: `backend.core.dsp.bark_lufs_util.measure_lufs_per_bark()`
+
+### §4.10.3 Perzeptueller Wet/Dry-Blend
+
+Jeder Phasen-Blend MUSS `perceptual_blend()` verwenden (§G101, §V34).
+Skalarer Blend (ein Wert × alle Frequenzen) ignoriert simultane Maskierung
+und übernimmt unhörbare Änderungen.
+
+Referenz: `backend.core.dsp.perceptual_blend.perceptual_blend()`
+
+### §4.10.4 JND-Gate
+
+Vor jeder Phase prüft `should_skip_phase()` ob die erwartete Wirkung hörbar ist.
+<2 Bark-Bänder über JND → Phase überspringen (§G104, §V37).
+
+Referenz: `backend.core.dsp.perceptual_gate.should_skip_phase()`
+
+### §4.10.5 ISO-226-Hörschwelle
+
+Alle Pegel-Entscheidungen konsultieren ISO 226:2003 (§G105, §V38).
+Die absolute Hörschwelle variiert um >40 dB über das Spektrum.
+
+### §4.10.6 Zeitliche Maskierung
+
+Attack/Release orientieren sich an ISO 11172-3: Pre-Masking 20ms, Post-Masking 100ms.
+
+
 ## §4.1 Pflicht-Konzepte (mindestens eines pro DSP-Funktion)
 
 | Konzept | Anwendung | Referenz |
@@ -1507,3 +1550,27 @@ Crossfade: Hanning 10 ms. Modul: `backend/core/adaptive_chunk_processor.py`
 | Flow Matching | ONNX/PT | Aurik 10.10.x |
 | Whisper-Tiny | ONNX 39 MB | Aurik 10.10.46b |
 | Resemble-Enhance | ONNX 722 MB | Aurik 10.0 (Fallback) |
+
+### §4.10.7 Migrationspfad Bark/LUFS (§v10.101)
+
+**Status:** Die perzeptuellen DSP-Module sind implementiert und in der
+Pipeline verdrahtet. Die Migration der Einzelphasen erfolgt schrittweise:
+
+| Phase | Status | Nächster Schritt |
+|-------|--------|-----------------|
+| Wet/Dry-Blend (alle Phasen) | ✅ `perceptual_blend()` aktiv | — |
+| JND-Gate (alle Phasen) | ✅ `should_skip_phase()` aktiv | — |
+| Phase_35 (Multiband Compression) | ✅ Bark-Gruppen 24→4 | — |
+| Phase_40 (Loudness-Normalization) | ✅ fftconvolve-Optimierung | LUFS bereits genutzt |
+| QualityAnalyzer | ✅ perzeptuelle Gewichtung | — |
+| DoNoHarmGuardian | ✅ Crest-Faktor | — |
+| DTW-Groove | ✅ Sakoe-Chiba-Fix | — |
+| STFT-Cache | ✅ measure_all | — |
+| Phase_54 (Transparent Dynamics) | 🟡 lineare Bänder | Bark-Band-Migration |
+| Phase_26 (DR-Expansion) | 🟡 dB-Schwellen | LUFS-Integration |
+| Phase_16 (Final EQ) | 🟡 lineare Bänder | Bark-Band-Migration |
+| Phase_09 (Crackle Removal) | 🟡 lineare Bänder | Bark-Band-Migration |
+
+**Garantie:** Neue Phasen MÜSSEN Bark/LUFS verwenden (§V35, §V36).
+Bestehende Phasen werden bei nächster Überarbeitung migriert.
+

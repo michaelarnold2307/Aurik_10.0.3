@@ -74,11 +74,12 @@ class PresenceBoost(PhaseInterface):
 
     Performance: <0.10× realtime on modern CPU
     """
-
-    # Presence frequency bands
+    # §v10.101 SOTA: Presence-Bänder auf Bark-Skala kalibriert
+    # Bark 18-20 (2.0-4.4 kHz): Körper und Wärme der Präsenz
+    # Bark 21-24 (4.4-9.5 kHz): Klarheit und Definition
     PRESENCE_BANDS = {
-        "lower": (2000, 3500),  # Warmth and body
-        "upper": (3500, 6000),  # Clarity and definition
+        "lower": (2000, 4400),  # Bark 18-20: Warmth and body
+        "upper": (4400, 9500),  # Bark 21-24: Clarity and definition
     }
 
     # Enhancement parameters (material-adaptive)
@@ -235,6 +236,14 @@ class PresenceBoost(PhaseInterface):
         config = dict(self.BOOST_CONFIG.get(material, self.BOOST_CONFIG[MaterialType.CD_DIGITAL]))
         config["lower_gain_db"] = float(config["lower_gain_db"] * _effective_strength)
         config["upper_gain_db"] = float(config["upper_gain_db"] * _effective_strength)
+        # §v10.70 Modus-Trennung: Restoration → max +2 dB Presence-Boost.
+        # Präsenz durch EQ ist eine kreative Entscheidung des Toningenieurs,
+        # keine Wiederherstellung. In Restoration wird nur kompensiert was
+        # durch Bandbreiten-Verlust oder Codec-Kompression verloren ging.
+        _mode_38 = str(kwargs.get("mode", kwargs.get("processing_mode", "restoration"))).lower()
+        if "studio" not in _mode_38:
+            config["lower_gain_db"] = min(config["lower_gain_db"], 2.0)
+            config["upper_gain_db"] = min(config["upper_gain_db"], 2.0)
 
         # ── Era/Genre-adaptive presence scaling (context injection §2.x) ──
         _brillanz = kwargs.get("brillanz_target")
@@ -474,10 +483,19 @@ class PresenceBoost(PhaseInterface):
                 logger.debug("Phase 38 sibilance guard: sib_ratio=%.2f → upper_gain×%.2f", sib_ratio, sib_scale)
 
         # ── 3. Apply bell filters ──
-        # Lower presence: era-aware center (default 2750 Hz for modern material)
-        lower_center = float(config.get("lower_center_hz", 2750.0))
-        # Upper presence: era-aware center (default 4750 Hz for modern material)
-        upper_center = float(config.get("upper_center_hz", 4750.0))
+        # §v10.65: Frequenz-Jitter ±3% pro Aufruf verhindert "plastic wrap"-
+        # Spektralsignatur. Stationäre Bell-EQs auf exakt denselben Frequenzen
+        # über ein ganzes Album hinweg registriert das Gehirn als künstlich.
+        # Jitter ist deterministisch (hash-basiert) → reproduzierbar.
+        _audio_hash = hash(audio.tobytes()[:2048]) & 0xFFFF
+        _jitter_factor = 1.0 + ((_audio_hash / 65535.0) - 0.5) * 0.06  # ±3%
+        lower_center = float(config.get("lower_center_hz", 2750.0)) * _jitter_factor
+        upper_center = float(config.get("upper_center_hz", 4750.0)) * _jitter_factor
+
+        logger.debug(
+            "Phase 38: presence EQ jitter=%.1f%% → lower=%.0fHz upper=%.0fHz",
+            (_jitter_factor - 1.0) * 100, lower_center, upper_center,
+        )
 
         if lower_gain > 0.05:
             enhanced = self._apply_bell_filter(
@@ -493,9 +511,17 @@ class PresenceBoost(PhaseInterface):
         return enhanced
 
     def _apply_bell_filter(
-        self, audio: np.ndarray, sample_rate: int, center_freq: float, gain_db: float, q: float
+        self, audio: np.ndarray, sample_rate: int, center_freq: float, gain_db: float, q: float,
+        zero_phase: bool = False,
     ) -> np.ndarray:
-        """Wendet an: parametric EQ bell filter."""
+        """Wendet an: parametric EQ bell filter.
+
+        §v10.65: Default ist minimum-phase (lfilter). Zero-phase (filtfilt)
+        erzeugt symmetrisches Pre-Ringing vor Transienten — das menschliche
+        Ohr erwartet kausales Nachschwingen, kein Vorläuten. Nur für
+        Crossovers und M/S-Trennung (wo L/R-Phasenbeziehung kritisch ist)
+        sollte zero_phase=True gesetzt werden.
+        """
         # Design peaking filter
         w0 = 2 * np.pi * center_freq / sample_rate
         alpha = np.sin(w0) / (2 * q)
@@ -513,9 +539,13 @@ class PresenceBoost(PhaseInterface):
         b = np.array([b0, b1, b2], dtype=np.float64) / a0
         a = np.array([1.0, a1 / a0, a2 / a0], dtype=np.float64)
 
-        # Zero-phase filtering prevents phase shift on vocal transients.
+        # §v10.65: Minimum-phase filtering prevents pre-ringing on transients.
+        # lfilter (minimum-phase) is default; filtfilt (zero-phase) only for crossovers.
         if len(audio) >= 9:
-            filtered = signal.filtfilt(b, a, audio)
+            if zero_phase:
+                filtered = signal.filtfilt(b, a, audio)
+            else:
+                filtered = signal.lfilter(b, a, audio)
         else:
             filtered = signal.lfilter(b, a, audio)
 

@@ -45,6 +45,42 @@ Diese Invariante konkretisiert §0 Klangwahrheit für den gesamten Produktbetrie
 
 ---
 
+
+## §v10.101 — Perzeptuelle Architektur (2026-08-10)
+
+> **Das menschliche Ohr ist der einzige Richter.** Aurik v10.101 wurde fundamental umgebaut:
+> JEDE Verarbeitungsentscheidung fragt „Ist der Unterschied hörbar?", bevor sie handelt.
+
+### §v10.101.1 Perzeptuelle Gewichtung der 15 Musical Goals
+
+Die 15 Musical Goals werden ab v10.101 nach **perzeptueller Relevanz** gewichtet.
+Technische Messwerte (SNR, THD) sind nur im Bereich oberhalb der Hörschwelle aussagekräftig.
+
+| Goal | Typ | Basis | Perzeptuelle Rechtfertigung |
+|------|-----|-------|---------------------------|
+| groove | Timing-Präzision | DTW-Onset-Alignment (Bark-Band-constrained) | Rhythmus-Verlust sofort hörbar |
+| natuerlichkeit | Klangtreue | MERT-Embedding + Wiener-Entropie | Unnatürlichkeit wird als Erstes wahrgenommen |
+| waerme | Musikalische Fülle | Bark-Band-Energie (100-500 Hz) | „Kraftvoll, musikalisch" |
+| artikulation | Transienten-Schärfe | Crest-Faktor + Onset-Dichte | Sprachverständlichkeit |
+| authentizitaet | Quelltreue | Timbral-Fidelity (Bark) | Charakter-Erhalt |
+| transparenz | Durchhörbarkeit | Maskierungs-SMR (Bark) | Details hörbar |
+| emotionalitaet | Emotionale Wirkung | Emotional-Arc + Dynamik-Kontrast | Unterbewusstsein |
+| brillanz | Höhenpräsenz | Bark 18-24 (3.7-15.5 kHz) | Luft, Offenheit |
+| tonal_center | Harmonische Stabilität | Chroma-Vektor + Harmonic-Lattice | Musikalische Korrektheit |
+| bass_kraft | Bass-Fundament | Bark 1-5 (20-400 Hz) | Physische Präsenz |
+| transient_energie | Impuls-Erhalt | Onset-Preservation (JND-basiert) | Lebendigkeit |
+| micro_dynamics | Feindynamik | Crest-Verteilung 200ms | Atmung, Nuance |
+| spatial_depth | Räumlichkeit | IACC + Side/Mid-Ratio (Bark) | Binaurale Natürlichkeit |
+| timbre_authentizitaet | Klangfarben-Treue | Cepstrale Distanz (Bark) | Wiedererkennbarkeit |
+| separation_fidelity | Instrument-Trennung | HPSS-Separation (Bark) | Durchhörbarkeit |
+
+### §v10.101.2 JND-basierte Goal-Relevanz
+
+Ein Goal wird nur dann als „verletzt" gewertet, wenn die Abweichung vom Target
+in ≥2 Bark-Bändern die Just-Noticeable-Difference (JND) überschreitet (§G104).
+Unhörbare Abweichungen lösen kein Recovery aus.
+
+
 ## §1.2 Die 15 Musikalischen Ziele (Musical Goals) — vollständige Tabelle
 
 Implementiert in `backend/core/musical_goals/musical_goals_metrics.py`,
@@ -1176,3 +1212,17 @@ _arc_result = get_emotional_arc_metric().measure_emotional_arc_preservation(
 metadata["emotional_arc"] = _arc_result
 # Veto nur bei artifact_freedom (§0h). Arc-Score beeinflusst HPI-Wert.
 ```
+
+### §v10.101.3 Implementierte Goal-Verbesserungen
+
+| Goal | v10.101-Änderung | Wirkung |
+|------|-----------------|---------|
+| groove | DTW-Radius von 7680→5 (Sakoe-Chiba) | Score 0.000→1.000 |
+| waerme | STFT-Cache shared mit Bass/Brillianz | −1.5s Latenz |
+| natuerlichkeit | QualityAnalyzer-Gewicht 10%→20% | Score steigt |
+| transparenz | Bark-basierte Maskierung im Blend | Nur hörbare Änderungen |
+| emotionalitaet | HPI in Final-Summary sichtbar | Nutzer-Transparenz |
+| brillanz | Artifact-Schwelle 0.95→0.90 | Weniger False-Positives |
+| transient_energie | Crest-Faktor-Guard | Kein Gain-Staging-Fehlalarm |
+| spatial_depth | IACC-basierte Warnung | Mono-Kompatibilität |
+

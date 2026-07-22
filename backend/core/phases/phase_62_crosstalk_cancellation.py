@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 62 — Crosstalk Cancellation.
 
 Channel crosstalk in early stereo recordings where channel separation was

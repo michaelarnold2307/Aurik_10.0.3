@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 50: Spectral Repair v2.0 — STFT Inpainting
 ==================================================
 
@@ -838,9 +839,11 @@ class SpectralRepairPhase(PhaseInterface):
         _rms_in_50 = float(np.sqrt(np.mean(np.asarray(audio, dtype=np.float64) ** 2) + 1e-12))
         _rms_out_50 = float(np.sqrt(np.mean(np.asarray(repaired_audio, dtype=np.float64) ** 2) + 1e-12))
         _rms_drop_50 = 20.0 * np.log10(max(_rms_out_50 / _rms_in_50, 1e-30)) if _rms_in_50 > 1e-8 else 0.0
+        # §v10.101: Garantiere ndarray — verhindert tuple-ndim im PMGG/Steering-Pfad
+        _safe_audio = np.asarray(repaired_audio, dtype=np.float32)
         return PhaseResult(
             success=True,
-            audio=repaired_audio,
+            audio=_safe_audio,
             execution_time_seconds=time.time() - t0,
             metadata={
                 "threshold_factor": threshold_factor,

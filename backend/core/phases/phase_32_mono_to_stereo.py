@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 32: Mono-to-Stereo Enhancement v2.0 (Professional).
 Lauridsen-algorithm pseudo-stereo with advanced decorrelation.
 

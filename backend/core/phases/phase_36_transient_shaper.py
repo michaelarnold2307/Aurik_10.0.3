@@ -80,7 +80,7 @@ class TransientShaper(PhaseInterface):
     """
 
     # Crossover frequencies for 4-band split (Hz)
-    CROSSOVER_FREQS = [150, 800, 5000]
+    CROSSOVER_FREQS = [400, 2000, 6400]  # §v10.101: Bark-Crossover
 
     # Shaping parameters (material-adaptive)
     SHAPING_CONFIG = {

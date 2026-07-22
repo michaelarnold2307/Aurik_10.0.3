@@ -75,8 +75,10 @@ try:
 except Exception:
     _PydubAudioSegment = None  # type: ignore[assignment]
 
+# §v10.70 Bridge: load_audio_file über die Bridge, nicht direkt aus backend.file_import
 try:
-    from backend.file_import import load_audio_file as _direct_load_audio_file
+    from backend.api.bridge import get_load_audio_fn
+    _direct_load_audio_file = get_load_audio_fn()
 except Exception:
     _direct_load_audio_file = None  # type: ignore[assignment]
 
@@ -1628,8 +1630,18 @@ class BatchProcessingThread(QThread):
                 defect_result=None,
             )
         except Exception:
-            logger.debug("fallback in modern_window.py", exc_info=True)
-            pass  # best-effort in signal handler — no logging
+            # §v10.70: Schreibe Fehler in Crash-Log — Nutzer muss wissen ob
+            # Notfall-Checkpoint gescheitert ist (kein stilles Versagen).
+            try:
+                _crash_log = Path(tempfile.gettempdir()) / "aurik_emergency_failure.log"
+                _crash_log.write_text(
+                    f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                    f"EMERGENCY CHECKPOINT FAILED\n"
+                    f"  mode={self._emergency_mode}\n"
+                    f"  exception={traceback.format_exc()}\n"
+                )
+            except Exception:
+                pass
 
     def run(self):
         """Verarbeitet all items in queue with visualization updates."""
@@ -3032,7 +3044,7 @@ class BatchProcessingThread(QThread):
                             self._current_repair_names = _active_names
                             if _active_keys and _rate_ok:
                                 _emit_defect_update(
-                                    {**_current_defect_scores, "status": "correcting", "_active_defects": _active_keys}
+                                    {**_current_defect_scores, "status": "correcting", "_active_defects": _active_keys, "_repair_names": _active_names}
                                 )
                             elif _defect_reduced_phase and _rate_ok:
                                 _emit_defect_update({**_current_defect_scores, "status": "correcting"})
@@ -9983,7 +9995,7 @@ class RecordSleeveWidget(QtWidgets.QFrame):
         main_layout.addWidget(container)
 
         # ── Trigger-Button unter der Hülle ──
-        self._trigger = QtWidgets.QPushButton("📀 Platte aus der Hülle ziehen")
+        self._trigger = QtWidgets.QPushButton(t("ui.slide_panel_open"))
         self._trigger.setFixedHeight(34)
         self._trigger.setStyleSheet("""
             QPushButton {
@@ -10061,12 +10073,12 @@ class RecordSleeveWidget(QtWidgets.QFrame):
         self._stack.setCurrentIndex(panel_index)
         self._panel_visible = True
         self._panel.setFixedWidth(self.PANEL_WIDTH)
-        self._trigger.setText("▶✕ Platte zurückschieben")
+        self._trigger.setText(t("ui.slide_panel_close"))
 
     def hide_panel(self):
         self._panel_visible = False
         self._panel.setFixedWidth(0)
-        self._trigger.setText("📀 Platte aus der Hülle ziehen")
+        self._trigger.setText(t("ui.slide_panel_open"))
 
     def toggle(self):
         if self._panel_visible:
@@ -14240,7 +14252,7 @@ class ModernMainWindow(QMainWindow):
 
         _btn_cancel = getattr(self, "_btn_cancel", None)
         if _btn_cancel is not None:
-            _btn_cancel.setText("■ Stoppen" if _compact else "■  Restaurierung stoppen")
+            _btn_cancel.setText(t("action.cancel") if _compact else t("action.cancel_full"))
 
         _stats = getattr(self, "stats_label", None)
         if _stats is not None:
@@ -14714,7 +14726,7 @@ class ModernMainWindow(QMainWindow):
         info_layout.addWidget(self._phase_step_label, 1)  # stretch=1 → nutzt verfügbare Breite
 
         # Restaurierungsstopp-Button — nur sichtbar während laufender Verarbeitung
-        self._btn_cancel = QPushButton("■  Restaurierung stoppen")
+        self._btn_cancel = QPushButton(t("action.cancel_full"))
         self._btn_cancel.setVisible(False)
         self._btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_cancel.setToolTip(t("tooltip.stop_restoration"))
@@ -15217,7 +15229,7 @@ class ModernMainWindow(QMainWindow):
                 super().paintEvent(event)
 
         dlg = _AboutDialog(self)
-        dlg.setWindowTitle("Über AURIK Professional")
+        dlg.setWindowTitle(t("dialog.about_title"))
         dlg.setMinimumWidth(580)
         dlg.setMaximumWidth(640)
         dlg.setMinimumHeight(520)
@@ -18867,6 +18879,13 @@ class ModernMainWindow(QMainWindow):
         self._preview_timer.start(33)  # ~30 fps
 
         # Start batch processing
+        # §v10.70: Disconnect alten Batch-Thread um Signal-Doppelung zu verhindern
+        _old_bt = getattr(self, "batch_thread", None)
+        if _old_bt is not None:
+            try:
+                _old_bt.disconnect()
+            except Exception:
+                pass
         self.batch_thread = BatchProcessingThread(self.batch_queue)
         # §Fix Live-Preview: _audio_ring muss für Batch-Thread sichtbar sein
         # (_audio_update_cb läuft im BatchProcessingThread, nicht in ModernWindow)
@@ -22973,8 +22992,8 @@ class ModernMainWindow(QMainWindow):
                 n = max(len(active), len(_active_known))
                 if n > 0:
                     if _status == "correcting" and _real_repair_phase:
-                        # Show which specific defects are being actively targeted right now.
-                        _active_names = " · ".join(label_map[k][0] for k in _active_known[:4])
+                        # §v10.70: Nutze pre-computed _repair_names vom Thread (Single Source)
+                        _active_names = payload.get("_repair_names", "")
                         # Store for heartbeat status text injection
                         self._current_repair_names = _active_names
                         if _active_names:
@@ -23857,6 +23876,34 @@ class ModernMainWindow(QMainWindow):
         """Queue a responsive relayout after window-size changes."""
         super().resizeEvent(event)
         self._queue_responsive_refresh()
+
+    # §v10.70: Pausiere alle Animationstimers bei Fokusverlust — spart CPU.
+    _ANIMATION_TIMER_NAMES: tuple[str, ...] = (
+        "_morph_timer", "_pulse_timer", "_removal_timer",
+        "_preview_timer", "_smooth_timer", "_glow_timer",
+        "_shimmer_timer", "_click_timer", "_responsive_timer",
+    )
+
+    def changeEvent(self, event) -> None:
+        """§v10.70: Pausiert Animationen bei Fokusverlust / Minimierung."""
+        if event.type() == event.Type.WindowStateChange:
+            is_active = self.isActiveWindow() and not self.isMinimized()
+            for _name in self._ANIMATION_TIMER_NAMES:
+                _timer = getattr(self, _name, None)
+                if _timer is None:
+                    continue
+                if is_active:
+                    if _timer.interval() > 0 and not _timer.isActive():
+                        # Nur Timer starten die vorher liefen (per _was_active flag)
+                        _was = getattr(self, f"{_name}_was_active", False)
+                        if _was:
+                            _timer.start()
+                            setattr(self, f"{_name}_was_active", False)
+                else:
+                    if _timer.isActive():
+                        setattr(self, f"{_name}_was_active", True)
+                        _timer.stop()
+        super().changeEvent(event)
 
     def closeEvent(self, event) -> None:
         """Stop playback and workers safely before closing, without UI-freezing waits."""

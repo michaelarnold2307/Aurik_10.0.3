@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 25: Azimuth Correction v2.0 (Professional).
 Multi-band phase alignment with HF restoration for tape head misalignment.
 

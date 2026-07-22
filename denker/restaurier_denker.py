@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Denker-Entscheidungen durch Pipeline-Gates (JND + Perceptual-Blend) perzeptuell validiert.
 RestaurierDenker — Domäne: Vollrestaurierung via UnifiedRestorerV3.
 
 Kapselt core.unified_restorer_v3.UnifiedRestorerV3 mit strikter

@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 57 — Print-Through Reduction (Bidirektionale Adaptive Temporal Subtraction).
 
 Spec §7.x / DSP-Spezialregel: Print-Through-Reduktion (phase_29, reel_tape):

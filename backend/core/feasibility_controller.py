@@ -19,6 +19,7 @@ Pflicht-Integration (§2.79):
 
 from __future__ import annotations
 
+# v10.101 SOTA: Goal-Feasibility mit perzeptuellen Ceilings (MUSHRA/LUFS).
 import logging
 import threading
 from dataclasses import dataclass
@@ -77,6 +78,9 @@ def estimate_goal_feasibility(
     """
     try:
         from backend.core.calibration_matrix import get_material_floor  # pylint: disable=import-outside-toplevel  # noqa: I001
+        from backend.core.calibration_matrix import (
+            predict_quality_score,  # §v10.92: material-adaptive confidence
+        )  # pylint: disable=import-outside-toplevel  # noqa: I001
         from backend.core.physical_ceiling_estimator import estimate_physical_ceiling  # pylint: disable=import-outside-toplevel
         from backend.core.song_goal_importance import ALL_GOAL_NAMES  # pylint: disable=import-outside-toplevel
 
@@ -91,11 +95,20 @@ def estimate_goal_feasibility(
 
         # Konfidenz-Faktor: Restorability − Transfer-Chain-Komplexitäts-Penalty
         chain = [str(c).strip().lower() for c in (transfer_chain or []) if str(c).strip()]
-        # Mehrstufige Ketten konservativer (§0l: min() aller Faktoren)
         chain_penalty = float(np.clip(max(0, len(chain) - 1) * 0.05, 0.0, 0.15))
-        confidence = float(np.clip(float(restorability) / 100.0 - chain_penalty, 0.05, 0.95))
-
         mat_str = str(material or "unknown").strip().lower()
+        # §v10.92: Material-adaptive Confidence statt hartem 0.95-Deckel.
+        # predict_quality_score liefert das material-spezifische Qualitäts-Ceiling
+        # (shellac=0.70, cd=0.95). Confidence = Restorability × Material-Ceiling.
+        _mat_ceiling = predict_quality_score(mat_str, float(restorability), 0.0, is_studio_2026)
+        # Normiere auf CD-Maximum (0.95) damit CD-Material weiterhin Confidence 0.95 erreicht
+        _mat_conf_factor = float(np.clip(_mat_ceiling / 0.95, 0.50, 1.0))
+        confidence = float(np.clip(
+            float(restorability) / 100.0 * _mat_conf_factor - chain_penalty,
+            0.05,
+            float(np.clip(_mat_ceiling, 0.55, 0.95)),
+        ))
+
         result: dict[str, GoalFeasibility] = {}
         for goal in ALL_GOAL_NAMES:
             max_ach = float(np.clip(ceiling.get(str(goal), 0.98), 0.30, 1.0))

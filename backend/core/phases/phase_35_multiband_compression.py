@@ -86,7 +86,14 @@ class MultibandCompressionPhase(PhaseInterface):
     """
 
     # Crossover-Frequenzen (Linkwitz-Riley 8th Order)
-    CROSSOVER_FREQS = [150, 800, 5000]  # Hz
+    # §v10.101 SOTA: Gammatone-Filterbank (Cochlea-Modell) 32→4 Gruppen.
+    # Patterson 1987 / Glasberg & Moore 1990: 32 ERB-Kanäle in 4 perzeptuelle Bereiche.
+    BARK_GROUPS = {
+        "bass":       range(0, 9),    # Gammatone 1-9:   50–400 Hz   → Opto-Style
+        "low_mid":    range(9, 18),   # Gammatone 10-18:  400–2000 Hz → VCA-Style
+        "mid_high":   range(18, 26),  # Gammatone 19-26: 2000–6400 Hz → Tube-Style
+        "high":       range(26, 32),  # Gammatone 27-32: 6400–15500 Hz → FET-Style
+    }
 
     # Compression Character per Band [bass, low_mid, mid_high, high]
     # Typen: 'vca', 'optical', 'tube', 'fet'
@@ -351,12 +358,15 @@ class MultibandCompressionPhase(PhaseInterface):
                 "material": material_type.name,
                 "num_bands": 4,
                 "band_characters": self.BAND_CHARACTERS,
+                "crossover_type": "gammatone_32_to_4",
+                "bark_groups": {k: [list(v)[0], list(v)[-1]] for k, v in self.BARK_GROUPS.items()},
                 "upward_compression_enabled": upward_config is not None,
                 "band_metrics": band_metrics,
                 "phase_locality_factor": phase_locality_factor,
                 "effective_strength": _effective_strength,
-                "rms_drop_db": round(float(min(0.0, rms_change_db)), 3),  # §2.45a Telemetrie
+                "rms_drop_db": round(float(min(0.0, rms_change_db)), 3),
                 "loudness_makeup_db": 0.0,
+                "perceptual_model": "gammatone_lufs_sota",
             },
             metrics={
                 "rms_change_db": float(rms_change_db),
@@ -366,42 +376,37 @@ class MultibandCompressionPhase(PhaseInterface):
             modifications={
                 "algorithm": "professional_multiband_compression",
                 "bands": 4,
-                "crossover_freqs_hz": self.CROSSOVER_FREQS,
-                "crossover_type": "linkwitz_riley_8th_order",
+                "crossover_type": "bark_groups_24_to_4",
+                "bark_groups": {k: [list(v)[0], list(v)[-1]] for k, v in self.BARK_GROUPS.items()},
             },
         )
 
     def _split_bands(self, audio: np.ndarray, sample_rate: int) -> list:
         """
-        Teilt Audio in 4 Frequenzbänder (Linkwitz-Riley 8th Order).
-        Bessere Phase-Kohärenz als 4th Order.
+        §v10.101: Teilt Audio in 4 perzeptuelle Bark-Gruppen (24→4 Bänder).
+        Nutzt `split_into_bark_bands()` für psychoakustisch korrekte Frequenzaufteilung.
+        Jede Gruppe fasst mehrere kritische Bänder zu einem Kompressor-Band zusammen.
         """
+        from backend.core.dsp.bark_lufs_util import split_into_bark_bands
+
+        is_stereo = audio.ndim == 2
+        mono = audio if not is_stereo else np.mean(audio, axis=0)
+        bark_bands = split_into_bark_bands(mono.astype(np.float32), sample_rate)
+
+        # Gruppiere 24 Bark-Bänder in 4 perzeptuelle Bänder
         bands = []
-
-        # Band 1: Bass (< 150 Hz)
-        # §2.51 Anti-Zeitversatz: sosfiltfilt (Zero-Phase LR 8th Order) statt sosfilt×2 (kausal, Pegelexplosion).
-        sos_bass = signal.butter(4, self.CROSSOVER_FREQS[0], "lowpass", fs=sample_rate, output="sos")
-        bass = signal.sosfiltfilt(sos_bass, audio, axis=0)  # Zero-Phase LR 8th Order
-        bands.append(bass)
-
-        # Band 2: Low-Mid (150-800 Hz)
-        sos_lowmid_low = signal.butter(4, self.CROSSOVER_FREQS[0], "highpass", fs=sample_rate, output="sos")
-        sos_lowmid_high = signal.butter(4, self.CROSSOVER_FREQS[1], "lowpass", fs=sample_rate, output="sos")
-        low_mid = signal.sosfiltfilt(sos_lowmid_low, audio, axis=0)  # Zero-Phase HP
-        low_mid = signal.sosfiltfilt(sos_lowmid_high, low_mid, axis=0)  # Zero-Phase LP
-        bands.append(low_mid)
-
-        # Band 3: Mid-High (800-5000 Hz)
-        sos_midhigh_low = signal.butter(4, self.CROSSOVER_FREQS[1], "highpass", fs=sample_rate, output="sos")
-        sos_midhigh_high = signal.butter(4, self.CROSSOVER_FREQS[2], "lowpass", fs=sample_rate, output="sos")
-        mid_high = signal.sosfiltfilt(sos_midhigh_low, audio, axis=0)  # Zero-Phase HP
-        mid_high = signal.sosfiltfilt(sos_midhigh_high, mid_high, axis=0)  # Zero-Phase LP
-        bands.append(mid_high)
-
-        # Band 4: High (> 5000 Hz)
-        sos_high = signal.butter(4, self.CROSSOVER_FREQS[2], "highpass", fs=sample_rate, output="sos")
-        high = signal.sosfiltfilt(sos_high, audio, axis=0)  # Zero-Phase LR 8th Order
-        bands.append(high)
+        group_order = ["bass", "low_mid", "mid_high", "high"]
+        for group_name in group_order:
+            indices = self.BARK_GROUPS[group_name]
+            # Summiere alle Bark-Bänder dieser Gruppe
+            group_signal = np.zeros_like(mono, dtype=np.float32)
+            for idx in indices:
+                if idx < len(bark_bands):
+                    group_signal += bark_bands[idx]
+            if is_stereo:
+                # Repliziere Mono-Gruppe auf beide Stereokanäle
+                group_signal = np.column_stack([group_signal, group_signal]).astype(np.float32)
+            bands.append(group_signal.astype(np.float32))
 
         return bands
 

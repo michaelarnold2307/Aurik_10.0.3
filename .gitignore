@@ -159,3 +159,6 @@ reports/
 !docs/reports/
 !docs/reports/spec_evidence/
 !docs/reports/spec_evidence/*.md
+
+# §v10.101 SOTA modules
+backend/core/dsp/__pycache__/

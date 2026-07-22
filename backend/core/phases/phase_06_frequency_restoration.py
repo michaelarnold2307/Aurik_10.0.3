@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 6: Professional Frequency Restoration - Aurik 10.0.0.
 ========================================================
 

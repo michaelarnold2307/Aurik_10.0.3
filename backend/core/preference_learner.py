@@ -60,7 +60,6 @@ class ReferenceTrackMatcher:
 
             # 2. Dynamik (PLR: Peak-to-Loudness Ratio)
             power = np.mean(mono * mono) + 1e-12
-            10.0 * np.log10(power)
             peak = float(np.max(np.abs(mono)))
             plr = 20.0 * np.log10(peak / np.sqrt(power) + 1e-12)
 

@@ -2985,3 +2985,25 @@ def get_pipeline_ab_snapshots(*, include_audio: bool = True, max_duration_s: flo
     except Exception:
         logger.warning("bridge.py::get_pipeline_ab_snapshots fallback", exc_info=True)
         return []
+
+
+def get_phase_display_formatter_fns() -> dict[str, object]:
+    """§v10.70 Bridge: Phase-Display-Formatter-Funktionen fürs Frontend.
+
+    Returns dict mit get_carrier_display, get_era_display, get_phase_display.
+    """
+    try:
+        from backend.core.phase_display_formatter import (  # pylint: disable=import-outside-toplevel
+            get_carrier_display,
+            get_era_display,
+            get_phase_display,
+        )
+
+        return {
+            "get_carrier_display": get_carrier_display,
+            "get_era_display": get_era_display,
+            "get_phase_display": get_phase_display,
+        }
+    except Exception:
+        logger.warning("bridge.py::get_phase_display_formatter_fns fallback", exc_info=True)
+        return {}

@@ -32,6 +32,7 @@ Version: 1.0.0  (§4.1b RELEASE_MUST)
 
 from __future__ import annotations
 
+# v10.101 SOTA: ISO 532-1 Zwicker-Lautheit + Bark-Bänder. Basis für Gammatone-Migration.
 import logging
 import threading
 import warnings

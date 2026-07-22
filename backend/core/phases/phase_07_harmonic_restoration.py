@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 7: Professional Harmonic Restoration - Aurik 10.0.0
 =======================================================
 
@@ -434,6 +435,17 @@ class HarmonicRestorationPhase(PhaseInterface):
             PhaseResult with harmonically enhanced audio
         """
         saturation_mode: str | None = kwargs.get("saturation_mode")  # type: ignore[assignment]
+        # §v10.70 Modus-Trennung: Restoration → keine Sättigung, konservative Stärke.
+        # Harmonic Restoration füllt verlorene Obertöne auf — das ist Reparatur.
+        # Sättigung (tube/tape/transformer) ist kreative Klangformung → nur Studio.
+        _mode_07 = str(kwargs.get("mode", kwargs.get("processing_mode", "restoration"))).lower()
+        _is_resto_07 = "studio" not in _mode_07
+        if _is_resto_07:
+            saturation_mode = "disabled"
+            kwargs["drive"] = min(float(kwargs.get("drive", 1.5)), 1.0)
+            kwargs["blend"] = min(float(kwargs.get("blend", 0.5)), 0.25)
+            # Keine DDSP-Synthese in Restoration — nur DSP-Harmonik-Auffüllung
+            kwargs["enable_ddsp"] = False
         # ── §v10 PIM: Per-Band-Intensität kalibrieren ──
         try:
             from backend.core.pim_phase_hook import apply_pim_intensity
@@ -682,15 +694,40 @@ class HarmonicRestorationPhase(PhaseInterface):
         restored = np.clip(restored, -1.0, 1.0)
 
         # §2.46b Spectral-Tilt-Guard: cap HF harmonic synthesis if tilt deviates beyond tolerance
+        # §v10.40: Transfer-chain-adaptive tilt tolerance — deeper chains need
+        # looser tolerance because each generational transfer adds its own tilt.
+        def _get_transfer_depth_p07(kw: dict) -> int:
+            _chain = (
+                kw.get("transfer_chain")
+                or (kw.get("_restoration_context", {}) or {}).get("transfer_chain", [])
+            )
+            return len(_chain) if _chain else 1
+
+        _depth_factor_p07 = 1.0
+        _td_p07 = _get_transfer_depth_p07(kwargs)
+        if _td_p07 >= 3:
+            _depth_factor_p07 = 2.0  # double tolerance for deep transfer chains
+
         _tilt_capped_p07 = False
         try:
             _mat_k07 = str(material_type).lower().replace(" ", "_").replace("-", "_")
-            _tol07 = _TILT_TOLERANCE_P07.get(_mat_k07, 2.0)
+            _tol07 = _TILT_TOLERANCE_P07.get(_mat_k07, 2.0) * _depth_factor_p07
             _tb07 = _est_tilt_p07(audio, sample_rate)
             _ta07 = _est_tilt_p07(restored, sample_rate)
             _dev07 = abs(_ta07 - _tb07)
             if _dev07 > _tol07:
-                _cap07_floor = _TILT_CAP_FLOOR_P07.get(_mat_k07, 0.5)
+                _cap07_floor_raw = _TILT_CAP_FLOOR_P07.get(_mat_k07, 0.5)
+                # §v10.60: Wenn material_type einen Enum-Namen enthält, extrahiere den
+                # Wert-Teil (z.B. "materialtype.cassette" → "cassette") für Dict-Lookup.
+                if _cap07_floor_raw == 0.5 and "." in _mat_k07:
+                    _short_k07 = _mat_k07.rsplit(".", 1)[-1]
+                    _cap07_floor_raw = _TILT_CAP_FLOOR_P07.get(_short_k07, _cap07_floor_raw)
+                # §v10.60: Bei depth≥3 den Floor weiter absenken, um mehr harmonische
+                # Synthese bei extremen Tilt-Abweichungen durchzulassen.
+                if _td_p07 >= 3:
+                    _cap07_floor = max(_cap07_floor_raw * 0.7, 0.05)
+                else:
+                    _cap07_floor = _cap07_floor_raw
                 _cap07 = float(np.clip(1.0 - (_dev07 - _tol07) / (_tol07 * 2.0), _cap07_floor, 1.0))
                 restored = _cap07 * restored + (1.0 - _cap07) * audio
                 restored = np.clip(restored, -1.0, 1.0)

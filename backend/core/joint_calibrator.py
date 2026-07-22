@@ -57,6 +57,7 @@ def joint_calibrate(
     min_strength: float | None = None,
     restorability_score: float = 65.0,
     default_strength: float = 0.85,
+    transfer_chain_depth: int = 1,
 ) -> dict[str, float]:
     """Berechnet optimale Phasen-Stärken AUSSCHLIESSLICH aus Goal-Gaps.
 
@@ -92,6 +93,13 @@ def joint_calibrate(
         else:
             min_strength = 0.45
 
+    # §v10.58 Depth-Boost: Bei transfer_chain_depth ≥ 3 werden Kern-Restaurationsphasen
+    # verstärkt, da tiefe Ketten (z.B. reel→vinyl→cassette→mp3) stärkere Eingriffe
+    # benötigen, um die akkumulierte Degradation zu kompensieren.
+    _depth_boost = float(np.clip(1.0 + (transfer_chain_depth - 1) * 0.12, 1.0, 1.50))
+    if transfer_chain_depth >= 3:
+        min_strength = float(np.clip(min_strength * _depth_boost, 0.30, 0.70))
+
     # ── 1. Goal-Gaps ───────────────────────────────────────────
     gaps: dict[str, float] = {}
     for goal, target in goal_targets.items():
@@ -99,6 +107,14 @@ def joint_calibrate(
         gap = target - current
         if gap > 0.001:
             gaps[goal] = gap
+
+    # §v10.59 Goal-Gap-Boost: Je größer die Lücke zwischen aktuellen Werten
+    # und Zielen, desto höher die minimale Phasen-Stärke. Selbstkalibrierend —
+    # basiert auf den tatsächlichen Messungen, nicht auf statischen Annahmen.
+    if gaps:
+        _avg_gap = float(np.mean(list(gaps.values())))
+        _gap_boost = float(np.clip(1.0 + _avg_gap * 0.6, 1.0, 1.40))
+        min_strength = float(np.clip(min_strength * _gap_boost, 0.20, 0.75))
 
     if not gaps:
         return dict.fromkeys(phase_ids, min_strength)

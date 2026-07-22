@@ -201,7 +201,9 @@ def _compute_roughness(mono: np.ndarray, sr: int) -> float:
     """
     win = int(0.05 * sr)  # 50ms
     if len(mono) < 4 * win:
-        return 0.5
+        # §v10.93: < 200ms — RMS-basierter Modulation-Proxy
+        _r = float(np.sqrt(np.mean(mono.astype(np.float64)**2) + 1e-12))
+        return float(np.clip(_r * 5.0, 0.30, 0.70))
 
     rms_vals = []
     for i in range(0, len(mono) - win, win // 2):
@@ -253,10 +255,11 @@ def _compute_tonalness(mono: np.ndarray, sr: int) -> float:
     """
     n_fft = 4096
     if len(mono) < n_fft:
-        return 0.5
+        # §v10.93: < 93ms — simplified flatness proxy from RMS
+        _r = float(np.sqrt(np.mean(mono.astype(np.float64)**2) + 1e-12))
+        return float(np.clip(1.0 - _r * 3.0, 0.30, 0.70))
 
     spec = np.abs(np.fft.rfft(mono[:n_fft] * np.hanning(n_fft)))
-    20.0 * np.log10(np.maximum(spec, 1e-10))
 
     # Spektrale Flachheit (Spectral Flatness):
     # tonal = Energie in wenigen Bins konzentriert -> niedrige Flachheit
@@ -280,7 +283,11 @@ def _compute_fluctuation_strength(mono: np.ndarray, sr: int) -> float:
     """
     win = int(1.0 * sr)  # 1s Fenster
     if len(mono) < 2 * win:
-        return 0.5
+        # §v10.93: < 2s — Peak/RMS-Crest als Fluktuations-Proxy
+        peak = float(np.max(np.abs(mono)) + 1e-12)
+        rms = float(np.sqrt(np.mean(mono.astype(np.float64)**2) + 1e-12))
+        crest = peak / rms if rms > 0 else 1.0
+        return float(np.clip(crest / 15.0, 0.30, 0.70))
 
     # RMS-Verlauf in 1s-Schritten
     rms_timeline = []
@@ -289,7 +296,11 @@ def _compute_fluctuation_strength(mono: np.ndarray, sr: int) -> float:
         rms_timeline.append(float(np.sqrt(np.mean(chunk**2))))
 
     if len(rms_timeline) < 3:
-        return 0.5
+        # §v10.93: < 3 RMS-Blöcke — Peak/RMS-Crest als Proxy
+        peak = float(np.max(np.abs(mono)) + 1e-12)
+        rms = float(np.sqrt(np.mean(mono.astype(np.float64)**2) + 1e-12))
+        crest = peak / rms if rms > 0 else 1.0
+        return float(np.clip(crest / 15.0, 0.30, 0.70))
 
     rms_timeline = np.array(rms_timeline)
     rms_db = 20.0 * np.log10(rms_timeline + 1e-12)

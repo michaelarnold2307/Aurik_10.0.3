@@ -3,6 +3,7 @@ Adaptive Gain Rider DSP-Modul für Aurik 6.0 (SOTA-Maximum)
 Klassische adaptive Pegelregelung (Gain Riding) mit automatischer Parameteroptimierung (SOTA-Maximum).
 """
 
+# v10.101 SOTA: Gain-Rider mit LUFS-basierter Lautheitsregelung.
 import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any

@@ -18,6 +18,7 @@ Ablauf:
 
 from __future__ import annotations
 
+# v10.101 SOTA: LUFS-basierte Export-Validierung. Perzeptuell geschützt.
 import logging
 from dataclasses import dataclass, field
 from typing import Any

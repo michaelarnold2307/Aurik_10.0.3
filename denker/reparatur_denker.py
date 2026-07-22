@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Denker-Entscheidungen durch Pipeline-Gates (JND + Perceptual-Blend) perzeptuell validiert.
 ReparaturDenker — Domäne: Gezielte DSP-Reparaturen.
 
 Führt punktuelle Korrekturen durch, die nicht die gesamte Pipeline

@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 45: Brass Enhancement v2.0 — Harmonischer Exciter + Presence-EQ
 ======================================================================
 

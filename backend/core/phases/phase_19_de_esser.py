@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 19: Gender-Aware De-Esser v4.0
 =====================================
 
@@ -716,17 +717,25 @@ class DeEsserPhase(PhaseInterface):
         # Mono-Konvertierung für Analysis (aber später stereo processing)
         audio_mono = np.mean(audio, axis=1) if is_stereo else audio
 
-        # §8.2 Pass-Through-Invariante: HF-Energie-Gate vor Stage 2-6.
-        # Ein Signal ohne nennenswerten Sibilantengehalt (z. B. reiner Ton oder
-        # Nicht-Vokal-Material) darf keinen SNR-Verlust durch das Enhancement-Stack
-        # erleiden. Wenn weniger als 5 % der Gesamtenergie über 4 kHz liegt,
-        # werden die Stages 2-6 übersprungen.
-        _fft_len = min(len(audio_mono), 4096)
-        _spec = np.abs(np.fft.rfft(audio_mono[:_fft_len]))
-        _freqs = np.fft.rfftfreq(_fft_len, 1.0 / sample_rate)
-        _total_energy = float(np.sum(_spec**2)) + 1e-12
-        _hf_energy = float(np.sum(_spec[_freqs >= 4000.0] ** 2))
-        _hf_ratio = _hf_energy / _total_energy
+        # §v10.95 Non-Plus-Ultra: Robustes Multi-Window-HF-Gate.
+        # Nur die ersten 4096 Samples (85ms) zu messen ist nicht repräsentativ
+        # für 225s Audio. Ein Song-Anfang ohne HF triggert falschen Skip,
+        # ein anderer Abschnitt mit minimaler HF triggert falschen Process.
+        # Fix: Median von 5 gleichverteilten Fenstern über das gesamte Audio.
+        _n_mono = len(audio_mono)
+        _fft_len = min(4096, _n_mono)
+        _n_windows = min(5, max(1, _n_mono // _fft_len))
+        _hf_ratios: list[float] = []
+        for _wi in range(_n_windows):
+            _start = (_n_mono - _fft_len) * _wi // max(1, _n_windows - 1) if _n_windows > 1 else 0
+            _start = max(0, min(_start, _n_mono - _fft_len))
+            _seg = audio_mono[_start:_start + _fft_len]
+            _spec_w = np.abs(np.fft.rfft(_seg))
+            _total_w = float(np.sum(_spec_w**2)) + 1e-12
+            _hf_w = float(np.sum(_spec_w[np.fft.rfftfreq(_fft_len, 1.0 / sample_rate) >= 4000.0] ** 2))
+            _hf_ratios.append(_hf_w / _total_w)
+        # Median statt Mean: resistent gegen Ausreißer (z.B. ein einziger Hi-Hat-Hit)
+        _hf_ratio = float(np.median(_hf_ratios)) if _hf_ratios else 0.0
         # Adaptiver Schwellwert: material-adaptive Kalibrierung.
         # Band/Dunkel-Material hat weniger HF — zu hoher Threshold
         # würde Sibilanten als "kein HF" klassifizieren und De-Essing skippen.
@@ -755,10 +764,40 @@ class DeEsserPhase(PhaseInterface):
                 _hf_threshold,
                 float(_bw_loss),
             )
+            # §v10.95 Non-Plus-Ultra: Material+Codec-Aware Breath-Guard.
+            # Auf MP3/AAC-Material mit starkem BW-Verlust führt Breath Processing
+            # spektrales Rauschen ein (Codec Pre-Echo wird durch spektrale Formung
+            # verstärkt). Der ArtifactFreedomGate erkennt 17+ Artefakte → Rollback.
+            # Fix: Hard-Skip für lossy Codecs bei HF < 2× Schwellwert.
+            _transfer_chain = list(kwargs.get("transfer_chain", []) or [])
+            _is_lossy_terminal = bool(_transfer_chain and str(_transfer_chain[-1]).lower() in {
+                "mp3_low", "mp3_high", "aac", "streaming", "minidisc",
+            })
+            _hf_severe_loss = _hf_ratio < _hf_threshold * 2.0
+            if _is_lossy_terminal and _hf_severe_loss:
+                logger.info(
+                    "§v10.95 Breath-Skip: lossy codec=%s + HF=%.4f < %.4f → breath processing skipped",
+                    _transfer_chain[-1] if _transfer_chain else "unknown",
+                    _hf_ratio,
+                    _hf_threshold * 2.0,
+                )
+                enhanced_audio = np.nan_to_num(enhanced_audio, nan=0.0, posinf=0.0, neginf=0.0)
+                enhanced_audio = np.clip(enhanced_audio, -1.0, 1.0)
+                return PhaseResult(
+                    success=True,
+                    audio=enhanced_audio,
+                    execution_time_seconds=time.time() - start_time,
+                    metadata={
+                        "material": material.name,
+                        "de_essing_applied": False,
+                        "aurik_8_enhancement": False,
+                        "skip_reason": "lossy_codec_hf_loss",
+                    },
+                )
             # §v10.0.5: HF ratio < 0.005 → Material hat quasi keine Höhen.
-            # Breath-Processing (85s) würde only spectrales Rauschen einführen,
+            # Breath-Processing (85s) würde nur spektrales Rauschen einführen,
             # das vom ArtifactFreedomGate gerollbackt wird. Phase komplett skippen.
-            if _hf_ratio < 0.005:
+            elif _hf_ratio < 0.005:
                 logger.info(
                     "§v10.0.5 DeEsser-Skip: HF=%.4f < 0.005 → phase fully skipped (no sibilant-capable HF)",
                     _hf_ratio,
@@ -2245,6 +2284,13 @@ class DeEsserPhase(PhaseInterface):
         """
         # Nutze gender-spezifische Sibilance-Band statt fixen Bändern
         s_low, s_high = self.vocal_profile.get("s_band", (6000, 10000))  # type: ignore[misc]
+        # §v10.60 Freq-agnostic Fallback: Wenn Gender-Detection versagt (unknown),
+        # konservatives Breitband-DeEssing (4.5-8kHz) statt gender-spezifischer
+        # Frequenzwahl — zuverlässig auch bei degradierten Signalen (depth≥3).
+        _gender_p19 = str(self.vocal_profile.get("gender", "")).lower()
+        if _gender_p19 in ("unknown", ""):
+            s_low, s_high = 4500.0, 8000.0
+            logger.debug("Phase 19: gender=%s → freq-agnostic band [%.0f-%.0f Hz]", _gender_p19, s_low, s_high)
 
         # NYQUIST-ADAPTATION: Clampe Bänder auf Sample-Rate
         nyquist = sample_rate / 2.0

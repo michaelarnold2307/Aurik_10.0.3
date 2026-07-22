@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 3: Professional Denoise - Aurik 10.0.0
 ==========================================
 
@@ -918,6 +919,23 @@ class DenoisePhase(PhaseInterface):
                 _panns_singing,
                 effective_strength,
             )
+        # §v10.58 Depth-Aware Denoiser: Bei transfer_depth ≥ 3 (z.B. reel→vinyl→cassette→mp3)
+        # ist das Signal so stark degradiert, dass ML-Denoiser (SGMSE+, ResembleEnhance)
+        # nicht mehr zwischen Rauschen und Signal unterscheiden können → Musical Noise,
+        # Dropouts und zerstörte Stimmharmonik. DSP-OMLSA ist sicherer und erhält mehr
+        # Signalstruktur. Zusätzlich wird die Stärke auf max. 0.40 begrenzt.
+        _chain_p03 = (
+            kwargs.get("transfer_chain")
+            or (kwargs.get("_restoration_context", {}) or {}).get("transfer_chain", [])
+        )
+        _transfer_depth_p03 = len(_chain_p03) if _chain_p03 else 1
+        if _transfer_depth_p03 >= 3 and not use_lightweight:
+            use_lightweight = True
+            effective_strength = float(np.clip(effective_strength, 0.0, 0.40))
+            logger.info(
+                "§v10.58 Phase 03 depth=%d → DSP-only + max strength 0.40 (degradiertes Signal)",
+                _transfer_depth_p03,
+            )
 
         _bsrof_gate = (
             _panns_singing >= 0.35
@@ -1631,13 +1649,24 @@ class DenoisePhase(PhaseInterface):
                 # OMLSA-preprocessed audio stored in the ml_result pipeline (re-run DSP path).
                 # Using a blend-back here would destroy the PMGG Wet/Dry delta contrast
                 # (_run_phase computes delta_full vs delta_half — both would collapse to ~audio).
+                # §v10.58: Bei transfer_depth ≥ 3 ist das Signal schwächer → Schwelle auf 0.50
+                # anheben, sonst wird legitimes Denoising als "near-silence" fehlinterpretiert.
+                # §v10.59: Selbstkalibrierend — Schwelle skaliert zusätzlich mit der
+                # gemessenen SNR. Bei niedrigem SNR (z.B. 8dB Kassette) ist Energieverlust
+                # ERWARTET, nicht pathologisch. Formel: max(0.15, 1.0 − SNR/30).
+                _snr_for_energy = float(_est_snr_db) if _est_snr_db is not None else 20.0
+                _snr_energy_threshold = float(np.clip(1.0 - _snr_for_energy / 30.0, 0.15, 0.80))
+                _energy_threshold_p03 = max(
+                    0.50 if _transfer_depth_p03 >= 3 else 0.20,
+                    _snr_energy_threshold if _transfer_depth_p03 >= 3 else 0.20,
+                )
                 _ml_e_in = float(np.sum(audio.astype(np.float64) ** 2))
                 _ml_e_out = float(np.sum(ml_result.audio.astype(np.float64) ** 2))
-                if _ml_e_in > 1e-6 and _ml_e_out / _ml_e_in < 0.20:
+                if _ml_e_in > 1e-6 and _ml_e_out / _ml_e_in < _energy_threshold_p03:
                     # Resemble output is near-silence: fall back to DSP-OMLSA path
                     logger.info(
-                        "Phase 03 ML Energy-Preservation Guard: Resemble e_ratio=%.4f < 0.20 → DSP fallback",
-                        _ml_e_out / _ml_e_in,
+                        "Phase 03 ML Energy-Preservation Guard: Resemble e_ratio=%.4f < %.2f (SNR=%.1fdB) → DSP fallback",
+                        _ml_e_out / _ml_e_in, _energy_threshold_p03, _snr_for_energy,
                     )
                     warnings.append(
                         f"ML energy-preservation: Resemble near-silence (ratio={_ml_e_out / _ml_e_in:.3f}) → DSP fallback"  # pylint: disable=line-too-long
@@ -2168,7 +2197,10 @@ class DenoisePhase(PhaseInterface):
                 from backend.core.musical_goals.era_vocal_profile import (
                     get_era_vocal_profile as _gevp_p03,  # pylint: disable=import-outside-toplevel  # §EraVocalProfile
                 )
-                from backend.core.musical_goals.vocal_quality_index import compute_vqi as _compute_vqi_p03
+                from backend.core.musical_goals.vocal_quality_index import (
+                    compute_vqi as _compute_vqi_p03,
+                    get_vqi_material_floor as _gvmf_p03,
+                )
 
                 _vqi_result_p03 = _compute_vqi_p03(
                     audio_orig=_post_nr_guard_ref_audio,
@@ -2177,13 +2209,25 @@ class DenoisePhase(PhaseInterface):
                     era_profile=_gevp_p03(_era_decade_p03),
                 )
                 _vqi_p03 = float(_vqi_result_p03.get("vqi", 1.0))
-                if _vqi_p03 < 0.95:
+                # §v10.57 Material-adaptiver VQI-Threshold statt hartem 0.95.
+                # Bei depth≥3 (z.B. reel→vinyl→cassette→mp3) liegt der Material-Floor
+                # bei 0.70-0.72. Ein 0.95-Threshold ist physikalisch unerreichbar und
+                # verwirft JEDE Denoiser-Verbesserung → Stimmharmonik wird zerstört.
+                # Formel: material_floor + 0.10, mindestens 0.82 (Studio), maximal 0.92.
+                _mat_p03 = str(kwargs.get("material_type", "") or kwargs.get("material", "")).strip()
+                _vqi_floor_p03 = float(_gvmf_p03(_mat_p03))
+                _vqi_thr_p03 = float(np.clip(_vqi_floor_p03 + 0.10, 0.82, 0.92))
+                if _vqi_p03 < _vqi_thr_p03:
+                    # §v10.57: Blend statt Total-Rollback.
+                    # Verhältnis wie weit VQI unter Threshold liegt → Blend-Anteil.
+                    _vqi_blend_p03 = float(np.clip(_vqi_p03 / max(_vqi_thr_p03, 0.01), 0.15, 0.85))
+                    result_audio = (
+                        _vqi_blend_p03 * result_audio + (1.0 - _vqi_blend_p03) * _post_nr_guard_ref_audio
+                    ).astype(np.float32)
                     logger.info(
-                        "phase_03: VQI per-phase rollback (vqi=%.3f < 0.95, panns_singing=%.2f)",
-                        _vqi_p03,
-                        _panns_singing,
+                        "phase_03: VQI-Blend vqi=%.3f < thr=%.2f (floor=%.2f) blend=%.2f panns=%.2f",
+                        _vqi_p03, _vqi_thr_p03, _vqi_floor_p03, _vqi_blend_p03, _panns_singing,
                     )
-                    result_audio = _post_nr_guard_ref_audio.copy()
             except Exception as _vqi_exc_p03:
                 logger.debug("VQI per-phase phase03 (non-blocking): %s", _vqi_exc_p03)
 

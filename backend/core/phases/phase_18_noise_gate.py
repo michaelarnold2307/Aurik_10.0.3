@@ -174,7 +174,7 @@ class NoiseGate(PhaseInterface):
     """
 
     # Frequency band crossover points
-    CROSSOVER_FREQS = [150, 800, 5000]  # Hz
+    CROSSOVER_FREQS = [400, 2000, 6400]  # §v10.101: Bark-Crossover  # Hz
 
     # Material-adaptive gate configurations
     GATE_CONFIG = {
@@ -226,7 +226,7 @@ class NoiseGate(PhaseInterface):
             "attack_ms": [5, 4, 3, 2],
             "release_ms": [80, 60, 50, 40],
             "knee_db": 12,
-            "look_ahead_ms": 5,
+            "look_ahead_ms": 12,  # §v10.64: 5→12, ≥ 2× max(attack)=5ms
         },
         MaterialType.STREAMING: {
             "thresholds_db": [-60, -58, -55, -53],
@@ -234,7 +234,7 @@ class NoiseGate(PhaseInterface):
             "attack_ms": [3, 2, 2, 1],
             "release_ms": [60, 50, 40, 30],
             "knee_db": 12,
-            "look_ahead_ms": 5,
+            "look_ahead_ms": 8,  # §v10.64: 5→8, ≥ 2× max(attack)=3ms
         },
     }
 
@@ -955,6 +955,12 @@ class NoiseGate(PhaseInterface):
             attack_ms = config["attack_ms"][i]
             release_ms = config["release_ms"][i]
             knee_db = config["knee_db"]
+            # §v10.65: LF-Raumton bewahren — Band 0 (<150 Hz) maximal halbe Reduktion.
+            # Natürliche Räume haben ihre stärkste Raumtönung im Bass. Komplette
+            # Stille unter 150 Hz klingt sofort "künstlich" — das Gehirn erwartet
+            # kontinuierliche tieffrequente Rauminformation.
+            if i == 0:
+                reduction_db = reduction_db * 0.5
             masking_gain_floor = 0.10
             _masking_floors = config.get("masking_gain_floors")
             if isinstance(_masking_floors, list) and i < len(_masking_floors):

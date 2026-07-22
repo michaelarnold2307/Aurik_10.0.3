@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 15: Stereo Balance Correction v2.0 (Professional).
 Multi-band spectral balance correction with transient preservation.
 

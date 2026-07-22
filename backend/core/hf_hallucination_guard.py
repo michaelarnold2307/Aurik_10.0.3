@@ -71,9 +71,12 @@ ADDITIVE_PHASE_PREFIXES: frozenset[str] = frozenset(
         "phase_21",  # harmonic exciter
         "phase_22",  # tape saturation (adds harmonics)
         "phase_23",  # spectral repair (can synthesise HF)
+        "phase_37",  # bass enhancement (adds subharmonics, shifts spectral tilt)
         "phase_38",  # presence boost (2–8 kHz range)
         "phase_39",  # air band / HF enhancement
+        "phase_44",  # guitar enhancement (additive, instrument-specific)
         "phase_50",  # spectral inpainting follow-up
+        "phase_51",  # drums enhancement (additive, instrument-specific)
         "phase_55",  # diffusion inpainting (has own guard — second check is benign)
         "phase_56",  # spectral band-gap repair
     }

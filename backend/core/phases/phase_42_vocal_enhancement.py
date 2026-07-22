@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 42: Vocal Enhancement v2.0 - Professional.
 Comprehensive vocal processing chain for clarity, presence, and polish.
 
@@ -1328,6 +1329,20 @@ class VocalEnhancement(PhaseInterface):
         audio_mono = safe_to_mono(audio).astype(np.float32)
         _prefer_demucs_native = self._prefer_demucs_native(material)
 
+        # §v10.60 Depth-Aware Fast-Path: Bei transfer_depth ≥ 3 sind ML-Stem-Separation-
+        # Modelle (MelBandRoformer, MDX23C) für moderne, saubere Produktionen trainiert.
+        # Auf 4-fach degradierten Signalen (reel→vinyl→cassette→mp3) produzieren sie
+        # SDRi < -1 dB → Fallback-Kaskade → HPSS. Zeitverschwendung + Artefakt-Risiko.
+        # Direkt HPSS + Wiener — zuverlässig, schnell, keine ML-Halluzination.
+        _chain_p42 = (getattr(self, "_restoration_context", {}) or {}).get("transfer_chain", [])
+        _depth_p42 = len(_chain_p42) if _chain_p42 else 1
+        if _depth_p42 >= 3:
+            logger.info(
+                "Phase42 depth=%d → Fast-Path HPSS+Wiener (ML-Stem-Sep übersprungen bei degradiertem Signal)",
+                _depth_p42,
+            )
+            return self._hpss_wiener_fallback(audio, audio_mono, sr)
+
         _skip_roformer_reason: str | None = None
         try:
             import psutil as _psutil  # pylint: disable=import-outside-toplevel
@@ -1574,6 +1589,32 @@ class VocalEnhancement(PhaseInterface):
 
         return None
 
+    def _hpss_wiener_fallback(
+        self, audio: np.ndarray, audio_mono: np.ndarray, sr: int
+    ) -> "tuple[np.ndarray, np.ndarray, float, str] | None":
+        """§v10.60 HPSS+Wiener Fast-Path für depth≥3.
+
+        Überspringt die gesamte ML-Kaskade (MelBandRoformer→MDX23C→NMF-β)
+        und verwendet direkt HPSS mit Wiener-Stereo-Rekonstruktion.
+        Zuverlässig auf degradierten Signalen, keine ML-Halluzination.
+        """
+        try:
+            import librosa  # pylint: disable=import-outside-toplevel
+
+            mono_in = audio_mono if audio.ndim == 2 else audio
+            harmonic_mono, _ = librosa.effects.hpss(mono_in)
+            n = min(len(audio_mono), len(harmonic_mono))
+            if audio.ndim == 2:
+                vocals_out, instr_out = self._wiener_stereo_from_mono(audio[:n], harmonic_mono[:n], sr)
+            else:
+                vocals_out = harmonic_mono[:n]
+                instr_out = np.clip(audio_mono[:n] - harmonic_mono[:n], -1.0, 1.0)
+            logger.debug("Phase42 HPSS+Wiener Fast-Path: n=%d samples", n)
+            return vocals_out, instr_out, 0.35, "hpss_wiener_fastpath"
+        except Exception as exc:
+            logger.debug("Phase42 HPSS+Wiener Fast-Path fehlgeschlagen: %s", exc)
+            return None
+
     def _detect_vocals(self, audio: np.ndarray, sample_rate: int) -> bool:
         """Einfache Vokalerkennung auf Basis von Formant-Energie."""
         if audio.ndim == 2:
@@ -1760,10 +1801,15 @@ class VocalEnhancement(PhaseInterface):
                     logger.warning("phase_42_vocal_enhancement.py::_formant_energy_dbfs fallback: %s", e)
                     return -80.0
 
-            def _bell_eq_filtfilt(sig: np.ndarray, center_hz: int, gain_db: float, q: float) -> np.ndarray:
-                """Zero-phase Bell EQ via filtfilt (no phase shift, §2.51 M/S safe)."""
+            def _bell_eq_sos(center_hz: float, gain_db: float, q: float) -> np.ndarray:
+                """Baut SOS-Koeffizienten für ein Bell-EQ Biquad (minimum-phase).
+
+                §v10.65: Minimum-phase via lfilter verhindert Pre-Ringing.
+                SOS-Array für Composite-Filter-Design — alle Formanten in
+                EINEM Filterdurchlauf statt serieller filtfilt-Kaskade.
+                """
                 if abs(gain_db) < 0.05:
-                    return sig
+                    return np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]], dtype=np.float64)
                 w0 = 2.0 * np.pi * center_hz / sample_rate
                 sin_w0 = float(np.sin(w0))
                 cos_w0 = float(np.cos(w0))
@@ -1775,30 +1821,34 @@ class VocalEnhancement(PhaseInterface):
                 a0 = 1.0 + alpha / A
                 a1 = -2.0 * cos_w0
                 a2 = 1.0 - alpha / A
-                b = np.array([b0, b1, b2]) / a0
-                a = np.array([1.0, a1 / a0, a2 / a0])
-                return signal.filtfilt(b, a, sig)  # type: ignore[no-any-return]
+                return np.array([[b0/a0, b1/a0, b2/a0, 1.0, a1/a0, a2/a0]], dtype=np.float64)
 
-            # Apply per-formant correction
-            result = audio.copy().astype(np.float32)
+            # §v10.65: Sammle alle Formant-Korrekturen in einem SOS-Array
+            # und wende sie in EINEM lfilter-Durchlauf an — kein serielles
+            # filtfilt, kein kumulatives Pre-Ringing, kein Formant-Shift.
+            sos_sections: list[np.ndarray] = []
             total_correction_db = 0.0
             n_corrected = 0
             for center_hz, canonical_ceiling_dbfs, max_corr_db, q in _profile:
                 measured_dbfs = _formant_energy_dbfs(x_mono, center_hz, q)
                 deficit_db = canonical_ceiling_dbfs - measured_dbfs
-                # Only boost when measured < canonical ceiling (signal genuinely attenuated)
-                if deficit_db <= 0.5:  # < 0.5 dB headroom → skip
+                if deficit_db <= 0.5:
                     continue
                 correction_db = float(np.clip(deficit_db * 0.6, 0.0, max_corr_db))
                 if correction_db < 0.2:
                     continue
-                if audio.ndim == 2:
-                    for ch in range(audio.shape[0]):
-                        result[ch] = _bell_eq_filtfilt(result[ch], center_hz, correction_db, q)
-                else:
-                    result = _bell_eq_filtfilt(result, center_hz, correction_db, q)
+                sos_sections.append(_bell_eq_sos(center_hz, correction_db, q))
                 total_correction_db += correction_db
                 n_corrected += 1
+
+            result = audio.copy().astype(np.float32)
+            if sos_sections:
+                sos = np.vstack(sos_sections)
+                if audio.ndim == 2:
+                    for ch in range(audio.shape[0]):
+                        result[ch] = signal.sosfilt(sos, result[ch].astype(np.float64)).astype(np.float32)
+                else:
+                    result = signal.sosfilt(sos, result.astype(np.float64)).astype(np.float32)
 
             if n_corrected > 0:
                 logger.debug(

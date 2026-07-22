@@ -91,6 +91,8 @@ def check_spectral_color_preservation(
     pre: np.ndarray,
     post: np.ndarray,
     sr: int,
+    *,
+    threshold: float = 0.97,
 ) -> SpectralColorResult:
     """Prüft ob die 1/3-Oktav-Spektralfarbe zwischen pre und post erhalten bleibt.
 
@@ -98,9 +100,11 @@ def check_spectral_color_preservation(
         pre: Audio vor der Phase. Shape [N] oder [2, N].
         post: Audio nach der Phase (same shape as pre).
         sr: Sample-Rate (muss 48000 sein).
+        threshold: Korrelations-Schwellwert (default 0.97).
+                   §v10.99: Chain-Depth-adaptiv — 0.97 für depth=1, 0.73 für depth=4.
 
     Returns:
-        SpectralColorResult. ok=False wenn correlation < 0.97.
+        SpectralColorResult. ok=False wenn correlation < threshold.
     """
     assert sr == 48000
     _empty = [0.0] * len(_THIRD_OCT_CENTERS_HZ)
@@ -143,7 +147,7 @@ def check_spectral_color_preservation(
         corr /= (pre_std + 1e-9) * (post_std + 1e-9)
         corr = float(np.clip(np.nan_to_num(corr, nan=1.0), -1.0, 1.0))
 
-        ok = corr >= SPECTRAL_COLOR_THRESHOLD
+        ok = corr >= threshold
 
         if not ok:
             logger.info(

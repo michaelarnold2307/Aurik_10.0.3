@@ -139,9 +139,29 @@ def log_restoration_summary(
     lines = []
     lines.append("┌" + "─" * (W - 2) + "┐")
     lines.append(_center("✨ AURIK RESTAURATION ABGESCHLOSSEN ✨", W))
+    lines.append("│" + " " * (W - 2) + "│")
 
-    # Quality
-    lines.append(_center(f"Qualität: {quality_pct:.0f}% — {quality_label}", W))
+    # ── Technische Qualität (objektive Signalanalyse) ──
+    _qa_explanation = _quality_explanation_de(quality_pct)
+    lines.append(_center(f"📊 Signalqualität: {quality_pct:.0f}% — {quality_label}", W))
+    for _qel in _wrap_text(_qa_explanation, W - 4):
+        lines.append("│ " + _qel.ljust(W - 4) + " │")
+
+    # ── Hörerlebnis (perzeptuell, MUSHRA) ──
+    if mushra_score > 0:
+        _mushra_label, _mushra_expl = _mushra_label_de(mushra_score)
+        lines.append("│" + " " * (W - 2) + "│")
+        lines.append(_center(f"🎧 Hörerlebnis: {mushra_score:.0f}/100 — {_mushra_label}", W))
+        for _mel in _wrap_text(_mushra_expl, W - 4):
+            lines.append("│ " + _mel.ljust(W - 4) + " │")
+
+    # ── Restaurations-Index (HPI) ──
+    if hpi_score > 0:
+        _hpi_label, _hpi_expl = _hpi_label_de(hpi_score)
+        lines.append("│" + " " * (W - 2) + "│")
+        lines.append(_center(f"🧠 Restaurations-Index: {hpi_score:.3f} — {_hpi_label}", W))
+        for _hel in _wrap_text(_hpi_expl, W - 4):
+            lines.append("│ " + _hel.ljust(W - 4) + " │")
 
     # Chain story
     if chain_story:
@@ -168,8 +188,6 @@ def log_restoration_summary(
             W,
         )
     )
-    if mushra_score > 0:
-        lines.append(_center(f"🎯 MUSHRA: {mushra_score:.0f}/100", W))
 
     lines.append("│" + " " * (W - 2) + "│")
     lines.append(_center("ℹ️  Details in den Phasen-Fazits oberhalb", W))
@@ -191,6 +209,94 @@ def _quality_label_de(pct: float) -> str:
         return "⚠️  Ausreichend — das Material limitiert die Qualität"
     else:
         return "❌ Schwieriges Material — starke Degradation"
+
+
+def _quality_explanation_de(pct: float) -> str:
+    """Erklärt die technische Signalqualität in verständlichem Deutsch."""
+    if pct >= 85:
+        return (
+            "Technische Analyse von Rauschabstand, Dynamik und Verzerrung. "
+            "Die Quelle ist in sehr gutem technischem Zustand."
+        )
+    elif pct >= 70:
+        return (
+            "Technische Analyse von Rauschabstand, Dynamik und Verzerrung. "
+            "Die Quelle hat leichte technische Limits (z.B. MP3-Kompression, "
+            "Bandrauschen), die das maximale technische Niveau begrenzen."
+        )
+    elif pct >= 50:
+        return (
+            "Technische Analyse von Rauschabstand, Dynamik und Verzerrung. "
+            "Die Quelle ist deutlich beschädigt — das technische Limit ist "
+            "durch das Ausgangsmaterial vorgegeben, nicht durch die Restauration."
+        )
+    else:
+        return (
+            "Technische Analyse von Rauschabstand, Dynamik und Verzerrung. "
+            "Stark beschädigtes Material — Verbesserungen sind hörbar, "
+            "aber die Quelle setzt enge technische Grenzen."
+        )
+
+
+def _mushra_label_de(score: float) -> tuple[str, str]:
+    """Liefert (Label, Erklärung) für den MUSHRA-Hörerlebnisscore."""
+    if score >= 90:
+        return (
+            "Hervorragend",
+            "Simuliert ein geschultes Hörerpanel. 90–100 = Die Aufnahme klingt "
+            "klar, natürlich und frei von störenden Artefakten — als wäre sie "
+            "nie beschädigt gewesen.",
+        )
+    elif score >= 80:
+        return (
+            "Ausgezeichnet",
+            "Simuliert ein geschultes Hörerpanel. 80–89 = Sehr gute Klangqualität, "
+            "minimale Restspuren der ursprünglichen Schäden noch erkennbar.",
+        )
+    elif score >= 60:
+        return (
+            "Gut",
+            "Simuliert ein geschultes Hörerpanel. 60–79 = Hörbare Verbesserung, "
+            "aber einige Artefakte oder Klangverluste bleiben bestehen.",
+        )
+    else:
+        return (
+            "Ausreichend",
+            "Simuliert ein geschultes Hörerpanel. < 60 = Die Restauration konnte "
+            "nur begrenzt helfen — das Material ist sehr stark beschädigt.",
+        )
+
+
+def _hpi_label_de(score: float) -> tuple[str, str]:
+    """Liefert (Label, Erklärung) für den Holistic Perceptual Index."""
+    if score >= 0.85:
+        return (
+            "Exzellente Restauration",
+            "Der HPI bewertet die Gesamt-Restauration: Klangtreue zum Original, "
+            "Artefaktfreiheit, emotionaler Erhalt und Natürlichkeit. "
+            "> 0.85 = Die Pipeline hat den Klang verbessert, ohne zu schaden.",
+        )
+    elif score >= 0.70:
+        return (
+            "Gute Restauration",
+            "Der HPI bewertet die Gesamt-Restauration: Klangtreue zum Original, "
+            "Artefaktfreiheit, emotionaler Erhalt und Natürlichkeit. "
+            "0.70–0.85 = Solide Verbesserung mit minimalen Kompromissen.",
+        )
+    elif score >= 0.50:
+        return (
+            "Akzeptable Restauration",
+            "Der HPI bewertet die Gesamt-Restauration: Klangtreue zum Original, "
+            "Artefaktfreiheit, emotionaler Erhalt und Natürlichkeit. "
+            "0.50–0.70 = Teilweise Verbesserung, aber auch leichte Verluste.",
+        )
+    else:
+        return (
+            "Schwieriges Material",
+            "Der HPI bewertet die Gesamt-Restauration: Klangtreue zum Original, "
+            "Artefaktfreiheit, emotionaler Erhalt und Natürlichkeit. "
+            "< 0.50 = Das Material konnte nur begrenzt restauriert werden.",
+        )
 
 
 def _chain_story_de(chain: list[str]) -> str:

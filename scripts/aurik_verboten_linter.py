@@ -41,9 +41,12 @@ RULES: dict[str, dict] = {
         },
         "sev": "ERROR",
     },
-    # ── V-BRIDGE (Bridge-Bypass): from backend.core import ─────────────
+    # ── V-BRIDGE (Bridge-Bypass): from backend.* import ─────────────────
+    # §v10.70: Regex erfasst JEDEN direkten Import aus backend.* (außer api.bridge)
+    # vom Frontend oder anderen Modulen. Aurik10/ ist NICHT im skip — der Linter
+    # MUSS Frontend-Dateien auf Bridge-Bypasses scannen.
     "V-BRIDGE": {
-        "p": r"from backend\.core import|import backend\.core\.",
+        "p": r"from backend\.(core|file_import|dsp|plugins|config|ml_inference|phases)\.|import backend\.(core|file_import|dsp|plugins|config|ml_inference|phases)\.",
         "d": "Bridge-Bypass-Verbot",
         "skip": {
             "bridge",
@@ -52,7 +55,6 @@ RULES: dict[str, dict] = {
             "denker/",
             "api/",
             "policy/",
-            "Aurik10/",
             "tests/",
             "plugins/",
             "scripts/",

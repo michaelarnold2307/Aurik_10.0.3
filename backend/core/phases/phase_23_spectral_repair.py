@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 23: Spectral Repair v3.0 — IMCRA Adaptive Noise-Floor + Vectorized Inpainting
 
 Algorithm (v3.0 — Über-SOTA):
@@ -1813,6 +1814,14 @@ class SpectralRepair(PhaseInterface):
                 self._pressure_relax_ml_attempts,
                 self._THRASH_RELAX_ML_MAX_ATTEMPTS,
             )
+
+        # §v10.60 Depth-Aware Spectral Repair: Bei transfer_depth ≥ 3 ist FlashSR ML
+        # auf degradierten Signalen unzuverlässig (halluziniert Frequenzen).
+        # DSP-STFT-Bin-Interpolation ist sicherer und ausreichend präzise.
+        _chain_p23 = kwargs.get("transfer_chain") or (kwargs.get("_restoration_context", {}) or {}).get("transfer_chain", [])
+        if len(_chain_p23) >= 3 and use_ml:
+            use_ml = False
+            logger.info("Phase 23 depth=%d → DSP-only spectral inpainting (FlashSR ML übersprungen)", len(_chain_p23))
 
         if use_ml:
             if not self._has_sufficient_ml_headroom(audio, sample_rate):

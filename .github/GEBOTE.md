@@ -1,6 +1,6 @@
 # Aurik 10 — GEBOTE & VERBOTE (Normativer Katalog)
 
-> **Status:** Normativ | **Version:** 10.0.8 | **Stand:** 13. Juli 2026 (Update: Lag-Integrität)
+> **Status:** Normativ | **Version:** 10.0.15 | **Stand:** 22. Juli 2026 (Update: §v10.101 Perzeptuelle Architektur)
 >
 > Dieser Katalog definiert alle unverhandelbaren GEBOTE (positiv, was Aurik TUN MUSS)
 > und VERBOTE (negativ, was Aurik NIEMALS tun darf). Jedes Gebot und Verbot ist mit
@@ -142,7 +142,17 @@ audio = _apply_cd_noise_profile(audio, sr, mask=erb_mask)
 - Kategorie IV (§G30–§G39): CD-Rauschprofil & Export
 - Kategorie V (§G40–§G45): Rauschprofil-Zeitpunkt & Übergänge
 - Kategorie VI (§G46–§G59): Metriken & Qualitätssicherung
-- VERBOTE (§V1–§V26): Absolute Verbote, gelten immer und überall
+- Kategorie VII (§G60–§G67): Stereo-Lag-Integrität
+- Kategorie VIII (§V27–§V33): Neue VERBOTE Stereo-Lag
+- Kategorie IX (§G68–§G75): SFT-Adaptivität & Defekt-Audibilität
+- Kategorie X (§G76–§G81): Kalibrierungs-Dispatch
+- Kategorie XI (§G82–§G86): Laufzeit-Rekalibrierung
+- Kategorie XII (§G87): Noise-Floor-Brücke
+- Kategorie XIII (§G88): Defektbehebungs-Module
+- Kategorie XIV (§G89): Unsichtbare Signalintegrität
+- Kategorie XV (§G90–§G99): Non-Plus-Ultra
+- Kategorie XVI (§G100–§G112): Perzeptuelle Architektur §v10.101
+- VERBOTE (§V1–§V38): Absolute Verbote, gelten immer und überall
 
 ---
 
@@ -231,12 +241,33 @@ audio = _apply_cd_noise_profile(audio, sr, mask=erb_mask)
 | §G85 | **Rekalibrierungs-Audit** | Jede Rekalibrierung MUSS im Log dokumentiert werden: `"§RECALIB phase=%s: rs %.1f→%.1f SNR %.1f→%.1f dB → NOVELTY_CRIT %.3f→%.3f"`. Dies macht sichtbar, WIE sich Auriks Sicherheitsparameter während der Pipeline an das zunehmend sauberere Audio anpassen. |
 | §G86 | **Monotonie-Garantie** | Die NOVELTY_CRIT-Schwelle darf während der Pipeline NUR sinken (konservativer werden) oder gleich bleiben — NIE steigen. Ein saubereres Signal rechtfertigt keine LASCHERE Toleranz. Die Monotonie MUSS im CalibrationContext erzwungen werden: `_NOVELTY_CRIT = min(current_calculation, previous_value)`. |
 
+## Kategorie XII — Noise-Floor-Brücke Phase_03→Phase_26 (§G87)
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G87 | **Phase_26 Per-Band-Noise-Floor-Guard** | Phase_26 (DR-Expansion) MUSS die Lücke zwischen Phase_03 (Denoise) und dem finalen CD-Rauschprofil schließen. Die Downward-Expansion wird durch einen dreidimensionalen Guard kontrolliert: **(D1) Per-Band spektrale Floor-Targets**: Jedes der 4 Frequenzbänder hat einen eigenen Studio-Raumton — Bass −65 dBFS (Raumresonanz), Low-Mid −72 dBFS (Wärme), Mid-High −76 dBFS (Präsenz), High −70 dBFS (Luft). **(D2) Psychoakustische Maskierung**: Der Floor wird adaptiv um +8/+5/+2/0 dB relaxiert, wenn die Band-Energie > −20/−30/−40 dBFS beträgt — laute Bänder maskieren ihren eigenen Rauschboden, leise exponierte Bänder sind streng. **(D3) Temporale EMA-Glättung**: Floor-Anstieg (Entspannung) folgt mit α=0.15 (Attack ~50ms), Floor-Abfall (Verschärfung) mit α=0.05 (Release ~200ms). Kein Hard-Clamp — der Floor-Approach ist asymptotisch (correction = deficit × exp(−deficit/knee), knee=4 dB). Ergebnis: klingt nach Neuaufnahme, nicht nach Vinyl mit aufgezwungener CD-Stille. |
+
+## Kategorie XIII — Defektbehebungs-Module auf höchster Qualitätsstufe (§G88)
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G88 | **Defektbehebung mit Depth-adaptiven DSP-Fallbacks** | Die vier Defektbehebungs-Module MÜSSEN bei transfer_depth≥3 und/oder unsicherer Gender-Detektion robuste, konservative DSP-Fallbacks verwenden — NIEMALS ungeprüfte ML-Inferenz auf degradierten Ketten oder gender-spezifische Annahmen ohne Fallback. **(1) Phase_07 Harmonic Restoration**: Tilt-Cap-Floor von 0.50 auf 0.35 absenken bei depth≥3 (§v10.60). Mehr harmonische Synthese durchlassen, da tiefe Ketten extreme Tilt-Abweichungen ohnehin erwarten. **(2) Phase_23 Spectral Repair**: FlashSR ML deaktivieren bei depth≥3 (§v10.60). ML halluciniert Frequenzen auf bereits 3× degradiertem Material. DSP-only spectral inpainting (PGHI + Wiener + NMF) ist robuster. **(3) Phase_19 De-Esser**: Bei Gender="unknown"/"" freq-agnostisches Band [4500–8000 Hz] statt gender-spezifischem Band (§v10.60). Verhindert Fehlklassifikation von männlichen Stimmen als weiblich (und umgekehrt) mit konsekutiver Über-/Unterbearbeitung. **(4) Phase_43 ML-DeEsser**: GENDER_FREQ_MAP["unknown"] = (5000, 9000 Hz) als konservativer Fallback (§v10.60). Breiteres, tieferes Band als gender-spezifische Bänder — fängt Sibilanz sicher ein, vermeidet aber Überbearbeitung. |
+
+## Kategorie XIV — Unsichtbare Signalintegrität (§G89)
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G89 | **Soft-Clipping-Pflicht für alle 68 Phasen** | Jede Phase MUSS ihre Ausgabe via `apply_soft_clip()` (tanh-basiert, material-adaptiv) statt `np.clip(audio, -1.0, 1.0)` begrenzen (§v10.62). Hard-Clipping auf ±1.0 erzeugt ein Rechteck-Fenster im Zeitbereich → sinc-Spektrum mit hörbaren Obertönen bis Nyquist. Tanh-Soft-Clipping erzeugt nur ungerade Harmonische, die das Ohr als „analoge Sättigung" statt „digitalen Clip" wahrnimmt. Die zentrale Durchsetzung erfolgt in `PhaseResult.__post_init__` und `create_phase_result()` — damit sind alle Phasen-Ausgaben automatisch geschützt. Material-adaptive Knee: Shellac/Vinyl 1.2 dB, Tape/Cassette 0.8 dB, Digital 0.4 dB. |
+
 ---
 
 ## Änderungshistorie
 
 | Version | Datum | Änderung |
 |---------|-------|----------|
+| 10.0.13 | 2026-08-03 | §G89: Soft-Clipping-Pflicht für alle 68 Phasen (§v10.62). `apply_soft_clip()` + `crossfade_to_bypass()` in audio_utils.py. Kategorie XIV. |
+| 10.0.12 | 2026-08-03 | §G88: Defektbehebungs-Module (Phase_07/19/23/43) mit Depth-adaptiven DSP-Fallbacks. Kategorie XIII. |
+| 10.0.11 | 2026-08-03 | §G87: Phase_26 Per-Band-Noise-Floor-Guard (D1–D3). Schließt Phase_03→Phase_26 Noise-Floor-Lücke. Kategorie XII. |
 | 10.0.10 | 2026-07-19 | §G82–§G86: Laufzeit-Rekalibrierung. Lebendiger CalibrationContext, NOVELTY_CRIT-Nachführung, Monotonie-Garantie. Kategorie XI. |
 | 10.0.9 | 2026-07-19 | §G76–§G81: Kalibrierungs-Dispatch. Zentraler CalibrationContext, kontinuierliche Ableitung aller Schwellwerte, Kalibrierungs-Audit. Kategorie X. |
 | 10.0.8 | 2026-07-19 | §G68–§G75: SFT-Adaptivität, Defekt-Audibilität, Repair-Klassifikation. Kategorie IX. |
@@ -244,3 +275,67 @@ audio = _apply_cd_noise_profile(audio, sr, mask=erb_mask)
 | 10.0.6 | 2026-07-13 | §G46–§G59 (Metriken & Qualitätssicherung). Kategorie VI. |
 | 10.0.5 | 2026-07-13 | §G30–§G39 (CD-Rauschprofil & Export, ML-Device, Test-Assertion). §V16–§V24. |
 | 10.0.4 | 2026-07-13 | Initiale Formalisierung. CD-Rauschprofil (§G8, §G15–§G19, §V5, §V11–§V15). Kategorie I–III strukturiert. |
+
+---
+
+## Kategorie XV — Non-Plus-Ultra: Strukturelle Qualitäts-Deckel beseitigt (§G90–§G99)
+
+> **Prämisse:** Die vier unabhängigen Root-Causes für „43→43" (keine messbare Qualitätsverbesserung) sind identifiziert und behoben. Diese Kategorie kodifiziert die architektonischen Garantien, die verhindern, dass Aurik jemals wieder gegen den defekten Input vergleicht, Exception-Schlucker ohne Logging verwendet oder Phasen ohne Cross-Phase-Koordination laufen.
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G90 | **Blinder-Referenz-Vektor-Pflicht** | Der HPI MUSS einen blinden Referenz-Vektor (Mel-Embedding des saubersten 5s-Fensters via BlindInternalReference) als timbral_ref verwenden, wenn der GP-Memory keinen Referenz-Vektor für die aktuelle Genre×Material×Ära-Kombination hat. Es ist VERBOTEN, `reference_audio=None` still auf `original` (degraded_input) zurückfallen zu lassen, ohne mindestens den blinden Vektor versucht zu haben. (§v10.91, `holistic_perceptual_gate.py:_compute_blind_reference_vector`) |
+| §G91 | **Embedding-basierte-Referenz-Pflicht** | Audio-Referenzen für den HPI-Vergleich MÜSSEN als Embedding-Vektoren verwendet werden, NICHT als direkte Audio-Samples. Ein 5s-Audio-Slice als Vergleichsreferenz erzeugt Shape-Mismatch mit dem vollständigen restaurierten Audio (3–5 Min) → falsche Mel-Cosinus-Werte und Spektral-Proxies. (§v10.91) |
+| §G92 | **Material-adaptive-Confidence-Pflicht** | Die Confidence in `feasibility_controller.estimate_goal_feasibility()` MUSS `predict_quality_score()` aus `calibration_matrix` verwenden — KEINEN harten 0.95-Deckel. Shellac (Ceiling 0.70) erhält proportional niedrigere Confidence als CD (Ceiling 0.95). (§v10.92) |
+| §G93 | **Exception-Proxy-Pflicht** | Jeder `return 0.5`-Exception-Fallback in scoring-Funktionen MUSS durch einen Zeitdomain-Proxy ersetzt werden, der aus den verfügbaren Daten eine informierte Schätzung ableitet. Mindestens: `logger.warning(...)` mit `exc_info=True` VOR dem Fallback. Harte 0.5-Defaults ohne Logging sind VERBOTEN. (§v10.92, §v10.93) |
+| §G94 | **Cross-Phase-Metadata-Pflicht** | Phasen, die auf denselben Frequenzbändern operieren, MÜSSEN ihre Ergebnisse via `_restoration_context` teilen. Konkret: **(a)** P02 (Hum-Removal) MUSS `hum_notch_freqs` (detektierte Grundfrequenzen) via `_restoration_context` an P37 (Bass-Enhancement) übergeben. P37 MUSS `sub_harmonic_gain` proportional zur Überlappung reduzieren. **(b)** P10 (Compression) MUSS `per_band_gain_db` (max_gain_reduction pro Band) via `_restoration_context` an P26 (Dynamic-Range-Expansion) übergeben. P26 MUSS `max_expansion_db` proportional zur P10-Kompression reduzieren. (§v10.94) |
+| §G95 | **Phase-02-vor-Phase-03-Pflicht** | Der Phase-DAG MUSS `HARD_BEFORE(phase_02_hum_removal, phase_03_denoise)` deklarieren. P03 (ML-Denoising) trainiert auf dem Eingangssignal — ohne vorherige Hum-Entfernung lernt das ML-Modell 50/60-Hz-Brumm + Harmonische als „Nutzsignal" und entfernt Musikinhalt in den betroffenen Bändern. (§v10.94, `phase_dag.py`) |
+| §G96 | **HPI-NaN-Guard-Pflicht** | Der HPI-Produkt-Term (`mert_sim * timbral * artifact_freedom * emotional_arc`) MUSS durch `np.nan_to_num` VOR `max(..., 0.5)` geschützt werden, da `max(nan, 0.5) == nan` in Python. Zusätzlich MUSS das finale HPI-Produkt via `np.isfinite()` geprüft und bei NaN/Inf auf Floor 0.5 gesetzt werden — mit explizitem Warning-Log aller vier Faktor-Werte. (§v10.93) |
+| §G97 | **log10-Null-Guard-Pflicht** | Jede `np.log10(x)`-Verwendung in der Quality-Evaluation-Pipeline MUSS durch `max(x, 1e-10)` geschützt werden, wenn `x` aus `np.percentile()` oder anderen Funktionen stammt, die bei Stille/Leersignal 0.0 zurückgeben können. (§v10.93, `excellence_optimizer.py`, `difficulty_estimator.py`) |
+| §G98 | **AUTHENTIC_CHARACTER-Vollständigkeit** | JEDES in der Pipeline unterstützte Material MUSS einen Eintrag in `AUTHENTIC_CHARACTER` (`intentional_artifact_classifier.py`) und `_MATERIAL_THRESHOLD_BONUS` (`per_phase_musical_goals_gate.py`) haben. Fehlende Einträge führen zu `return 1.0` (keine Preservation) bzw. 0.003-Default — beides Qualitätsverlust. (§v10.92) |
+| §G99 | **Equality-of-Materials-Pflicht** | Jedes Material (cassette, kassette, lp, aac, streaming, minidisc, dat, wire_recording, lacquer_disc) MUSS in ALLEN Kalibrierungs-Tabellen (`AUTHENTIC_CHARACTER`, `_MATERIAL_THRESHOLD_BONUS`, `_MATERIAL_CLASS`, `_MATERIAL_QUALITY_CEILING`) einen Eintrag haben. Aliase (kassette→cassette, lp→vinyl) sind explizit zu deklarieren, nicht via Default. (§v10.92) |
+
+---
+
+
+## Kategorie XVI — Perzeptuelle Architektur: Das menschliche Ohr als Richter (§G100–§G112)
+
+> §v10.101 — Prämisse: Auriks Architektur wurde fundamental umgebaut.
+> Vorher: DSP-Pipeline mit technischen Metriken zur Validierung.
+> Nachher: JEDE Verarbeitungsentscheidung fragt „Ist der Unterschied hörbar?",
+> bevor sie handelt. Das menschliche Ohr ist der einzige Richter über Qualität.
+
+| ID | Regel | Beschreibung |
+|----|-------|-------------|
+| §G100 | **Hörbarkeit vor Mathematik** | JEDE Verarbeitungsentscheidung MUSS die Frage „Ist der Unterschied für das menschliche Ohr hörbar?" VOR der Frage „Ist der Unterschied mathematisch signifikant?" stellen. Eine unhörbare Verbesserung ist keine Verbesserung. Ein unhörbarer Defekt ist kein Defekt. |
+| §G101 | **Perzeptueller Wet/Dry-Blend** | Jeder Wet/Dry-Mix MUSS `perceptual_blend()` aus `backend.core.dsp.perceptual_blend.py` verwenden. Der Blend erfolgt frequenzabhängig nach Bark-Bändern: Nur in den kritischen Bändern, wo die Änderung oberhalb der simultanen Maskierungsschwelle (ISO 11172-3) liegt, wird das Wet-Signal übernommen. In maskierten Bändern bleibt das Dry-Signal erhalten — dort ist die Änderung unhörbar und birgt nur Artefakt-Risiko. |
+| §G102 | **Bark-Band-Verarbeitung** | Jede frequenzabhängige Verarbeitung (EQ, Dynamik, Spektralreparatur) MUSS in 24 kritischen Bark-Bändern (Zwicker 1961) arbeiten — NICHT in linearen Hz-Bändern. Das menschliche Ohr hat logarithmische Frequenzauflösung: 100 Hz Unterschied bei 100 Hz sind hörbar, 100 Hz Unterschied bei 10 kHz sind unhörbar. |
+| §G103 | **LUFS-basierte Lautheit** | Jede Dynamik-Entscheidung (Kompression, Expansion, Limiting) MUSS auf ITU-R BS.1770-4 LUFS (Loudness Units relative to Full Scale) basieren — NICHT auf RMS oder Peak. RMS korreliert schwach mit wahrgenommener Lautheit; LUFS modelliert die menschliche Lautheitswahrnehmung mit K-Weighting und Gating. |
+| §G104 | **JND-Gate nach jeder Phase** | Nach JEDER Phasen-Ausführung MUSS `should_skip_phase()` aus `backend.core.dsp.perceptual_gate.py` geprüft werden. Wenn die tatsächliche Änderung in weniger als 2 Bark-Bändern die Just-Noticeable-Difference überschreitet → Audio wird auf Pre-Phase-Zustand zurückgesetzt. Verhindert, dass unhörbare Änderungen Artefakt-Risiko tragen. |
+| §G105 | **ISO-226-Hörschwellen-Integration** | JEDE Pegel-Entscheidung MUSS die frequenzabhängige absolute Hörschwelle nach ISO 226:2003 berücksichtigen. Ein −60 dBFS-Signal bei 4 kHz ist deutlich hörbar; bei 50 Hz unhörbar. Die Hörschwelle variiert um >40 dB. |
+| §G106 | **Perzeptuelle Qualitätsgewichtung** | Der QualityAnalyzer MUSS perzeptuelle Metriken (MUSHRA/OQS, Naturalness, Warmth, Clarity) mit ≥70% gewichten. Technische Metriken (SNR, THD, DR) ≤30%. MUSHRA wird mit 35% als Ground-Truth gewichtet. |
+| §G107 | **Ermüdungsfreier Klang** | Jede Verarbeitung MUSS auf Langzeit-Hörkomfort optimieren. Spektrale Balance folgt ISO-226 für Ziel-Abhörpegel. Harsche Frequenzspitzen (>6 dB) werden per Bark-Band-Glättung abgefangen. Kein HF-Boost ohne Maskierungsprüfung. |
+| §G108 | **Stille als psychoakustischer Raum** | Absolute Stille im Signal MUSS als psychoakustischer Raum respektiert werden. Kein Noise-Gate mit Pump-Artefakten. Die Entscheidung ob „still" basiert auf LUFS (−70 LUFS), nicht RMS. |
+| §G109 | **Binaurale Natürlichkeit** | Stereo-Entscheidungen MÜSSEN binaurale Wahrnehmung respektieren. IACC (Interaural Cross-Correlation) nach Blauert (1997) ist primäre Phantom-Center-Metrik. Kein künstliches Stereo-Widening ohne Quellmaterial-Rechtfertigung. |
+| §G110 | **Transiente Hörbarkeit** | Transienten-Verarbeitung MUSS zeitliche Maskierung (Pre-Masking 20ms, Post-Masking 100ms nach ISO 11172-3) berücksichtigen. Attack/Release-Zeiten auf psychoakustische Konstanten abstimmen. |
+| §G111 | **Adaptiver Frequenzgang** | Zielfrequenzgang passt sich der Abhörlautstärke an (Fletcher-Munson/ISO 226). −23 LUFS → leichte Bass-/Höhenanhebung. −14 LUFS → flacher. Verhindert „leise=kraftlos"-Eindruck. |
+| §G112 | **Perzeptuelles Monitoring** | Jeder Pipeline-Run MUSS DREI perzeptuelle Metriken in der Final-Summary ausweisen: 📊 Signalqualität (technisch), 🎧 Hörerlebnis (MUSHRA), 🧠 Restaurations-Index (HPI). |
+
+### Neue VERBOTE — Perzeptuelle Architektur (§V34–§V38)
+
+| ID | Verbot | Beschreibung |
+|----|--------|-------------|
+| §V34 | **Skalarer-Blend-Verbot** | Es ist VERBOTEN, einen skalaren Wet/Dry-Faktor (eine Zahl × alle Frequenzen) zu verwenden wenn `perceptual_blend()` verfügbar ist. |
+| §V35 | **Lineare-Frequenzband-Verbot** | Es ist VERBOTEN, neue Phasen mit linearen Frequenzbändern zu implementieren. Neue Phasen MÜSSEN `split_into_bark_bands()` verwenden. |
+| §V36 | **RMS-Lautheit-Verbot** | Es ist VERBOTEN, RMS als Proxy für wahrgenommene Lautheit zu verwenden, wenn LUFS via `measure_lufs_per_bark()` verfügbar ist. |
+| §V37 | **JND-Ignoranz-Verbot** | Es ist VERBOTEN, das Ergebnis einer Phase ohne `should_skip_phase()`-Prüfung zu akzeptieren. Die Prüfung erfolgt post-hoc: war die Änderung unhörbar → Rollback auf Pre-Phase-Audio. |
+| §V38 | **Hörschwellen-Ignoranz-Verbot** | Es ist VERBOTEN, Pegel-Entscheidungen ohne ISO-226-Hörschwellen-Konsultation zu treffen. |
+
+---
+
+## Änderungshistorie
+
+| Version | Datum | Änderung |
+|---------|-------|----------|
+| 10.0.15 | 2026-08-10 | §G100–§G112 + §V34–§V38: Perzeptuelle Architektur §v10.101. |
+| 10.0.14 | 2026-08-10 | §G90–§G99: Non-Plus-Ultra. Blinder Referenz-Vektor, Exception-Proxies, Cross-Phase-Koordination, NaN-Guards, Material-Vollständigkeit. Kategorie XV. |

@@ -161,7 +161,7 @@ Normative Anforderungen:
 | `phase_04_eq_correction` | optimal-transport spectral matching + parametrische Minimum-Phase-EQ | parametric target EQ | `O3_spectral_balance` | Timbre, TonalCenter, Wärme |
 | `phase_05_rumble_filter` | psychoakustisch begrenzter linear-phase HPF + subharmonic rumble estimator | Butterworth HPF | `O2_subtractive` | BassKraft, Natürlichkeit, Transparenz |
 | `phase_06_frequency_restoration` | AudioSR + SourceFidelityEQ + BW-ceiling aware shelving | sinusoidal+stochastic bandwidth restoration | `O3_spectral_balance` | Brillanz, Transparenz, Timbre |
-| `phase_07_harmonic_restoration` | harmonic lattice + DDSP partial reconstruction | sinusoidal+stochastic harmonic fill | `O3_spectral_balance` | Timbre, BassKraft, Brillanz |
+| `phase_07_harmonic_restoration` | harmonic lattice + DDSP partial reconstruction; Tilt-Cap-Floor 0.35 at depth≥3 (§v10.60, §G88-1) | sinusoidal+stochastic harmonic fill | `O3_spectral_balance` | Timbre, BassKraft, Brillanz |
 | `phase_08_transient_preservation` | onset-protection mask + HPSS-rescue + transient re-injection | linked transient shaper | `O1_impulse` | Artikulation, Groove, MikroDynamik |
 | `phase_09_crackle_removal` | BANQUET/RBME hybrid + LPC/AR micro-gap interpolation | iterative sparse Bayes decrackle | `O1_impulse` | Natürlichkeit, Transparenz, Authentizität |
 | `phase_10_compression` | crest-aware broadband compressor with loudness-sidechain | transparent VCA-style compressor | `O6_dynamics` | MikroDynamik, Emotionalität, Transparenz |
@@ -178,14 +178,14 @@ Normative Anforderungen:
 | --- | --- | --- | --- | --- |
 | `phase_17_mastering_polish` | source-fidelity contour polish + micro-tilt trim | gentle mastering EQ chain | `O3_spectral_balance` | Authentizität, Brillanz, Wärme |
 | `phase_18_noise_gate` | vocal-/phoneme-aware soft expander with linked stereo | adaptive noise gate | `O2_subtractive` | Natürlichkeit, Artikulation, MikroDynamik |
-| `phase_19_de_esser` | multiband phoneme-aware de-esser with shared intensity oracle | dynamic EQ de-esser | `O7_vocal_articulation` | Artikulation, VocalQuality, Natürlichkeit |
+| `phase_19_de_esser` | multiband phoneme-aware de-esser; freq-agnostic band [4500–8000 Hz] on gender=unknown (§v10.60, §G88-3) | dynamic EQ de-esser | `O7_vocal_articulation` | Artikulation, VocalQuality, Natürlichkeit |
 | `phase_20_reverb_reduction` | SGMSE+ + WPE hybrid dereverb | WPE + OMLSA tail trim | `O2_subtractive` | Transparenz, Raumtiefe, Natürlichkeit |
 | `phase_21_exciter` | hallucination-guarded harmonic exciter with material ceiling | harmonic shelf + soft saturation | `O3_spectral_balance` | Brillanz, Präsenz, Separation |
 | `phase_22_tape_saturation` | hysteresis/Volterra tape curve with era profile | soft saturation model | `O6_dynamics` | Wärme, Authentizität, MikroDynamik |
-| `phase_23_spectral_repair` | Apollo v2 + AudioSR + PGHI | consistent Wiener + NMF repair | `O8_generative_repair` | Transparenz, Brillanz, Authentizität |
+| `phase_23_spectral_repair` | Apollo v2 + AudioSR + PGHI; DSP-only (FlashSR ML deaktiviert) at depth≥3 (§v10.60, §G88-2) | consistent Wiener + NMF repair | `O8_generative_repair` | Transparenz, Brillanz, Authentizität |
 | `phase_24_dropout_repair` | boundary-aware AudioSR/CQTdiff with SSIP | sinusoidal-stochastic/LPC fill | `O8_generative_repair` | Artikulation, Authentizität, Natürlichkeit |
 | `phase_25_azimuth_correction` | coherence-maximizing tape azimuth solver | sample-delay + phase rotator | `O4_time_pitch` | Raumtiefe, Authentizität, Timbre |
-| `phase_26_dynamic_range_expansion` | masking-aware upward/downward expansion | broadband expander | `O6_dynamics` | MikroDynamik, Emotionalität, Transparenz |
+| `phase_26_dynamic_range_expansion` | masking-aware upward/downward expansion with per-band noise-floor guard (§G87, §v10.61) | broadband expander with per-band floor targets | `O6_dynamics` | MikroDynamik, Emotionalität, Transparenz, CD-Raumton |
 | `phase_27_click_pop_removal` | second-pass sparse impulse classifier + waveform patching | adaptive median + interpolation | `O1_impulse` | Natürlichkeit, Transparenz, Authentizität |
 | `phase_28_surface_noise_profiling` | noise-texture fingerprint estimation with carrier prior | spectral noise profile estimator | `O2_subtractive` | Authentizität, Wärme, Transparenz |
 | `phase_29_tape_hiss_reduction` | DeepFilterNet v3.II HF + OMLSA low band + harmonic mask | OMLSA/IMCRA fullband | `O2_subtractive` | Transparenz, VocalQuality, Natürlichkeit |
@@ -207,7 +207,7 @@ Normative Anforderungen:
 | `phase_40_loudness_normalization` | ITU-R BS.1770-5 + quiet-zone clamp + true-peak aware gain + musikgegated inverse Pegeldrift-Hüllkurve | LUFS-only normalization | `O10_output` | Export-Kohärenz, Transparenz, MikroDynamik, Pegelstabilität |
 | `phase_41_output_format_optimization` | high-order noise-shaped dither + sinc resample + codec-safe export prep | TPDF dither + standard resample | `O10_output` | Export-Sicherheit, Authentizität, Transparenz |
 | `phase_42_vocal_enhancement` | stem-aware vocal enhancement with formant/vibrato guards | MIIPHER-lite DSP-assisted vocal polish | `O7_vocal_articulation` | VocalQuality, Artikulation, Emotionalität |
-| `phase_43_ml_deesser` | phoneme-aware second-pass ML/DSP de-esser | dynamic EQ de-esser | `O7_vocal_articulation` | VocalQuality, Artikulation, Natürlichkeit |
+| `phase_43_ml_deesser` | phoneme-aware second-pass ML/DSP de-esser; GENDER_FREQ_MAP unknown=(5000,9000) Hz fallback (§v10.60, §G88-4) | dynamic EQ de-esser | `O7_vocal_articulation` | VocalQuality, Artikulation, Natürlichkeit |
 | `phase_44_guitar_enhancement` | DDSP string-resonance refinement + pick-articulation contour | source-specific EQ/transient contour | `O3_spectral_balance` | Artikulation, Transparenz, Separation |
 | `phase_45_brass_enhancement` | formant-/resonance-preserving brass contouring | dynamic EQ + harmonic tilt | `O3_spectral_balance` | Brillanz, Authentizität, Artikulation |
 | `phase_46_spatial_enhancement` | binaural-cue-consistent spatial enhancement | M/S ambience widening | `O5_stereo_field` | Raumtiefe, Separation, Emotionalität |

@@ -165,7 +165,8 @@ class MushraEvaluator:
         Nutze ``get_mushra_evaluator()`` statt direkter Instantiierung.
     """
 
-    # MUSHRA-Gewichtungsmatrix (Summe = 1.0)
+    # v10.101 SOTA: MUSHRA/OQS Ground-Truth für perzeptuelle Qualität (35% QualityAnalyzer).
+# MUSHRA-Gewichtungsmatrix (Summe = 1.0)
     _WEIGHTS: dict[str, float] = {
         "nsim": 0.35,  # Perceptuelle Ähnlichkeit (stärkster Prädiktor)
         "musical_goals": 0.35,  # 9 Musical Goals (Aurik-DNA)

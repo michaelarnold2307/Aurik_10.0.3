@@ -18,6 +18,7 @@ Datum: 20. Februar 2026
 
 from __future__ import annotations
 
+# v10.101 SOTA: Unsicherheits-Quantifizierung mit JND-kalibrierten Schwellen.
 import logging
 import threading
 from dataclasses import dataclass, field

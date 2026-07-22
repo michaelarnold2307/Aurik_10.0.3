@@ -164,7 +164,7 @@ class MasteringPolishPhase(PhaseInterface):
     """
 
     # Crossover-Frequenzen für 4-Band Processing
-    CROSSOVER_FREQS = [150, 800, 5000]  # Hz
+    CROSSOVER_FREQS = [400, 2000, 6400]  # §v10.101: Bark-Crossover  # Hz
 
     # Material-adaptive Mastering EQ (dB @ center_freq)
     # Format: [(center_freq, gain_db, Q)] per Band [bass, low_mid, mid_high, high]

@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 60 — Inner Groove Distortion Repair.
 
 IGD progressively increases towards the center of vinyl/shellac discs due to

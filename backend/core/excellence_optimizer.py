@@ -193,7 +193,7 @@ MATERIAL_PROFILES: dict[str, MaterialProfile] = {
         target_cv_min=0.02,
         modulation_strength=0.06,
         harm_boost_db=0.15,
-        ola_ms=8.0,
+        ola_ms=15.0,  # §v10.64: 8→15ms, min 15ms für alle Materialtypen
         description="CD/Digital: höchste Qualität, minimalste Eingriffe",
     ),
 }
@@ -374,12 +374,14 @@ def analyze_context(audio: np.ndarray, sample_rate: int) -> ExcellenceContext:
     rms = float(np.sqrt(np.mean(mono**2))) + 1e-10
     rms_db = float(20 * np.log10(rms))
 
-    # Rauschboden
+    # Rauschboden — §v10.93 NaN-Guard: percentile kann 0.0 bei n_frames==0 liefern
     frames_rms = _frame_rms(mono, 512)
-    noise_floor_db = float(20 * np.log10(np.percentile(frames_rms, 10)))
+    _p10 = float(np.percentile(frames_rms, 10))
+    noise_floor_db = float(20 * np.log10(max(_p10, 1e-10)))
 
     # SNR-Schätzung
-    signal_level_db = float(20 * np.log10(np.percentile(frames_rms, 75)))
+    _p75 = float(np.percentile(frames_rms, 75))
+    signal_level_db = float(20 * np.log10(max(_p75, 1e-10)))
     snr_estimate_db = float(signal_level_db - noise_floor_db)
 
     # Harmonizität (schnell: nur 32 Frames)
@@ -950,10 +952,10 @@ class ExcellenceOptimizer:
         # Natürlichkeit/Authentizität (Stufe 1) dürfen nicht für Brillanz/Raumtiefe (Stufe 5) geopfert werden.
         try:
             from backend.core.goal_priority_protocol import GoalPriorityProtocol
-            from backend.core.musical_goals.musical_goals_metrics import MusicalGoalsChecker
+            from backend.core.musical_goals.musical_goals_metrics import get_checker
 
             _gpp = GoalPriorityProtocol()
-            _checker = MusicalGoalsChecker()
+            _checker = get_checker()  # §v10.101: Singleton statt neuer Instanz → Cache wirkt
             _goals_before = _checker.measure_all(audio, self.sample_rate)
             _goals_after = _checker.measure_all(out.astype(audio.dtype), self.sample_rate)
             _core_goals = {

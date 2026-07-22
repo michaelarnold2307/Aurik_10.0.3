@@ -91,7 +91,7 @@ def _release_ml_memory_budget(plugin_name: str) -> None:
         if callable(release_fn):
             release_fn(plugin_name)
     except ImportError:
-        pass
+        logger.debug("ML-Speicherbudget nicht verfügbar — Freigabe übersprungen")
 
 
 # ---------------------------------------------------------------------------

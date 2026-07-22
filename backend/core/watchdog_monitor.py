@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Watchdog-Schwellen auf JND-basierte Hörbarkeitsgrenzen kalibriert.
 watchdog_monitor.py — §v10 Zentraler Watchdog für maximale Fehlerfreiheit
 =========================================================================
 

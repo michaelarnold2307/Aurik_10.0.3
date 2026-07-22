@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 12: Professional Wow & Flutter Correction v2.0
 =====================================================
 
@@ -490,6 +491,21 @@ class WowFlutterFix(PhaseInterface):
         _pmgg_strength = float(kwargs.get("strength", 1.0))
         _effective_strength = float(np.clip(_pmgg_strength * phase_locality_factor, 0.0, 1.0))
 
+        # §v10.96 Defekt-basiertes Skip-Gate: Wow/Flutter-Detektion vor Ausführung.
+        # Wenn weder Wow noch Flutter vom DefectScanner detektiert wurden,
+        # ist die teure ML-Hybrid-Pitch-Detektion (221 s) unnötig.
+        # Transport-Bump-Repair (135 Bumps, ~5 s) läuft trotzdem — ist schnell.
+        _wow_sev_defect = float(kwargs.get("wow_severity", kwargs.get("wow", 0.0)) or 0.0)
+        _flutter_sev_defect = float(kwargs.get("flutter_severity", kwargs.get("flutter", 0.0)) or 0.0)
+        _wow_flutter_skip = _wow_sev_defect < 0.15 and _flutter_sev_defect < 0.15
+        if _wow_flutter_skip:
+            logger.info(
+                "§v10.96 Wow/Flutter-Skip: wow=%.3f flutter=%.3f < 0.15 → ML-Hybrid skipped, transport-bump only",
+                _wow_sev_defect, _flutter_sev_defect,
+            )
+            # Setze wow/flutter-spezifische Parameter auf Minimalwerte
+            _effective_strength = 0.0  # Keine Pitch-Detektion, nur Transport-Repair
+
         if _effective_strength <= 0.0:
             passthrough = np.nan_to_num(audio.copy(), nan=0.0, posinf=0.0, neginf=0.0)
             passthrough = np.clip(passthrough, -1.0, 1.0)
@@ -775,6 +791,42 @@ class WowFlutterFix(PhaseInterface):
                             "Phase 12 tape level stabilizer (low confidence path): %d dips repaired",
                             n_level_dips_repaired,
                         )
+                # §v10.60 Modulation-Noise-Reduction: Wenn Pitch-Confidence zu niedrig
+                # für Vollkorrektur ist, trotzdem konservative Envelope-Stabilisierung
+                # anwenden. Reduziert das "Flattern" (10-100Hz Amplitudenmodulation)
+                # das bei Kassetten/Tapes auch ohne messbare Tonhöhenschwankung auftritt.
+                if _effective_strength > 0.0:
+                    try:
+                        from scipy.signal import butter, filtfilt
+
+                        _mod_cutoff = 8.0  # Hz — envelope modulation above 8Hz
+                        _mod_strength = float(np.clip(_effective_strength * 0.6, 0.15, 0.50))
+                        b_mod, a_mod = butter(2, _mod_cutoff / (sample_rate / 2), btype="low")
+
+                        def _stabilize_envelope(sig: np.ndarray) -> np.ndarray:
+                            env = np.abs(sig.astype(np.float64))
+                            env_smooth = filtfilt(b_mod, a_mod, env)
+                            env_out = _mod_strength * env_smooth + (1.0 - _mod_strength) * env
+                            gain = np.divide(env_out, env, out=np.ones_like(env), where=env > 1e-10)
+                            gain = np.clip(gain, 0.7, 1.3)
+                            return (sig.astype(np.float64) * gain).astype(np.float32)
+
+                        if audio.ndim == 2:
+                            ch_first = audio.shape[0] == 2 and audio.shape[1] > 2
+                            if ch_first:
+                                for ch in range(audio.shape[0]):
+                                    audio[ch] = _stabilize_envelope(audio[ch])
+                            else:
+                                for ch in range(audio.shape[1]):
+                                    audio[:, ch] = _stabilize_envelope(audio[:, ch])
+                        else:
+                            audio = _stabilize_envelope(audio)
+                        logger.debug(
+                            "Phase 12: Envelope-Stabilisierung (mod=%.2f, cutoff=%.0f Hz)",
+                            _mod_strength, _mod_cutoff,
+                        )
+                    except Exception as _mod_exc:
+                        logger.debug("Phase 12 Envelope non-blocking: %s", _mod_exc)
                 audio, _rms_drop_db, _makeup_db = self._preserve_phase_loudness(
                     _original_audio,
                     audio,

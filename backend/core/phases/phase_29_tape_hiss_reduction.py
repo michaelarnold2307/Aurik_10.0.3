@@ -288,8 +288,9 @@ class TapeHissReductionPhase(PhaseInterface):
             "quiet_zone_max_delta_db": round(float(max_delta_db), 3),
         }
 
-    # Number of frequency bands for multiband processing
-    NUM_BANDS = 8
+    # §v10.101 SOTA: Bark-basierte Bänder für Hiss-Detektion (>4 kHz = Bark 18–24)
+    # Statt 8 linearer Bänder: 7 Gammatone-optimierte kritische Bänder.
+    NUM_BANDS = 7  # Bark 18-24: 3.7-15.5 kHz
 
     def __init__(self, sample_rate: int = 48000, **_kwargs):
         super().__init__()
@@ -802,6 +803,21 @@ class TapeHissReductionPhase(PhaseInterface):
                 warnings=["Tape hiss reduction skipped due to zero effective strength"],
             )
 
+        # §v10.58 Depth-Aware Tape-Hiss: Bei transfer_depth ≥ 3 DSP-only + max strength 0.40.
+        # DeepFilterNet auf stark degradierten Signalen produziert Musical Noise und Dropouts
+        # (identisches Problem wie Phase_03). OMLSA ist sicherer.
+        _chain_p29 = (
+            kwargs.get("transfer_chain")
+            or (kwargs.get("_restoration_context", {}) or {}).get("transfer_chain", [])
+        )
+        _transfer_depth_p29 = len(_chain_p29) if _chain_p29 else 1
+        if _transfer_depth_p29 >= 3:
+            _effective_strength = float(np.clip(_effective_strength, 0.0, 0.40))
+            logger.info(
+                "§v10.58 Phase 29 depth=%d → max strength 0.40 + DSP-only (degradiertes Signal)",
+                _transfer_depth_p29,
+            )
+
         # Create frequency bands (logarithmic spacing)
         _nyquist = sample_rate / 2  # used by helper methods referencing sample_rate
 
@@ -999,7 +1015,10 @@ class TapeHissReductionPhase(PhaseInterface):
                 from backend.core.musical_goals.era_vocal_profile import (
                     get_era_vocal_profile as _gevp_p29,  # §EraVocalProfile
                 )
-                from backend.core.musical_goals.vocal_quality_index import compute_vqi as _compute_vqi_p29
+                from backend.core.musical_goals.vocal_quality_index import (
+                    compute_vqi as _compute_vqi_p29,
+                    get_vqi_material_floor as _gvmf_p29,
+                )
 
                 _era_p29_dec = (
                     kwargs.get("decade")
@@ -1013,13 +1032,19 @@ class TapeHissReductionPhase(PhaseInterface):
                     era_profile=_gevp_p29(int(_era_p29_dec)) if _era_p29_dec else None,
                 )
                 _vqi_p29 = float(_vqi_result_p29.get("vqi", 1.0))
-                if _vqi_p29 < 0.95:
+                # §v10.57 Material-adaptiver VQI-Threshold (identisch zu phase_03)
+                _mat_p29 = str(kwargs.get("material_type", "") or kwargs.get("material", "")).strip()
+                _vqi_floor_p29 = float(_gvmf_p29(_mat_p29))
+                _vqi_thr_p29 = float(np.clip(_vqi_floor_p29 + 0.10, 0.82, 0.92))
+                if _vqi_p29 < _vqi_thr_p29:
+                    _vqi_blend_p29 = float(np.clip(_vqi_p29 / max(_vqi_thr_p29, 0.01), 0.15, 0.85))
+                    audio_processed = (
+                        _vqi_blend_p29 * audio_processed + (1.0 - _vqi_blend_p29) * audio
+                    ).astype(np.float32)
                     logger.info(
-                        "phase_29: VQI per-phase rollback (vqi=%.3f < 0.95, panns_singing=%.2f)",
-                        _vqi_p29,
-                        _p29_panns,
+                        "phase_29: VQI-Blend vqi=%.3f < thr=%.2f (floor=%.2f) blend=%.2f panns=%.2f",
+                        _vqi_p29, _vqi_thr_p29, _vqi_floor_p29, _vqi_blend_p29, _p29_panns,
                     )
-                    audio_processed = audio.copy()
             except Exception as _vqi_exc_p29:
                 logger.debug("VQI per-phase phase29 (non-blocking): %s", _vqi_exc_p29)
 

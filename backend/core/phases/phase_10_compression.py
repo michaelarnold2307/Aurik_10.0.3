@@ -72,7 +72,7 @@ class CompressionPhase(PhaseInterface):
     """
 
     # Crossover frequencies (Hz)
-    CROSSOVER_FREQS = [150, 800, 5000]  # Bass | Low-Mid | Mid-High | High
+    CROSSOVER_FREQS = [400, 2000, 6400]  # §v10.101: Bark-Crossover  # Bass | Low-Mid | Mid-High | High
 
     # Material-adaptive compression parameters per band [threshold_db, ratio, attack_ms, release_ms, knee_db, makeup_db]
     COMPRESSION_PARAMS = {
@@ -303,6 +303,13 @@ class CompressionPhase(PhaseInterface):
 
         # Get material-specific parameters
         comp_params = self.COMPRESSION_PARAMS[phase_material]
+        # §v10.70 Modus-Trennung: Restoration → max Ratio 2:1, min Attack 20ms.
+        # Mikrodynamik ist der "Atem" der Musik. Aggressive Kompression zerstört ihn.
+        _mode_10 = str(kwargs.get("mode", kwargs.get("processing_mode", "restoration"))).lower()
+        if "studio" not in _mode_10:
+            for _b in comp_params:
+                _t, _r, _a, _rel, _k, _m = comp_params[_b]
+                comp_params[_b] = (_t, min(_r, 2.0), max(_a, 20.0), _rel, _k, _m)
         parallel_blend = float(self.PARALLEL_BLEND[phase_material] * _effective_strength)
         detection_mode = self.DETECTION_MODE[phase_material]
 
@@ -384,11 +391,20 @@ class CompressionPhase(PhaseInterface):
         if 0.0 < _effective_strength < 1.0:
             audio_processed = audio + _effective_strength * (audio_processed - audio)
             audio_processed = np.clip(audio_processed, -1.0, 1.0)
+        # §v10.94: Per-Band-Gain-Reduction für P26 Dynamic Range Expansion.
+        # P26 liest diese Werte aus _restoration_context und passt
+        # Expansion-Targets an, um Gain-Pumping zu vermeiden.
+        _per_band_gain_db: dict[str, float] = {}
+        for _bn, _bm in band_metrics.items():
+            _gr = float(_bm.get("max_gain_reduction_db", 0.0))
+            if _gr > 0.5:  # Nur signifikante Kompression (>0.5 dB) melden
+                _per_band_gain_db[str(_bn)] = round(_gr, 1)
         return PhaseResult(
             success=True,
             audio=audio_processed.astype(audio.dtype),
             execution_time_seconds=elapsed,
             metadata=metadata,
+            modifications={"per_band_gain_db": _per_band_gain_db} if _per_band_gain_db else {},
             metrics={
                 "rms_change_db": round(float(rms_change_db), 2),
                 "dynamic_range_reduction_db": round(float(dr_reduction_db), 2),

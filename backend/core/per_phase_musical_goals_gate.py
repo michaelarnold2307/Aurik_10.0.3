@@ -113,15 +113,20 @@ _MATERIAL_THRESHOLD_BONUS: dict[str, float] = {
     "wax_cylinder": 0.022,  # most degraded — carrier-repair phases radically alter signal
     "shellac": 0.018,
     "wire_recording": 0.016,
+    "lacquer_disc": 0.017,  # §v10.92: Acetat — ähnlich Shellac (physikalische Degradation)
     "optical_film": 0.010,
     "vinyl": 0.009,
+    "lp": 0.009,  # §v10.92: LP-Alias für Vinyl
     "reel_tape": 0.020,
     "tape": 0.015,
     "radio_broadcast": 0.006,
     "cassette": 0.006,
+    "kassette": 0.006,  # §v10.92: Deutsche Schreibweise — identische Physik
     "mp3_low": 0.005,  # codec artefacts → repair changes look regressive to proxies
     "minidisc": 0.004,
     "mp3_high": 0.002,
+    "aac": 0.002,  # §v10.92: AAC 256kbps+ ≈ mp3_high
+    "streaming": 0.002,  # §v10.92: Streaming (AAC 256kbps) ≈ mp3_high
     "cd_digital": 0.000,
     "dat": 0.000,
     "unknown": 0.003,

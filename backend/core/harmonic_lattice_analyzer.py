@@ -43,8 +43,15 @@ class PartialAnalysis:
 
     @property
     def needs_correction(self) -> bool:
-        """True wenn |deviation_cents| > MAX_CENT_DEVIATION (3 Cent Spec §2.11)."""
-        return abs(self.deviation_cents) > 3.0
+        """True wenn |deviation_cents| > MAX_CENT_DEVIATION (8 Cent, §v10.64).
+
+        War 3 Cent (§2.11) — zu empfindlich. Ein akustischer Flügel hat
+        5–15 Cent Inharmonizität auf hohen Partialtönen; das ist KEIN Defekt,
+        sondern die timbrale Signatur des Instruments. 3 Cent zwangskorrigiert
+        entfernt diese Signatur → klingt "plasticky" (Uncanny Valley).
+        8 Cent korrigiert nur echte tuning/tracking-Fehler, bewahrt Charakter.
+        """
+        return abs(self.deviation_cents) > 8.0
 
     @property
     def freq_expected_hz(self) -> float:

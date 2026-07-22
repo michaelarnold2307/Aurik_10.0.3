@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 24: Professional Dropout Repair - Aurik 10.0.0
 ==================================================
 
@@ -950,6 +951,18 @@ class DropoutRepairPhase(PhaseInterface):
                     _effective_strength = float(np.clip(_effective_strength + _zone_frac_24 * 0.15, 0.0, 1.0))
             except Exception as _fmg_exc_24:
                 logger.debug("Phase24 §V41 ForwardMaskingGuard non-blocking: %s", _fmg_exc_24)
+
+        # §v10.96 Defekt-basiertes Skip-Gate: Dropout-Dichte vor Ausführung.
+        # Wenn der DefectScanner keine Dropouts gefunden hat (density < 0.001),
+        # ist die teure Inpainting-Pipeline (159 s) unnötig.
+        # Gaps aus dem RekonstruktionsDenker (629 Stück) sind bereits repariert.
+        _dropout_density = float(kwargs.get("dropout_density", kwargs.get("dropout_severity", 0.0)) or 0.0)
+        if _dropout_density < 0.001 and _effective_strength > 0.0:
+            logger.info(
+                "§v10.96 Dropout-Skip: dropout_density=%.4f < 0.001 → dropout repair skipped",
+                _dropout_density,
+            )
+            _effective_strength = 0.0
 
         params["repair_strength"] = float(np.clip(float(params["repair_strength"]) * _effective_strength, 0.0, 1.0))  # type: ignore[arg-type]
 

@@ -753,3 +753,177 @@ def check_gain_safety(
     if requested_gain <= max_safe:
         return float(requested_gain), False
     return float(max(1.0, max_safe)), True
+
+
+def apply_soft_clip(
+    audio: np.ndarray,
+    ceiling: float = 1.0,
+    knee_db: float = 0.6,
+    material: str | None = None,
+) -> np.ndarray:
+    """§v10.62 Sanftes Soft-Clipping via tanh — KEIN Hard-Clamp auf ±1.0.
+
+    Ersetzt ALLE `np.clip(audio, -1.0, 1.0)` Aufrufe im gesamten Projekt.
+    Hard-Clipping erzeugt hörbare Obertöne (Rechteck-Fenster → sinc-Spektrum).
+    Tanh-basiertes Soft-Clipping erzeugt nur ungerade Harmonische, die das
+    menschliche Ohr als „analoge Sättigung" statt als „digitalen Clip" wahrnimmt.
+
+    Material-adaptive Knee:
+    - Shellac/Vinyl: 1.2 dB (weicher, bewahrt Charakter)
+    - Tape/Cassette: 0.8 dB (mittel)
+    - Digital/CD:    0.4 dB (transparent, fast unsichtbar)
+    - Default:       0.6 dB
+
+    Args:
+        audio:   float32/64, mono oder stereo
+        ceiling: Clipping-Schwelle (Default 1.0 = 0 dBFS)
+        knee_db: Weiche der Übergangszone in dB
+        material: Material-Typ für adaptive Knee
+
+    Returns:
+        float32 Array, sanft auf ±ceiling begrenzt.
+    """
+    import numpy as np
+
+    # Material-adaptive knee
+    if material is not None:
+        _mat = str(material).lower()
+        if any(t in _mat for t in ("shellac", "vinyl", "wax", "lacquer")):
+            knee_db = 1.2
+        elif any(t in _mat for t in ("tape", "cassette", "reel")):
+            knee_db = 0.8
+        elif any(t in _mat for t in ("digital", "cd", "streaming", "mp3")):
+            knee_db = 0.4
+
+    arr = np.asarray(audio, dtype=np.float64)
+    # NaN/Inf vorbehandlung
+    arr = np.nan_to_num(arr, nan=0.0, posinf=ceiling, neginf=-ceiling)
+
+    if ceiling <= 0.0:
+        return np.zeros_like(audio, dtype=np.float32)
+
+    # Normalisiere auf ceiling → tanh → skaliere zurück
+    knee_linear = float(10.0 ** (-knee_db / 20.0))  # z.B. 0.6 dB → 0.933
+    soft_threshold = ceiling * knee_linear  # Einsatzpunkt des Soft-Clips
+
+    # Nur Werte über soft_threshold werden weich begrenzt
+    abs_arr = np.abs(arr)
+    mask = abs_arr > soft_threshold
+    if np.any(mask):
+        # Normalisiere den Überschuss auf [0, 1]
+        excess = (abs_arr[mask] - soft_threshold) / (ceiling - soft_threshold + 1e-15)
+        # Tanh-Softclip: asymptotische Annäherung an ceiling
+        soft_clipped = soft_threshold + (ceiling - soft_threshold) * np.tanh(excess)
+        arr[mask] = np.sign(arr[mask]) * soft_clipped
+
+    return arr.astype(np.float32)
+
+
+def crossfade_to_bypass(
+    processed: np.ndarray,
+    original: np.ndarray,
+    fade_ms: float = 5.0,
+    sample_rate: int = 48000,
+) -> np.ndarray:
+    """§v10.62 Sanfter Übergang von bearbeitetem zu unbearbeitetem Audio.
+
+    Verhindert hörbare Sprünge wenn eine Phase effective_strength=0 erreicht
+    und das unbearbeitete Original zurückgibt. Erzeugt einen kurzen Crossfade
+    (Default 5 ms) der für das menschliche Ohr nicht als „Klick" wahrnehmbar ist.
+
+    Args:
+        processed:  Letzter bearbeiteter Frame (kann stereo sein)
+        original:   Unbearbeiteter Frame, auf den übergeblendet wird
+        fade_ms:    Dauer des Crossfades in ms
+        sample_rate: Abtastrate
+
+    Returns:
+        Sanft übergeblendetes Audio.
+    """
+    import numpy as np
+
+    fade_len = max(1, int(fade_ms * sample_rate / 1000))
+    fade_len = min(fade_len, processed.shape[-1], original.shape[-1])
+
+    if fade_len < 2:
+        return original.astype(np.float32)
+
+    result = original.copy().astype(np.float64)
+
+    # Cosine-Fade: smooth, keine hörbaren Diskontinuitäten
+    t = np.linspace(0, np.pi / 2, fade_len)
+    fade_in = np.sin(t)   # 0 → 1
+    fade_out = np.cos(t)  # 1 → 0
+
+    if processed.ndim == 2 and original.ndim == 2:
+        for ch in range(processed.shape[0]):
+            result[ch, :fade_len] = (
+                fade_out * processed[ch, -fade_len:] + fade_in * original[ch, :fade_len]
+            )
+    elif processed.ndim == 1 and original.ndim == 1:
+        result[:fade_len] = (
+            fade_out * processed[-fade_len:] + fade_in * original[:fade_len]
+        )
+    else:
+        # Dimension mismatch — fallback to original
+        return original.astype(np.float32)
+
+    return result.astype(np.float32)
+
+
+# ── §v10.99 Edge Taper: Filter-Ringing am Audio-Ende eliminieren ──
+
+
+def apply_edge_taper(
+    audio: np.ndarray,
+    sr: int,
+    *,
+    taper_ms: float = 12.0,
+    fade_in: bool = True,
+    fade_out: bool = True,
+) -> np.ndarray:
+    """Wendet kurze Fade-In/Fade-Out-Hanning-Fenster an den Audio-Rändern an.
+
+    Eliminiert Filter-Ringing-Artefakte (sosfiltfilt, STFT-Überlappung)
+    an den Audiogrenzen. 12 ms sind unterhalb der Wahrnehmbarkeitsschwelle
+    (Haas-Effekt: < 30 ms), aber ausreichend für Filterausschwingen.
+
+    Args:
+        audio: Audio-Array (mono oder stereo, float32).
+        sr: Sample-Rate.
+        taper_ms: Dauer des Fades in ms (default 12 ms).
+        fade_in: Fade-In am Anfang anwenden.
+        fade_out: Fade-Out am Ende anwenden.
+
+    Returns:
+        Audio mit sanften Rändern (gleiche Shape).
+    """
+    result = np.asarray(audio, dtype=np.float64).copy()
+    n_taper = max(2, int(sr * taper_ms / 1000.0))
+    n_total = result.shape[-1] if result.ndim > 1 else len(result)
+
+    if n_taper * 2 >= n_total:
+        return np.asarray(audio, dtype=np.float32)  # too short, skip
+
+    if fade_in:
+        win_in = np.hanning(n_taper * 2)[:n_taper].astype(np.float64)
+        if result.ndim == 2:
+            win_in = win_in[:, np.newaxis]
+            result[:, :n_taper] *= win_in.T if result.shape[0] <= 2 else win_in
+        elif result.ndim == 1:
+            result[:n_taper] *= win_in
+        else:
+            # Channels-first (C, N)
+            result[:, :n_taper] *= win_in[np.newaxis, :]
+
+    if fade_out:
+        win_out = np.hanning(n_taper * 2)[n_taper:].astype(np.float64)
+        if result.ndim == 2:
+            win_out = win_out[:, np.newaxis]
+            result[:, -n_taper:] *= win_out.T if result.shape[0] <= 2 else win_out
+        elif result.ndim == 1:
+            result[-n_taper:] *= win_out
+        else:
+            result[:, -n_taper:] *= win_out[np.newaxis, :]
+
+    return np.asarray(result, dtype=np.float32)

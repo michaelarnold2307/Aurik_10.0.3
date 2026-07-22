@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Denker-Entscheidungen durch Pipeline-Gates (JND + Perceptual-Blend) perzeptuell validiert.
 RekonstruktionsDenker — Domäne: Lücken-Rekonstruktion (Dropouts).
 
 Kapselt core.gap_reconstructor.GapReconstructor für das kontextuelle

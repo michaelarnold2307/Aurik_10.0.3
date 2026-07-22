@@ -376,14 +376,19 @@ class LoudnessNormalizationPhase(PhaseInterface):
                             if _rms_g < _gate_lin:
                                 _gate_mask[_gi : _gi + _rms_frame] = 0.0
                     # Das Gate darf keine 100-ms-Stufen in die Lautstärkehüllkurve schreiben.
-                    # Smooth-Fade über ca. 1 s verhindert hörbares Pumpen/Springen an Musik/Stille-Grenzen.
-                    _kernel_len = min(max(3, int(sample_rate)), max(1, _n))
+                    # Smooth-Fade über ca. 100 ms verhindert hörbares Pumpen/Springen an Musik/Stille-Grenzen.
+                    # §v10.101: Kernel von sample_rate (48k) auf 100ms (4.8k) reduziert.
+                    # np.convolve mit 48k-Kernel auf 1.44M Samples = O(69×10⁹) → 44–70s.
+                    # 4.8k-Kernel = 10× schneller, 100ms genügt für unhörbare Gain-Übergänge.
+                    _kernel_len = min(max(3, int(sample_rate * 0.1)), max(1, _n))
                     if _kernel_len % 2 == 0:
                         _kernel_len -= 1
                     if _kernel_len >= 3:
+                        from scipy.signal import fftconvolve as _fftconv
+
                         _gate_kernel = np.hanning(_kernel_len).astype(np.float32)
                         _gate_kernel /= float(np.sum(_gate_kernel) + 1e-12)
-                        _gate_mask = np.convolve(_gate_mask, _gate_kernel, mode="same").astype(np.float32)
+                        _gate_mask = _fftconv(_gate_mask, _gate_kernel, mode="same").astype(np.float32)
                         _gate_mask = np.clip(_gate_mask[:_n], 0.0, 1.0)
                     _drift_profile, _drift_locality_coverage = self._build_drift_locality_profile(
                         n_samples=_n,

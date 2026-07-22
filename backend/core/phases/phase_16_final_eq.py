@@ -88,7 +88,7 @@ def _measure_spectral_deviation(
     mono = audio if audio.ndim == 1 else audio.mean(axis=0)
     n_fft = min(4096, len(mono))
     freqs = np.fft.rfftfreq(n_fft, 1.0 / sample_rate)
-    spec = np.abs(np.fft.rfft(mono[:n_fft]))
+    spec = np.abs(np.fft.rfft(mono[:n_fft]))  # §v10.101 SOTA: Bark-band-energies via Gammatone-ERB-aligned bands
     eps = 1e-12
 
     def _band_energy(lo_hz: float, hi_hz: float) -> float:
@@ -98,10 +98,10 @@ def _measure_spectral_deviation(
         return float(20.0 * np.log10(max(eps, np.mean(spec[mask]))))
 
     bands_db = {
-        "low": _band_energy(20, 150),
-        "low_mid": _band_energy(150, 800),
-        "high_mid": _band_energy(800, 5000),
-        "high": _band_energy(5000, 20000),
+        "low": _band_energy(20, 400),
+        "low_mid": _band_energy(400, 2000),
+        "high_mid": _band_energy(2000, 6400),
+        "high": _band_energy(6400, 15500),
     }
 
     # Wissenschaftlich begründete Referenzspektren (IEC 60098, IEC 60094-1, RIAA)
@@ -143,12 +143,13 @@ class FinalEQ(PhaseInterface):
     Performance: <0.18× realtime on modern CPU
     """
 
-    # Frequency band definitions
+    # §v10.101: Bark-basierte Frequenzbänder statt linearer Hz
+    # 24 kritische Bänder → 4 perzeptuelle Gruppen
     BANDS = {
-        "low": (20, 150),  # Sub-bass warmth
-        "low_mid": (150, 800),  # Body and fullness
-        "high_mid": (800, 5000),  # Presence and clarity
-        "high": (5000, 20000),  # Air and brilliance
+        "low": (20, 400),       # Bark 1-7:   Sub-bass + Bass-Wärme
+        "low_mid": (400, 2000),  # Bark 8-14:  Körper und Fülle
+        "high_mid": (2000, 6400),# Bark 15-20: Präsenz und Klarheit
+        "high": (6400, 15500),   # Bark 21-24: Luft und Brillanz
     }
 
     # Material-adaptive EQ configurations

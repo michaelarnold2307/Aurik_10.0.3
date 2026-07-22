@@ -78,9 +78,16 @@ def get_phase_interaction_denker() -> PhaseInteractionDenker:
 def _goal_risk_threshold_from_signal(
     signal_signature: dict[str, float] | None,
     restorability_score: float,
+    *,
+    perceptual_context: dict[str, float] | None = None,
 ) -> float:
-    """Leitet eine signal-/restorability-adaptive Goal-Risk-Schwelle ab."""
+    """Leitet eine signal-/restorability-adaptive Goal-Risk-Schwelle ab.
+
+    §v10.101: Zusätzlich zu technischen Signal-Signaturen fließen perzeptuelle
+    Faktoren ein (JND-Dichte, Bark-Energie-Verteilung), wenn verfügbar.
+    """
     threshold = float(_GOAL_RISK_THRESHOLD)
+    # ── Technische Faktoren ──
     if signal_signature:
         transient_ratio = float(signal_signature.get("transient_ratio", 0.0))
         crest_db = float(signal_signature.get("crest_db", 0.0))
@@ -95,7 +102,23 @@ def _goal_risk_threshold_from_signal(
         threshold += 0.03
     elif restorability_score <= 40.0:
         threshold -= 0.03
-    return float(np.clip(threshold, 0.45, 0.75))
+    # ── §v10.101 Perzeptuelle Faktoren ──
+    if perceptual_context:
+        # JND-Dichte: viele hörbare Änderungen → konservativer (höhere Schwelle)
+        _jnd_count = float(perceptual_context.get("jnd_audible_bands", 0))
+        if _jnd_count > 15:
+            threshold += 0.04  # Sehr viele hörbare Details → vorsichtig
+        elif _jnd_count > 8:
+            threshold += 0.02
+        # Bark-Flatness: flaches Spektrum → mehr Risiko-Toleranz
+        _bark_flatness = float(perceptual_context.get("bark_flatness", 0.5))
+        if _bark_flatness > 0.7:
+            threshold -= 0.03  # Komplexes Material → mehr erlauben
+        # Vocal-Präsenz: Stimme → konservativer
+        _vocal = float(perceptual_context.get("vocal_confidence", 0.0))
+        if _vocal > 0.5:
+            threshold += 0.04
+    return float(np.clip(threshold, 0.40, 0.80))
 
 
 # ---------------------------------------------------------------------------

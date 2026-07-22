@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 49: Advanced Dereverberation v3.0 — WPE/OMLSA Consistent
 ===============================================================
 

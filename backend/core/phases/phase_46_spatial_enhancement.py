@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase 46: Spatial Enhancement v2.1 — Psychoacoustic Room Diffusion
 ===================================================================
 

@@ -18,11 +18,13 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from backend.core.phase_display_formatter import (
-    get_carrier_display,
-    get_era_display,
-    get_phase_display,
-)
+# §v10.70 Bridge: Phase-Display-Formatter über die Bridge, nicht direkt aus backend.core
+from backend.api.bridge import get_phase_display_formatter_fns
+
+_DISPLAY_FNS = get_phase_display_formatter_fns()
+get_carrier_display = _DISPLAY_FNS.get("get_carrier_display", lambda *a, **kw: "?")
+get_era_display = _DISPLAY_FNS.get("get_era_display", lambda *a, **kw: "?")
+get_phase_display = _DISPLAY_FNS.get("get_phase_display", lambda *a, **kw: "?")
 
 
 class RestorationStatusPanel(QFrame):

@@ -1,4 +1,5 @@
 """
+§v10.101 SOTA: Perzeptuell geschützt durch Pipeline-Gates (JND + Perceptual-Blend).
 Phase Interface — Basisklassen für alle Aurik-Verarbeitungsphasen (§7.1).
 
 Definiert:
@@ -41,6 +42,30 @@ class PhaseCategory(Enum):
 
 
 # ---------------------------------------------------------------------------
+# PhaseMode — Deklariert in welchem Modus eine Phase laufen darf (§v10.70)
+# ---------------------------------------------------------------------------
+class PhaseMode(Enum):
+    """Modus-Zugehörigkeit einer Phase — architektonische Garantie.
+
+    RESTORATION_ONLY:  Läuft NUR im Restoration-Mode.
+                       Defekt-Entfernung, Geometrie-Korrektur, Reparatur.
+                       Darf NICHTS hinzufügen was nicht vor der Beschädigung da war.
+
+    STUDIO_ONLY:       Läuft NUR im Studio-2026-Mode.
+                       Kreative Enhancement, Mastering, Exciter, Sub-Bass-Synthese.
+                       Darf Frequenzen, Raum, Dynamik NEU gestalten.
+
+    BOTH:              Läuft in BEIDEN Modi, aber mit modus-spezifischer Konfiguration.
+                       Restoration → konservativ (nur Reparatur).
+                       Studio 2026 → voll (kreative Gestaltung).
+    """
+
+    RESTORATION_ONLY = "restoration_only"
+    STUDIO_ONLY = "studio_only"
+    BOTH = "both"
+
+
+# ---------------------------------------------------------------------------
 # PhaseMetadata — Beschreibende Informationen einer Phase
 # ---------------------------------------------------------------------------
 @dataclass
@@ -61,6 +86,7 @@ class PhaseMetadata:
     description: str = ""
     defect_types: list[str] = field(default_factory=list)
     musical_goals: list[str] = field(default_factory=list)
+    phase_mode: PhaseMode = PhaseMode.RESTORATION_ONLY  # §v10.70 Modus-Zugehörigkeit
 
     def as_dict(self) -> dict[str, Any]:
         """Serialisiert phase metadata to a plain dictionary."""
@@ -117,11 +143,17 @@ class PhaseResult:
     resolved_defects: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Sicherheits-Invarianten: NaN/Inf bereinigen, clipping (§3.1)
+        # Sicherheits-Invarianten: NaN/Inf bereinigen, soft-clipping (§v10.62)
         if not isinstance(self.audio, np.ndarray):
             self.audio = np.asarray(self.audio, dtype=np.float32)
         self.audio = np.nan_to_num(self.audio, nan=0.0, posinf=0.0, neginf=0.0)
-        self.audio = np.clip(self.audio, -1.0, 1.0)
+        # §v10.62: apply_soft_clip statt Hard-Clamp — verhindert hörbare
+        # Rechteck-Clipping-Artefakte in allen 68 Phasen.
+        try:
+            from backend.core.audio_utils import apply_soft_clip
+            self.audio = apply_soft_clip(self.audio, ceiling=1.0)
+        except ImportError:
+            self.audio = np.clip(self.audio, -1.0, 1.0)  # Fallback
         if self.audio.dtype != np.float32:
             self.audio = self.audio.astype(np.float32)
         # metrics und metadata synchronisieren: metrics erhaelt Vorrang
@@ -177,7 +209,12 @@ def create_phase_result(
     """
     audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
 
-    audio = np.clip(audio, -1.0, 1.0)
+    # §v10.62: apply_soft_clip statt Hard-Clamp
+    try:
+        from backend.core.audio_utils import apply_soft_clip
+        audio = apply_soft_clip(audio, ceiling=1.0)
+    except ImportError:
+        audio = np.clip(audio, -1.0, 1.0)
 
     # ── Fazit-Log ────────────────────────────────────────────────────
     if phase_id and phase_name:

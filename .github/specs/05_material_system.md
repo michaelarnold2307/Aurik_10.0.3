@@ -122,12 +122,23 @@ _MATERIAL_DR_CEILING_DB = {
 **Integration in `phase_26_dynamic_range_expansion.py`**:
 
 ```python
+# §6.2b DR-Ceiling (v10.0.0):
 # In process():
 dr_ceiling = _MATERIAL_DR_CEILING_DB.get(material_type, 70)
 input_dr = compute_dynamic_range_db(audio, sr)
 max_expansion = dr_ceiling - input_dr
 expansion_target = min(expansion_target, max_expansion)
 # Negative max_expansion → kein Bedarf für Expansion (Input bereits am Ceiling)
+
+# §v10.61 Per-Band-Noise-Floor-Guard (v10.0.11):
+# Nach DR-Ceiling-Prüfung: Downward-Expansion bekommt einen dreidimensionalen
+# Noise-Floor-Guard, der die Lücke zwischen Phase_03 (Denoise) und dem finalen
+# CD-Rauschprofil schließt.
+#   D1: Per-Band spektrale Floor-Targets (Bass -65, Low-Mid -72, Mid-High -76, High -70 dBFS)
+#   D2: Psychoakustische Maskierungs-Adaptation (+8/+5/+2/0 dB bei Band-RMS >-20/-30/-40)
+#   D3: Temporale EMA-Glättung (α=0.15/0.05, asymmetrisch)
+#   Asymptotischer Soft-Floor: correction = deficit × exp(-deficit/knee)
+# Siehe §G87 (GEBOTE.md, Kategorie XII).
 ```
 
 **Modus-Differenzierung**:

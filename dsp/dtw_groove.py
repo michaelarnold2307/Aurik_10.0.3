@@ -369,14 +369,18 @@ class DtwGrooveMeasurer:
             )
 
         # DTW-Alignierung der Onset-Zeiten (in ms)
-        sakoe_radius = max(
-            1,
-            int(max_dtw_ms * 2 / (1000.0 / sr)),  # Band ≈ 2× Schwellwert
-        )
+        # §v10.101: Der Sakoe-Chiba-Radius muss in Onset-INDEX-Einheiten sein,
+        # NICHT in Sample-Positionen! Vorher wurde max_dtw_ms in Samples
+        # umgerechnet (768 bei 48kHz), dann ×10 → 7680. Bei 183 Onsets ist
+        # das ein unconstrained DTW → katastrophales Alignment → groove_score=0.000.
+        # Fix: Radius = 20% der Onset-Anzahl, mindestens 5 Positionen.
+        # Bei 183 Onsets: radius=37, entspricht ~6s Musik bei 164ms/Onset.
+        _n_onsets = max(orig_onsets.n_onsets, rest_onsets.n_onsets)
+        sakoe_radius = max(5, int(_n_onsets * 0.20))
         pair_arr, _dtw_dist = dtw_align(
             orig_onsets.onset_times_ms,
             rest_onsets.onset_times_ms,
-            sakoe_chiba_radius=sakoe_radius * 10,  # großzügig für Groove-Messung
+            sakoe_chiba_radius=sakoe_radius,
         )
 
         # Onset-Abweichungen pro aligniertes Paar

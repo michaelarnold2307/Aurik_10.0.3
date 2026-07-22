@@ -352,7 +352,10 @@ class ReflectiveListeningPass:
                 if abs(adj) > 0.001:
                     mid = (arr[:, 0] + arr[:, 1]) / 2
                     side = (arr[:, 0] - arr[:, 1]) / 2
-                    side *= 1.0 + adj * 5.0  # Skaliere Side-Kanal
+                    # §v10.63 Multiplier 5.0→2.0: ±25% war zu aggressiv, erzeugte
+                    # hörbare Stereo-Bild-Veränderungen statt subtiler Korrektur.
+                    # 2.0× gibt ±10% Breitenänderung — hörbar aber unaufdringlich.
+                    side *= 1.0 + adj * 2.0  # Skaliere Side-Kanal
                     arr[:, 0] = mid + side
                     arr[:, 1] = mid - side
                     logger.debug("RLP: Stereo-Breite %+.1f%%", adj * 100)

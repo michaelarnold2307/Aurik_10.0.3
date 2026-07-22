@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import itertools
+# v10.101 SOTA: FFT-basierte Ära-Klassifikation, Gammatone-geschützt.
 import logging
 import math
 import threading

@@ -110,6 +110,7 @@ class EraAuthenticPerceptualCompletion:
         era: int | None = None,
         anchor: np.ndarray | None = None,
         material_ceiling: float = 1.0,
+        transfer_chain_depth: int = 1,
     ) -> EraCompletionResult:
         """Spec §2.35: Erzeugt era-authentisch ergänztes Audio. NaN/Inf-sicher.
 
@@ -117,6 +118,11 @@ class EraAuthenticPerceptualCompletion:
         (z.B. 0.78 für Tape). Wird mit dem era-basierten Ceiling kombiniert
         (min), sodass EAPC nie mehr HF synthetisiert als das Trägermaterial
         physikalisch erlaubt (§2.46e Hallucination-Guard).
+
+        transfer_chain_depth: §v10.58 — Tiefe der Transfer-Kette für
+        Bandbreiten-Cap-Skalierung. Bei depth≥3 wird das Cap progressiv
+        angehoben (bis 14.5 kHz bei depth=4), da tiefe Ketten mehr
+        akkumulierten HF-Verlust kompensieren müssen.
         """
         # inf-sicher: erst nan_to_num, dann clip — verhindert Overflow in FFT
         arr = np.clip(
@@ -190,7 +196,10 @@ class EraAuthenticPerceptualCompletion:
 
         out = np.clip(out, -1.0, 1.0)
 
-        target_bw = min(self.SOURCE_BW_THRESHOLD_HZ, sr / 2)
+        target_bw = min(
+            self.SOURCE_BW_THRESHOLD_HZ * (1.0 + max(0, transfer_chain_depth - 1) * 0.15),
+            sr / 2,
+        )
         decade_str = str(era) if era else "unbekannt"
         msg = (
             f"Fehlende Hochton-Frequenzen wurden im Stil der Aufnahme-Aera {decade_str} "

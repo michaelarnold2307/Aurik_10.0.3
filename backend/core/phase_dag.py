@@ -49,6 +49,15 @@ HARD_BEFORE_CONSTRAINTS: list[PhaseConstraint] = [
     PhaseConstraint("phase_01_click_removal", "phase_12_wow_flutter_fix", "DC vor Wow/Flutter"),
     PhaseConstraint("phase_01_click_removal", "phase_18_noise_gate", "DC vor Noise-Gate"),
     PhaseConstraint("phase_01_click_removal", "phase_29_tape_hiss_reduction", "DC vor Band-NR"),
+    # §v10.94 Non-Plus-Ultra: Hum-Entfernung VOR ML-Denoising.
+    # P02 notched 50/60 Hz + Harmonische (bis 400-480 Hz). P03 (ML-NR) trainiert
+    # auf dem Restsignal — ohne Hum-Entfernung lernt das ML-Modell Brumm-Harmonische
+    # als "Signal" und entfernt Musikinhalt in den betroffenen Bändern.
+    PhaseConstraint(
+        "phase_02_hum_removal",
+        "phase_03_denoise",
+        "Hum-Notch-Filter vor ML-NR (§v10.94: verhindert Brumm-Lernen als Signal)",
+    ),
     # NR vor Harmonik (Phase_03 → Phase_06/07)
     PhaseConstraint(
         "phase_03_denoise",

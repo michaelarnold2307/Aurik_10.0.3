@@ -695,11 +695,11 @@ def test_45_genre_material_era_in_detail():
 
 
 def test_46_bw_ceiling_dict_contains_cassette():
-    """_MATERIAL_BW_CEILING_HZ muss 'cassette' mit 12000 Hz enthalten (IEC 60094-1)."""
+    """_MATERIAL_BW_CEILING_HZ muss 'cassette' mit 14000 Hz enthalten (§6.2c zentrale Definition)."""
     from backend.core.holistic_perceptual_gate import _MATERIAL_BW_CEILING_HZ
 
     assert "cassette" in _MATERIAL_BW_CEILING_HZ
-    assert _MATERIAL_BW_CEILING_HZ["cassette"] == 12000
+    assert _MATERIAL_BW_CEILING_HZ["cassette"] == 14000
 
 
 def test_47_bw_ceiling_dict_contains_all_material_types():
@@ -866,7 +866,7 @@ def test_53_evaluate_restoration_cassette_timbral_bw_ceiling_passed():
     """evaluate_restoration leitet BW-Ceiling korrekt an _compute_timbral_fidelity weiter.
 
     Prüft indirekt: HPI für cassette mit HF-Extension ist höher als ohne material-spezifische
-    Ceiling (d.h. evaluate_restoration nutzt material='cassette' → bw_ceiling=12000 →
+    Ceiling (d.h. evaluate_restoration nutzt material='cassette' → bw_ceiling=14000 →
     timbral_input ist größer → HPI ist größer als bei material='digital').
     """
     from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
@@ -994,3 +994,122 @@ def test_57_ref_memory_load_corrupt_file_safe(tmp_path):
     with patch.object(hpg_mod, "_HPG_REF_MEMORY_PATH", mem_path):
         gate = hpg_mod.HolisticPerceptualGate()
         assert len(gate._ref_memory) == 0, "Beschädigtes File → leeres Memory, kein Crash"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# §v10.91–§v10.93 Non-Plus-Ultra Tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_58_blind_reference_vector_exists():
+    """§v10.91: _compute_blind_reference_vector liefert Embedding für sauberes Audio."""
+    from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
+
+    gate = HolisticPerceptualGate()
+    audio = _audio(dur=6.0, amp=0.3, freq=440.0)  # 6s braucht BlindInternalReference min 5s
+    vec = gate._compute_blind_reference_vector(audio, SR)
+    assert vec is not None, "Blind reference vector should exist for clean 6s audio"
+    assert isinstance(vec, np.ndarray), f"Expected ndarray, got {type(vec)}"
+    assert vec.ndim == 1, f"Expected 1D embedding, got shape {vec.shape}"
+    assert np.isfinite(vec).all(), "Embedding must be finite"
+
+
+def test_59_blind_reference_vector_used_when_no_gp_memory():
+    """§G90: Wenn GP-Memory keinen Vektor hat, wird blinder Vektor verwendet."""
+    from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
+
+    gate = HolisticPerceptualGate()
+    # Leeres Memory → kein GP-Vektor
+    gate._ref_memory.clear()
+    audio = _audio(dur=8.0, amp=0.3, freq=440.0)
+    result = gate.evaluate_restoration(
+        audio, audio, SR,
+        artifact_freedom=0.96,
+        restorability_score=70.0,
+        genre="test",  # Keine GP-Memory für "test"
+        material="digital",
+        era_bin="era_2000",
+    )
+    assert result.passed
+    assert result.hpi > 0.6, f"HPI should be healthy with blind ref, got {result.hpi:.3f}"
+    # Der blinde Referenz-Vektor sollte einen validen timbral_ref liefern
+    assert result.timbral_fidelity > 0.5, f"Timbral should be >0.5, got {result.timbral_fidelity:.3f}"
+
+
+def test_60_hpi_nan_guard_max():
+    """§G96, §V35: max(nan, 0.5) wird durch nan_to_num geschützt."""
+    # Direkter Test des NaN-Verhaltens
+    x = float('nan')
+    # Python: max(nan, 0.5) == nan (BUG)
+    assert np.isnan(max(x, 0.5)), "Python max(nan, 0.5) IS nan — Guard muss davor sein"
+    # Mit Guard: nan_to_num vor max
+    safe = float(np.nan_to_num(x, nan=0.5))
+    assert safe == 0.5, "nan_to_num(nan, nan=0.5) should give 0.5"
+    assert max(safe, 0.5) == 0.5, "max(0.5, 0.5) = 0.5"
+
+
+def test_61_hpi_product_nan_guard():
+    """§G96: HPI-Produkt NaN wird abgefangen und auf Floor 0.5 gesetzt."""
+    from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
+
+    gate = HolisticPerceptualGate()
+    gate._ref_memory.clear()
+    audio = _audio(dur=3.0, amp=0.3, freq=440.0)
+    # Mit extrem kurzem Audio (<1024 samples) bekommen einige Pfade NaN
+    short = np.array([0.1, 0.2, 0.1], dtype=np.float32)
+    result = gate.evaluate_restoration(
+        short, short, SR,
+        artifact_freedom=0.9,
+        restorability_score=50.0,
+        genre="test",
+        material="digital",
+        era_bin="era_2000",
+    )
+    # Sollte nicht crashen, selbst bei sehr kurzem Audio
+    assert result is not None
+    assert isinstance(result.hpi, float)
+    assert np.isfinite(result.hpi), f"HPI must be finite, got {result.hpi}"
+
+
+def test_62_blind_reference_short_audio_returns_none():
+    """§v10.91: BlindInternalReference gibt None für Audio < 2s zurück."""
+    from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
+
+    gate = HolisticPerceptualGate()
+    short = _audio(dur=0.5, amp=0.3, freq=440.0)
+    vec = gate._compute_blind_reference_vector(short, SR)
+    assert vec is None, f"Short audio should return None, got {type(vec)}"
+
+
+def test_63_blind_reference_noisy_audio_may_return_none():
+    """§v10.91: Stark verrauschtes Audio kann None zurückgeben (best_score < 0.3)."""
+    from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
+
+    gate = HolisticPerceptualGate()
+    t = np.linspace(0, 8, int(8 * SR), endpoint=False)
+    noise = (0.05 * np.sin(2 * np.pi * 440 * t) + np.random.normal(0, 0.5, len(t))).astype(np.float32)
+    vec = gate._compute_blind_reference_vector(noise, SR)
+    # Kann None sein (kein sauberes Fenster gefunden) — das ist OK
+    # Wichtig: kein Crash
+
+
+def test_64_reference_audio_none_not_degraded_input():
+    """§G90, §V29: reference_audio=None fällt NICHT still auf degraded_input."""
+    from backend.core.holistic_perceptual_gate import HolisticPerceptualGate
+
+    gate = HolisticPerceptualGate()
+    gate._ref_memory.clear()
+    audio = _audio(dur=8.0, amp=0.3, freq=440.0)
+    # reference_audio=None → sollte blinden Vektor verwenden, nicht degraded_input
+    result = gate.evaluate_restoration(
+        audio, audio, SR,
+        reference_audio=None,
+        artifact_freedom=0.96,
+        restorability_score=70.0,
+        genre="test_none_ref",
+        material="digital",
+        era_bin="era_2000",
+    )
+    assert result.passed
+    # WICHTIG: HPI sollte NICHT 0.43 sein (degraded_input-Vergleich)
+    assert result.hpi > 0.5, f"HPI {result.hpi:.3f} should be > 0.5 (not degraded_input comparison)"
